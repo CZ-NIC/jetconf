@@ -1,5 +1,5 @@
 JetConf
 =======
 
-NETCONF revisited.
+HTTP/2 RESTCONF implementation.
 
