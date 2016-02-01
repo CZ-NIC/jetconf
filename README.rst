@@ -11,3 +11,9 @@ JetConf
 
 HTTP/2 RESTCONF implementation.
 
+Info for developers
+-------------------
+
+* devinstall_ – installation of the development environment.
+
+.. _devinstall: https://gitlab.labs.nic.cz/labs/jetconf/wikis/devinstall
