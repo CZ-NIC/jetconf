@@ -14,6 +14,8 @@ HTTP/2 RESTCONF implementation.
 Info for developers
 -------------------
 
-* devinstall_ – installation of the development environment.
+* devinstall_ – installation of the development environment,
+
+* tools-rules_ – development tools and rules.
 
 .. _devinstall: https://gitlab.labs.nic.cz/labs/jetconf/wikis/devinstall
