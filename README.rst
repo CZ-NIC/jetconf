@@ -16,6 +16,7 @@ Info for developers
 
 * devinstall_ – installation of the development environment,
 
-* tools-rules_ – development tools and rules.
+* `tools-rules`_ – development tools and rules.
 
 .. _devinstall: https://gitlab.labs.nic.cz/labs/jetconf/wikis/devinstall
+.. _tools-rules: https://gitlab.labs.nic.cz/labs/jetconf/wikis/tools-rules
