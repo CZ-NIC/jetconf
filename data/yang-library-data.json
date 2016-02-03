@@ -1,0 +1,68 @@
+{
+  "ietf-yang-library:modules-state": {
+    "module-set-id": "-TO-BE-INVENTED-",
+    "module": [
+      {
+        "name": "dns-parameters",
+        "revision": "2016-01-13",
+        "namespace": "http://www.nic.cz/ns/yang/dns-parameters",
+        "conformance-type": "import",
+        "schema": "https://gitlab.labs.nic.cz/labs/dns-server-yang/raw/master/dns-parameters.yang"
+      },
+      {
+        "name": "dns-server",
+        "revision": "2016-01-14",
+        "namespace": "http://www.nic.cz/ns/yang/dns-server",
+        "feature": [
+          "acl-entry-port",
+          "any-to-tcp",
+          "journal-from-differences"
+        ],
+        "conformance-type": "implement",
+        "schema": "https://gitlab.labs.nic.cz/labs/dns-server-yang/raw/master/dns-server.yang"
+      },
+      {
+        "name": "dnssec-signing",
+        "revision": "2016-01-14",
+        "namespace": "http://www.nic.cz/ns/yang/dnssec-signing",
+        "conformance-type": "implement",
+        "schema": "https://gitlab.labs.nic.cz/labs/dns-server-yang/raw/master/dnssec-signing.yang"
+      },
+      {
+        "name": "ietf-inet-types",
+        "revision": "2013-07-15",
+        "namespace": "urn:ietf:params:xml:ns:yang:ietf-inet-types",
+        "conformance-type": "import",
+        "schema": "https://raw.githubusercontent.com/YangModels/yang/master/standard/ietf/RFC/ietf-inet-types.yang"
+      },
+      {
+        "name": "ietf-netconf-acm",
+        "revision": "2012-02-22",
+        "namespace": "urn:ietf:params:xml:ns:yang:ietf-netconf-acm",
+        "conformance-type": "implement",
+        "schema": "https://raw.githubusercontent.com/YangModels/yang/master/standard/ietf/RFC/ietf-netconf-acm.yang"
+      },
+      {
+        "name": "ietf-yang-types",
+        "revision": "2013-07-15",
+        "namespace": "urn:ietf:params:xml:ns:yang:ietf-yang-types",
+        "conformance-type": "import",
+        "schema": "https://github.com/YangModels/yang/blob/master/standard/ietf/RFC/ietf-yang-types.yang"
+      },
+      {
+        "name": "knot-dns",
+        "revision": "2016-01-13",
+        "namespace": "http://www.nic.cz/ns/yang/knot-dns",
+        "conformance-type": "implement",
+        "schema": "https://gitlab.labs.nic.cz/labs/dns-server-yang/raw/master/knot-dns.yang"
+      },
+      {
+        "name": "tsig-algorithms",
+        "revision": "2016-01-13",
+        "namespace": "http://www.nic.cz/ns/yang/tsig-algorithms",
+        "conformance-type": "import",
+        "schema": "https://gitlab.labs.nic.cz/labs/dns-server-yang/raw/master/tsig-algorithms.yang"
+      }
+    ]
+  }
+}
