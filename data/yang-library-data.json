@@ -43,6 +43,12 @@
         "schema": "https://raw.githubusercontent.com/YangModels/yang/master/standard/ietf/RFC/ietf-netconf-acm.yang"
       },
       {
+        "name": "ietf-yang-library",
+        "revision": "2016-02-01",
+        "namespace": "urn:ietf:params:xml:ns:yang:ietf-yang-library",
+        "conformance-type": "implement"
+      },
+      {
         "name": "ietf-yang-types",
         "revision": "2013-07-15",
         "namespace": "urn:ietf:params:xml:ns:yang:ietf-yang-types",
