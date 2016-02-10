@@ -22,6 +22,13 @@
         "schema": "https://gitlab.labs.nic.cz/labs/dns-server-yang/raw/master/dns-server.yang"
       },
       {
+        "name": "dnssec-algorithms",
+        "revision": "2016-01-13",
+        "namespace": "http://www.nic.cz/ns/yang/dnssec-algorithms",
+        "conformance-type": "import",
+        "schema": "https://gitlab.labs.nic.cz/labs/dns-server-yang/raw/master/dnssec-algorithms.yang"
+      },
+      {
         "name": "dnssec-signing",
         "revision": "2016-01-14",
         "namespace": "http://www.nic.cz/ns/yang/dnssec-signing",
