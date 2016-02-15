@@ -11,4 +11,4 @@ install-deps:
 	pip install -r requirements.txt
 
 yangson:
-	pip install git+$(YANGSON_URL)
+	pip install --upgrade git+$(YANGSON_URL)
