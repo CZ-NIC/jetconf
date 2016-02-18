@@ -8,7 +8,7 @@ import sys
 from enum import Enum, unique
 from colorlog import error, warning as warn, info, debug
 from typing import List, Any, Dict, TypeVar, Tuple, Set
-from yang_json_path import YangJsonPath
+from jetconf.yang_json_path import YangJsonPath
 import copy
 
 JsonNodeT = Dict[str, Any]
@@ -404,7 +404,7 @@ if __name__ == "__main__":
     _rpc = NacmRpc(nacm, None, "dominik")
     _rpc.check_data_read(_node, _doc)
     print("result = {}".format(_doc.root))
-    if _doc.root == {'group': [None, {'user-name': ['lada', 'pavel', 'dominik'], 'name': 'users'}]}:
+    if _doc.root == {'group': [None, {'user-name': ['lada', 'pavel', 'dominik', 'lojza@mail.cz'], 'name': 'users'}]}:
         info("OK")
     else:
         warn("FAILED")
