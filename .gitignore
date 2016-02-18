@@ -6,3 +6,6 @@ lib
 pip-selfcheck.json
 pyvenv.cfg
 TAGS
+.idea
+__pycache__
+jetconf/__pycache__

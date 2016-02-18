@@ -1,0 +1,440 @@
+{
+  "dns-server:dns-server": {
+    "description": "Example DNS server configuration.",
+    "server-options": {
+      "description": "Server options.",
+      "knot-dns:async-start": true,
+      "chaos-identity": {
+        "id-server": "I have no mouth and must scream.",
+        "version": "2.0"
+      },
+      "nsid-identity": {
+        "nsid": "myserver0.example.com"
+      },
+      "listen-endpoint": [
+        {
+          "name": "01",
+          "ip-address": "127.0.0.1",
+          "port": 53531
+        },
+        {
+          "name": "02",
+          "ip-address": "::1"
+        }
+      ],
+      "filesystem-paths": {
+        "run-time-dir": "/tmp/knot",
+        "pid-file": "knot.pid"
+      },
+      "privileges": {
+        "user": "knot",
+        "group": "wheel"
+      },
+      "resources": {
+        "knot-dns:tcp-workers": 3,
+        "knot-dns:udp-workers": 42
+      },
+      "response-rate-limiting": {
+        "table-size": 1000000
+      }
+    },
+    "knot-dns:log": [
+      {
+        "name": "01",
+        "syslog": [null],
+        "any": "warning"
+      },
+      {
+        "name": "02",
+        "file": "/tmp/knot.log",
+        "server": "info",
+        "zone": "info"
+      }
+    ],
+    "access-control-list": [
+      {
+        "name": "acl-xfr-update",
+        "network": [
+          {
+            "name": "01",
+            "ip-prefix": "127.0.0.1/32"
+          }
+        ],
+        "key": [
+          "key0.server0"
+        ],
+        "operation": [
+          "transfer",
+          "update"
+        ]
+      },
+      {
+        "name": "acl-notify",
+        "network": [
+          {
+            "name": "01",
+            "ip-prefix": "::1/128"
+          },
+          {
+            "name": "02",
+            "ip-prefix": "2001:db8::/64"
+          }
+        ],
+        "operation": [
+          "notify"
+        ],
+        "action": "deny"
+      },
+      {
+        "name": "socket",
+        "network": [
+          {
+            "name": "01",
+            "ip-prefix": "192.0.2.0/28"
+          }
+        ],
+        "operation": [
+          "control"
+        ]
+      }
+    ],
+    "key": [
+      {
+        "name": "key0.server0",
+        "algorithm": "tsig-algorithms:hmac-sha256",
+        "secret": "Wg=="
+      },
+      {
+        "name": "key0.example.com",
+        "description": "slave key",
+        "secret": "Wg=="
+      }
+    ],
+    "remote-server": [
+      {
+        "name": "server0",
+        "remote": {
+          "ip-address": "127.0.0.1",
+          "port": 53531
+        },
+        "key": "key0.server0",
+        "local": {
+          "ip-address": "127.0.0.1",
+          "port": 6378
+        }
+      },
+      {
+        "name": "server1",
+        "remote": {
+          "ip-address": "2001:db8:0:1::1"
+        },
+        "key": "key0.example.com"
+      }
+    ],
+    "knot-dns:control-socket": {
+      "ip-address": "127.0.0.1",
+      "port": 55553,
+      "access-control-list": [
+        "socket"
+      ]
+    },
+    "query-module": [
+      {
+        "type": "knot-dns:dnstap",
+        "name": "capture_all",
+        "knot-dns:dnstap": {
+          "file": "/tmp/capture.tap"
+        }
+      },
+      {
+        "type": "knot-dns:dnsproxy",
+        "name": "default",
+        "knot-dns:dnsproxy": {
+          "remote-server": {
+            "ip-address": "10.0.1.1"
+          }
+        }
+      },
+      {
+        "type": "knot-dns:rosedb",
+        "name": "default",
+        "knot-dns:rosedb": {
+          "db-dir": "/tmp/static_rrdb"
+        }
+      },
+      {
+        "type": "knot-dns:synth-record",
+        "name": "test1",
+        "knot-dns:synth-record": {
+          "record-type": "forward",
+          "prefix": "dynamic-",
+          "ttl": 400,
+          "network": "2620:0:b61::/52"
+        }
+      },
+      {
+        "type": "knot-dns:synth-record",
+        "name": "test2",
+        "knot-dns:synth-record": {
+          "record-type": "reverse",
+          "prefix": "dynamic-",
+          "origin": "example",
+          "ttl": 400,
+          "network": "2620:0:b61::/52"
+        }
+      }
+    ],
+    "dnssec-signing:sign-policy": [
+      {
+        "name": "default_rsa",
+        "algorithm": "RSASHA256",
+        "zsk-length": 1024,
+        "ksk-length": 2048
+      }
+    ],
+    "zones": {
+      "template": [
+        {
+          "name": "default",
+          "description": "Shared options for all zones.",
+          "default": true,
+          "zones-dir": "/tmp/zones",
+          "file": "samples/%s.zone",
+          "knot-dns:semantic-checks": true,
+          "any-to-tcp": true,
+          "serial-update-method": "unix-time",
+          "journal": {
+            "from-differences": false,
+            "zone-file-sync-delay": 3600,
+            "maximum-journal-size": "1125899906842624"
+          },
+          "dnssec-signing:dnssec-signing": {
+            "policy": "default_rsa",
+            "knot-dns:kasp-db": "/var/lib/knot/kasp"
+          },
+          "query-module": [
+            {
+              "type": "knot-dns:dnstap",
+              "name": "capture_all"
+            },
+            {
+              "type": "knot-dns:dnsproxy",
+              "name": "default"
+            },
+            {
+              "type": "knot-dns:rosedb",
+              "name": "default"
+            }
+          ]
+        }
+      ],
+      "zone": [
+        {
+          "domain": "example.com",
+          "template": "default",
+          "master": [
+            "server1"
+          ],
+          "notify": {
+            "recipient": [
+              "server0"
+            ]
+          },
+          "any-to-tcp": false,
+          "access-control-list": [
+            "acl-xfr-update",
+            "acl-notify"
+          ],
+          "query-module": [
+            {
+              "type": "knot-dns:synth-record",
+              "name": "test1"
+            },
+            {
+              "type": "knot-dns:synth-record",
+              "name": "test2"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "dns-server:dns-server-state": {
+    "server": {
+      "boot-time": "2015-05-21T08:02:14+02:00",
+      "config-time": "2015-06-25T16:22:07+02:00"
+    },
+    "zone": [
+      {
+        "domain": "example.com",
+        "class": "IN",
+        "serial": 2015060600,
+        "server-role": "slave",
+        "dnssec-signing:dnssec-signing": {
+          "key": [
+            {
+              "key-id": "d3a9fd3b36a6be275adea2b67c6e82b27ca30e90",
+              "key-tag": 30348,
+              "algorithm": "RSASHA256",
+              "length": 2048,
+              "flags": "zone-key secure-entry-point",
+              "created": "2015-06-18T18:02:45+02:00",
+              "publish": "2015-06-18T19:00:00+02:00",
+              "activate": "2015-06-20T10:00:00+02:00",
+              "retire": "2015-07-18T18:02:45+02:00",
+              "remove": "2015-07-25T00:00:00+02:00"
+            }
+          ]
+        },
+        "statistics": {
+          "opcodes": {
+            "opcode-count": [
+              {
+                "opcode": "query",
+                "count": "1234"
+              },
+              {
+                "opcode": "iquery",
+                "count": "5678"
+              },
+              {
+                "opcode": "status",
+                "count": "9012"
+              },
+              {
+                "opcode": "notify",
+                "count": "3456"
+              }
+            ]
+          },
+          "packets": {
+            "packet-count": [
+              {
+                "packet-type": "normal",
+                "count": "98765"
+              },
+              {
+                "packet-type": "axfr",
+                "count": "43210"
+              },
+              {
+                "packet-type": "ixfr",
+                "count": "12345"
+              },
+              {
+                "packet-type": "notify",
+                "count": "67890"
+              },
+              {
+                "packet-type": "update",
+                "count": "24680"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "ietf-netconf-acm:nacm": {
+    "enable-nacm": true,
+    "read-default": "permit",
+    "write-default": "deny",
+    "exec-default": "deny",
+    "denied-operations": 123,
+    "denied-data-writes": 456,
+    "denied-notifications": 0,
+    "groups": {
+      "group": [
+        {
+          "name": "admin",
+          "user-name": [
+            "root"
+          ]
+        },
+        {
+          "name": "users",
+          "user-name": [
+            "lada",
+            "pavel",
+            "dominik",
+            "lojza@mail.cz"
+          ]
+        }
+      ]
+    },
+    "rule-list": [
+      {
+        "name": "admin-acl",
+        "group": [
+          "admin"
+        ],
+        "rule": [
+          {
+            "name": "permit-all",
+            "module-name": "*",
+            "access-operations": "*",
+            "comment": "The 'admin' group has unlimited access.",
+            "action": "permit"
+          }
+        ]
+      },
+      {
+        "name": "users-acl",
+        "group": [
+          "users"
+        ],
+        "rule": [
+          {
+            "name": "no-writes-on-example.com",
+            "path": "/dns-server:dns-server/zones/zone[domain='example.com']/statistics",
+            "access-operations": "create update delete",
+            "comment": "Users cannot write example.com.",
+            "action": "deny"
+          },
+          {
+            "name": "permit-zone-access",
+            "path": "/dns-server:dns-server/zones/zone",
+            "access-operations": "*",
+            "comment": "Users can write other zones.",
+            "action": "permit"
+          },
+          {
+            "name": "povol pristup ke groups",
+            "path": "/ietf-netconf-acm:nacm/groups",
+            "access-operations": "read",
+            "comment": "komentar",
+            "action": "permit"
+          },
+          {
+            "name": "povol pristup ke group",
+            "path": "/ietf-netconf-acm:nacm/groups/group",
+            "access-operations": "read",
+            "comment": "komentar",
+            "action": "permit"
+          },
+          {
+            "name": "zakaz pristup k admin group",
+            "path": "/ietf-netconf-acm:nacm/groups/group[name='admin']",
+            "access-operations": "read",
+            "comment": "komentar",
+            "action": "deny"
+          },
+          {
+            "name": "permit-zone-reload",
+            "module-name": "dns-server",
+            "rpc-name": "zone-reload",
+            "comment": "Users can reload zones",
+            "action": "permit"
+          },
+          {
+            "name": "permit-zone-sign",
+            "module-name": "dnssec-signing",
+            "rpc-name": "zone-sign",
+            "comment": "Users can sign zones",
+            "action": "permit"
+          }
+        ]
+      }
+    ]
+  }
+}
