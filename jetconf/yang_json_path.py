@@ -3,8 +3,6 @@ from typing import List, Any, Dict, TypeVar, Tuple, Callable
 import urllib.parse
 import re
 
-JsonNodeT = Dict[str, Any]
-
 
 class PathSegment:
     def __init__(self, segment: str, selector: Tuple[str] = None, ns: str = None):

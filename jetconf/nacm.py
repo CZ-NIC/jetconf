@@ -10,6 +10,8 @@ from colorlog import error, warning as warn, info, debug
 from typing import List, Any, Dict, TypeVar, Tuple, Set
 from jetconf.yang_json_path import YangJsonPath
 import copy
+from yangson.instance import Instance, NonexistentInstance
+from yangson import DataModel
 
 JsonNodeT = Dict[str, Any]
 
@@ -35,34 +37,15 @@ class NacmRuleType(Enum):
 
 
 class JsonDoc:
-    def __init__(self, root: JsonNodeT, root_prefix_path: YangJsonPath = None):
-        self.root = root
-        self.root_prefix_path = root_prefix_path
-
-    # Selects data node specified by path in current document
-    # Returns: chain of data nodes from root to selected node, or None
-    def select_data_node(self, path: YangJsonPath) -> List[JsonNodeT]:
-        data_node = self.root
+    @staticmethod
+    def select_data_node(root: Instance, path: YangJsonPath) -> Instance:
+        data_node = root
         _last_ns = None
         _segs_to_search = path.path_segments
-        ret = [data_node]
 
         # Only absolute path can select nodes
         if not path.is_absolute():
             return None
-
-        # Beginning of 'path' argument must match the prefix
-        if self.root_prefix_path is not None:
-            if len(self.root_prefix_path.path_segments) > len(path.path_segments):
-                return None
-            else:
-                for i in range(0, len(self.root_prefix_path.path_segments)):
-                    if path.path_segments[i] != self.root_prefix_path.path_segments[i]:
-                        return None
-                    _last_ns = path.path_segments[i].ns
-
-                _rel_path_idx = len(self.root_prefix_path.path_segments)
-                _segs_to_search = path.path_segments[_rel_path_idx:]
 
         for segment in _segs_to_search:
             # Ignore empty segment, i.e. "//"
@@ -75,54 +58,52 @@ class JsonDoc:
                 _last_ns = segment.ns
             else:
                 seg_str = segment.get_val()
-            data_node = data_node.get(seg_str)
-            ret.append(data_node)
 
-            if isinstance(data_node, dict):
+            try:
+                data_node = data_node.member(seg_str)
+            except NonexistentInstance:
+                return None
+
+            if isinstance(data_node.value, dict):
                 if segment.select is not None:
                     error("Redundant selector \"{}\", node is not a list".format(segment.select))
                     return None
-            elif isinstance(data_node, list):
+            elif isinstance(data_node.value, list):
                 # Node is a list but has no selector specified
+                # Only last path segment can select a whole list
                 if segment.select is None:
-                    # Only last path segment can select a whole list
                     if segment is not path.path_segments[-1]:
                         error("Node \"{}\" is a list, but no selector is present in path".format(segment))
                         return None
-                    else:
-                        # return data_node
-                        return ret
                 # Node is a list and has a selector
                 else:
-                    selected_nodes = list(
-                        filter(
-                            lambda x: (x.get(segment.select[0]) == segment.select[1]) if isinstance(x, dict) else False,
-                            data_node
-                        )
-                    )
+                    selected_nodes = []
+                    data_node = data_node.first_entry
+                    while True:
+                        if isinstance(data_node.value, dict) and data_node.member(segment.select[0]).value == segment.select[1]:
+                            selected_nodes.append(data_node)
+                        try:
+                            data_node = data_node.next
+                        except NonexistentInstance:
+                            break
+
                     if len(selected_nodes) > 1:
                         # Multiple nodes matched by selector
-                        error("Ambiguous selector \"{}\" of path segment \"{}\" in path \"{}\"".format(segment.select,
-                                                                                                       segment.val,
-                                                                                                       path))
+                        error("Ambiguous selector \"{}\" of path segment \"{}\"".format(segment.select, segment.val))
                         return None
-                    elif selected_nodes is None or len(selected_nodes) == 0:
+                    elif len(selected_nodes) == 0:
                         # No nodes selected by selector
                         return None
                     else:
                         data_node = selected_nodes[0]
-                        ret[-1] = selected_nodes[0]
             elif data_node is None:
                 # Node does not exist in data
                 return None
             else:
-                error("Invalid type of data node: \"{}\"".format(type(data_node)))
+                error("Invalid type of data node: \"{}\"".format(type(data_node.value)))
                 return None
 
-                # print("seg={}".format(segment))
-                # print(data_node)
-        # return data_node
-        return ret
+        return data_node
 
 
 class NacmGroup:
@@ -160,8 +141,8 @@ class NacmRuleList:
 
 class NacmConfig:
     def __init__(self):
-        self.json = None  # type: JsonDoc
-        self._nacm_json = None
+        self.data = None  # type: Instance
+        self._nacm_data = None
         self.enabled = False
         self.default_read = Action.PERMIT
         self.default_write = Action.PERMIT
@@ -173,22 +154,27 @@ class NacmConfig:
 
     def load_json(self, filename: str):
         with open(filename, "rt") as fp:
-            self.json = JsonDoc(json.load(fp))
-            self._nacm_json = self.json.root.get("ietf-netconf-acm:nacm")
+            self.data = Instance(json.load(fp))
+            try:
+                self._nacm_data = self.data.member("ietf-netconf-acm:nacm")
+            except NonexistentInstance:
+                error("Data does not contain \"ietf-netconf-acm:nacm\" root element")
+                return
 
-        if self._nacm_json is None:
-            error("Cannot load json file " + filename + "or it does not contain \"ietf-netconf-acm:nacm\" root element")
-            return
+        self.fill(self._nacm_data)
 
-        self.enabled = self._nacm_json["enable-nacm"]
-        self.default_read = Action.PERMIT if self._nacm_json["read-default"] == "permit" else Action.DENY
-        self.default_write = Action.PERMIT if self._nacm_json["write-default"] == "permit" else Action.DENY
-        self.default_exec = Action.PERMIT if self._nacm_json["exec-default"] == "permit" else Action.DENY
+    # Fills internal read-only data structures
+    def fill(self, nacm_data: Instance):
+        nacm_json = nacm_data.value
+        self.enabled = nacm_json["enable-nacm"]
+        self.default_read = Action.PERMIT if nacm_json["read-default"] == "permit" else Action.DENY
+        self.default_write = Action.PERMIT if nacm_json["write-default"] == "permit" else Action.DENY
+        self.default_exec = Action.PERMIT if nacm_json["exec-default"] == "permit" else Action.DENY
 
-        for group in self._nacm_json["groups"]["group"]:
+        for group in nacm_json["groups"]["group"]:
             self.nacm_groups.append(NacmGroup(group["name"], group["user-name"]))
 
-        for rule_list_json in self._nacm_json["rule-list"]:
+        for rule_list_json in nacm_json["rule-list"]:
             rl = NacmRuleList()
             rl.name = rule_list_json["name"]
             rl.groups = rule_list_json["group"]
@@ -278,7 +264,7 @@ class NacmRpc:
         user_groups_names = list(map(lambda x: x.name, user_groups))
         self.rule_lists = list(filter(lambda x: (set(user_groups_names) & set(x.groups)), config.rule_lists))
 
-    def check_data_node(self, node: JsonNodeT, doc: JsonDoc, access: Permission) -> bool:
+    def check_data_node(self, node: Instance, root: Instance, access: Permission) -> Action:
         for rl in self.rule_lists:
             for rule in rl.rules:
                 debug("Checking rule \"{}\"".format(rule.name))
@@ -305,8 +291,8 @@ class NacmRpc:
 
                 if rule.type != NacmRuleType.NACM_RULE_DATA or not rule.type_data.path:
                     continue
-                _selected = doc.select_data_node(rule.type_data.path)
-                if (_selected is not None) and (_selected[-1] is node):
+                _selected = JsonDoc.select_data_node(root, rule.type_data.path)
+                if (_selected is not None) and (_selected is node):
                     # Success!
                     # the path selects the node
                     info("Rule found: \"{}\"".format(rule.name))
@@ -354,8 +340,33 @@ class NacmRpc:
 if __name__ == "__main__":
     colorlog.basicConfig(format="%(asctime)s %(log_color)s%(levelname)-8s%(reset)s %(message)s", level=logging.INFO,
                          stream=sys.stdout)
+
+    module_dir = "../data"
+    itxt = None
+    with open("../data/yang-library-data.json") as ylfile:
+        yl = ylfile.read()
+    with open("example-data.json") as infile:
+        itxt = json.load(infile)
+    dm = DataModel.from_yang_library(yl, module_dir)
+
+    inst = Instance(itxt)
+    ii = dm.parse_instance_id("/dns-server:dns-server-state/zone[domain='example.com']/statistics")
+
+    print(inst.peek(ii))
+
+    exit()
     nacm = NacmConfig()
     nacm.load_json("example-data.json")
+
+    info("Testing select_data_node:")
+    pth = YangJsonPath("/dns-server:dns-server-state/zone[domain='example.com']/statistics/opcodes/opcode-count[opcode='query']")
+    sn = JsonDoc.select_data_node(nacm.data, pth)
+    print(sn.value)
+    if sn.value == {'count': '1234', 'opcode': 'query'}:
+        info("OK\n")
+    else:
+        warn("FAILED\n")
+
     rpc = NacmRpc(nacm, None, "dominik")
 
     test_paths = (
@@ -384,11 +395,11 @@ if __name__ == "__main__":
     for test_path in test_paths:
         info("Testing path \"{}\"".format(test_path[0]))
         test_path_obj = YangJsonPath(test_path[0])
-        datanodes = nacm.json.select_data_node(test_path_obj)
-        if datanodes:
+        datanode = JsonDoc.select_data_node(nacm.data, test_path_obj)
+        if datanode:
             info("Node found")
-            debug("Node contents: {}".format(datanodes[-1]))
-            action = rpc.check_data_node(datanodes[-1], nacm.json, test_path[1])
+            debug("Node contents: {}".format(datanode.value))
+            action = rpc.check_data_node(datanode, nacm.data, test_path[1])
             if action == test_path[2]:
                 info("Action = {}, {}\n".format(action.name, "OK"))
             else:
