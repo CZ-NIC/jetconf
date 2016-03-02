@@ -8,7 +8,7 @@ deps:
 	pip freeze > requirements.txt
 
 install-deps:
-	pip install -r requirements.txt
+	pip install --upgrade -r requirements.txt
 
 yangson:
 	pip install --upgrade git+$(YANGSON_URL)
