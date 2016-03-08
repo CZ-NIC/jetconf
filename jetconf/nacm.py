@@ -5,15 +5,12 @@ from threading import Lock
 
 import colorlog
 import sys
-from enum import Enum, unique
+from enum import Enum
 from colorlog import error, warning as warn, info, debug
 from typing import List, Any, Dict, TypeVar, Tuple, Set
-import copy
-import yangson.instance
 from yangson.instance import Instance, NonexistentInstance, ArrayValue, ObjectValue
 from yangson.schema import NonexistentSchemaNode
-from yangson import DataModel
-import data
+
 
 JsonNodeT = Dict[str, Any]
 
@@ -73,7 +70,7 @@ class NacmRuleList:
 
 class NacmConfig:
     def __init__(self, nacm_ds: "BaseDatastore"):
-        self.nacm_ds = nacm_ds  # type: BaseDatastore
+        self.nacm_ds = nacm_ds
         self.enabled = False
         self.default_read = Action.PERMIT
         self.default_write = Action.PERMIT
@@ -212,7 +209,7 @@ class NacmRpc:
                         continue
 
                     try:
-                        selected = data.get_node_path(rule.type_data.path)
+                        selected = self.data.get_node_path(rule.type_data.path)
                         if selected.value == n.value:
                             # Success!
                             # the path selects the node
@@ -278,17 +275,17 @@ class NacmRpc:
         return self._check_data_read_recursion(node)
 
 
-if __name__ == "__main__":
+def test():
     colorlog.basicConfig(format="%(asctime)s %(log_color)s%(levelname)-8s%(reset)s %(message)s", level=logging.INFO,
                          stream=sys.stdout)
 
-    nacm_data = data.JsonDatastore("../data", "../data/yang-library-data.json")
-    nacm_data.load_json("example-data-nacm.json")
+    nacm_data = JsonDatastore("./data", "./data/yang-library-data.json")
+    nacm_data.load_json("jetconf/example-data-nacm.json")
 
     nacm = NacmConfig(nacm_data)
 
-    data = data.JsonDatastore("../data", "../data/yang-library-data.json")
-    data.load_json("example-data.json")
+    data = JsonDatastore("./data", "./data/yang-library-data.json")
+    data.load_json("jetconf/example-data.json")
     data.register_nacm(nacm)
 
     rpc = NacmRpc(nacm, data, None, "dominik")
@@ -332,3 +329,5 @@ if __name__ == "__main__":
         info("OK")
     else:
         warn("FAILED")
+
+from .data import JsonDatastore

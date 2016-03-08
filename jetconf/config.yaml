@@ -1,13 +1,13 @@
 HTTP_SERVER:
-    DOC_ROOT: "doc-root"
+    DOC_ROOT: "jetconf/doc-root"
     DOC_DEFAULT_NAME: "index.html"
     RESTCONF_API_ROOT: "/restconf"
     RESTCONF_NACM_API_ROOT: "/restconf_nacm"
     SERVER_NAME: "hyper-h2"
 
-    SERVER_SSL_CERT: "server.crt"
-    SERVER_SSL_PRIVKEY: "server.key"
-    CA_CERT: "ca.pem"
+    SERVER_SSL_CERT: "jetconf/server.crt"
+    SERVER_SSL_PRIVKEY: "jetconf/server.key"
+    CA_CERT: "jetconf/ca.pem"
 
 NACM:
     ALLOWED_USERS: ["lojza@mail.cz"]

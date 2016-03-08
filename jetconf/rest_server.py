@@ -11,7 +11,8 @@ from colorlog import error, warning as warn, info, debug
 from typing import List, Tuple, Dict, Any
 import yaml
 import copy
-from jetconf import nacm
+from .nacm import NacmConfig
+from .data import JsonDatastore
 
 from h2.connection import H2Connection
 from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged
@@ -48,7 +49,6 @@ class H2Protocol(asyncio.Protocol):
         self.conn.initiate_connection()
         self.transport.write(self.conn.data_to_send())
         self.client_cert = self.transport.get_extra_info('peercert')
-        # print("cert = {}".format(self.client_cert))
 
     def data_received(self, data: bytes):
         events = self.conn.receive_data(data)
@@ -210,12 +210,12 @@ class H2Protocol(asyncio.Protocol):
         self.conn.send_data(stream_id, response, end_stream=True)
 
 
-if __name__ == "__main__":
+def run():
     colorlog.basicConfig(format="%(asctime)s %(log_color)s%(levelname)-8s%(reset)s %(message)s", level=logging.INFO,
                          stream=sys.stdout)
 
     try:
-        with open("config.yaml") as conf_fd:
+        with open("jetconf/config.yaml") as conf_fd:
             conf_yaml = yaml.load(conf_fd)
             CONFIG.update(conf_yaml.get("HTTP_SERVER", {}))
     except FileNotFoundError:
@@ -223,9 +223,16 @@ if __name__ == "__main__":
 
     info("Using config:\n" + yaml.dump([CONFIG, ], default_flow_style=False))
 
-    global nacm_config
-    nacm_config = nacm.NacmConfig()
-    nacm_config.load_json("example-data.json")
+    global ex_datastore
+
+    nacm_data = JsonDatastore("./data", "./data/yang-library-data.json")
+    nacm_data.load_json("jetconf/example-data-nacm.json")
+
+    nacmc = NacmConfig(nacm_data)
+
+    ex_datastore = JsonDatastore("./data", "./data/yang-library-data.json")
+    ex_datastore.load_json("jetconf/example-data.json")
+    ex_datastore.register_nacm(nacmc)
 
     ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     ssl_context.options |= (ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1 | ssl.OP_NO_COMPRESSION)
