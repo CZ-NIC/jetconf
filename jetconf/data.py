@@ -16,8 +16,8 @@ from yangson.datamodel import InstanceIdentifier
 
 class Rpc:
     def __init__(self):
-        self.username = None
-        self.path = None  # type: str
+        self.username = None    # type: str
+        self.path = None        # type: str
 
 
 class BaseDatastore:
@@ -65,6 +65,23 @@ class BaseDatastore:
 
         return n
 
+    def get_node_rpc2(self, rpc: Rpc) -> Instance:
+        n = None
+        ii = self.dm.parse_resource_id(rpc.path)
+        self.lock_data(rpc.username)
+        n = self.data.goto(ii)
+        self.unlock_data()
+
+        if self.nacm:
+            nrpc = NacmRpc(self.nacm, self, None, rpc.username)
+            if nrpc.check_data_node(n, Permission.NACM_ACCESS_READ) == Action.DENY:
+                return None
+            else:
+                # Prun subtree data
+                n = nrpc.check_data_read(n)
+
+        return n
+
     def lock_data(self, username: str = None):
         ret = self._data_lock.acquire(blocking=False)
         if ret:
@@ -91,9 +108,6 @@ class JsonDatastore(BaseDatastore):
 
 
 def test():
-    colorlog.basicConfig(format="%(asctime)s %(log_color)s%(levelname)-8s%(reset)s %(message)s", level=logging.INFO,
-                         stream=sys.stdout)
-
     data = JsonDatastore("./data", "./data/yang-library-data.json")
     data.load_json("jetconf/example-data.json")
 

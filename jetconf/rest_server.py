@@ -12,7 +12,8 @@ from typing import List, Tuple, Dict, Any
 import yaml
 import copy
 from .nacm import NacmConfig
-from .data import JsonDatastore
+from .data import JsonDatastore, Rpc
+from yangson.schema import NonexistentSchemaNode
 
 from h2.connection import H2Connection
 from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged
@@ -84,8 +85,9 @@ class H2Protocol(asyncio.Protocol):
 
     def handle_get(self, headers: OrderedDict, stream_id: int):
         response = None
-        parsed_url = yang_json_path.URLPath(headers[":path"])
-        if parsed_url.path_equals(CONFIG["RESTCONF_NACM_API_ROOT"]):
+        print(headers[":path"])
+
+        if headers[":path"] == CONFIG["RESTCONF_NACM_API_ROOT"]:
             # Top level api resource (appendix D.1.1)
             response = ("{\n"
                         "    \"ietf-restconf:restconf\": {\n"
@@ -102,29 +104,26 @@ class H2Protocol(asyncio.Protocol):
             self.conn.send_headers(stream_id, response_headers)
             self.conn.send_data(stream_id, response.encode(), end_stream=True)
 
-        elif parsed_url.path_contains(os.path.join(CONFIG["RESTCONF_NACM_API_ROOT"], "data")):
+        elif headers[":path"].startswith(os.path.join(CONFIG["RESTCONF_NACM_API_ROOT"], "data")):
             # NACM api request
             info(("nacm_api_get: " + headers[":path"]))
 
             username = CertHelpers.get_field(self.client_cert, "emailAddress")
 
-            parsed_url.path_segments = parsed_url.path_segments[2:]  # TODO: Hack
-            print(parsed_url.path_segments)
+            pth = headers[":path"][len(os.path.join(CONFIG["RESTCONF_NACM_API_ROOT"], "data")):]
 
-            nacm_config.lock_data(username)
-            _node = copy.deepcopy(nacm_config.json.select_data_node(parsed_url))
-            nacm_config.unlock_data()
+            rpc1 = Rpc()
+            rpc1.username = username
+            rpc1.path = pth
 
-            if not _node:
-                warn("Node not found")
+            try:
+                n = ex_datastore.nacm.nacm_ds.get_node_rpc2(rpc1)
+                response = json.dumps(n.value, indent=4) + "\n"
+                http_status = "200"
+            except NonexistentSchemaNode:
+                warn("Node not found: " + pth)
                 response = "Not found"
                 http_status = "404"
-            else:
-                _doc = nacm.JsonDoc(_node[-1], parsed_url)
-                _rpc = nacm.NacmRpc(nacm_config, None, username)
-                _rpc.check_data_read(_node[-1], _doc)
-                response = json.dumps(_doc.root)
-                http_status = "200"
 
             response_headers = (
                 (':status', http_status),
@@ -132,16 +131,61 @@ class H2Protocol(asyncio.Protocol):
                 ('content-length', len(response)),
                 ('server', CONFIG["SERVER_NAME"]),
             )
+
             self.conn.send_headers(stream_id, response_headers)
             self.conn.send_data(stream_id, response.encode(), end_stream=True)
 
-        elif parsed_url.path_contains(CONFIG["RESTCONF_API_ROOT"]):
+        elif headers[":path"] == CONFIG["RESTCONF_API_ROOT"]:
+            # Top level api resource (appendix D.1.1)
+            response = ("{\n"
+                        "    \"ietf-restconf:restconf\": {\n"
+                        "        \"data\" : [ null ],\n"
+                        "        \"operations\" : [ null ]\n"
+                        "    }\n"
+                        "}")
+            response_headers = (
+                (':status', '200'),
+                ('content-type', 'application/yang.api+json'),
+                ('content-length', len(response)),
+                ('server', CONFIG["SERVER_NAME"]),
+            )
+            self.conn.send_headers(stream_id, response_headers)
+            self.conn.send_data(stream_id, response.encode(), end_stream=True)
+
+        elif headers[":path"].startswith(os.path.join(CONFIG["RESTCONF_API_ROOT"], "data")):
             # api request
-            pass
+            info(("api_get: " + headers[":path"]))
+
+            username = CertHelpers.get_field(self.client_cert, "emailAddress")
+
+            pth = headers[":path"][len(os.path.join(CONFIG["RESTCONF_API_ROOT"], "data")):]
+
+            rpc1 = Rpc()
+            rpc1.username = username
+            rpc1.path = pth
+
+            try:
+                n = ex_datastore.get_node_rpc2(rpc1)
+                response = json.dumps(n.value, indent=4) + "\n"
+                http_status = "200"
+            except NonexistentSchemaNode:
+                warn("Node not found: " + pth)
+                response = "Not found"
+                http_status = "404"
+
+            response_headers = (
+                (':status', http_status),
+                ('content-type', 'application/yang.api+json'),
+                ('content-length', len(response)),
+                ('server', CONFIG["SERVER_NAME"]),
+            )
+
+            self.conn.send_headers(stream_id, response_headers)
+            self.conn.send_data(stream_id, response.encode(), end_stream=True)
 
         else:
             # Ordinary file on filesystem
-            file_path = CONFIG["DOC_ROOT"] + "/" + parsed_url.path_str.replace("..", "").replace("&", "")
+            file_path = os.path.join(CONFIG["DOC_ROOT"], headers[":path"][1:].replace("..", "").replace("&", ""))
 
             if os.path.isdir(file_path):
                 file_path = os.path.join(file_path, CONFIG["DOC_DEFAULT_NAME"])
@@ -211,9 +255,6 @@ class H2Protocol(asyncio.Protocol):
 
 
 def run():
-    colorlog.basicConfig(format="%(asctime)s %(log_color)s%(levelname)-8s%(reset)s %(message)s", level=logging.INFO,
-                         stream=sys.stdout)
-
     try:
         with open("jetconf/config.yaml") as conf_fd:
             conf_yaml = yaml.load(conf_fd)

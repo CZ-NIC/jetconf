@@ -276,9 +276,6 @@ class NacmRpc:
 
 
 def test():
-    colorlog.basicConfig(format="%(asctime)s %(log_color)s%(levelname)-8s%(reset)s %(message)s", level=logging.INFO,
-                         stream=sys.stdout)
-
     nacm_data = JsonDatastore("./data", "./data/yang-library-data.json")
     nacm_data.load_json("jetconf/example-data-nacm.json")
 
