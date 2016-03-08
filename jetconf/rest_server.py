@@ -12,7 +12,6 @@ from typing import List, Tuple, Dict, Any
 import yaml
 import copy
 from jetconf import nacm
-from jetconf import yang_json_path
 
 from h2.connection import H2Connection
 from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged

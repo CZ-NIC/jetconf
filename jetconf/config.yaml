@@ -8,3 +8,6 @@ HTTP_SERVER:
     SERVER_SSL_CERT: "server.crt"
     SERVER_SSL_PRIVKEY: "server.key"
     CA_CERT: "ca.pem"
+
+NACM:
+    ALLOWED_USERS: ["lojza@mail.cz"]
