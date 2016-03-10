@@ -11,7 +11,6 @@ from typing import List, Any, Dict, TypeVar, Tuple, Set
 from yangson.instance import Instance, NonexistentInstance, ArrayValue, ObjectValue
 from yangson.schema import NonexistentSchemaNode
 
-
 JsonNodeT = Dict[str, Any]
 
 
@@ -163,7 +162,7 @@ class NacmConfig:
 # Rules for particular session (logged-in user)
 class NacmRpc:
     # "username" only for testing, will be part of "session"
-    def __init__(self, config: NacmConfig, data: "BaseDatastore", session: Any, username: str):
+    def __init__(self, config: NacmConfig, data: "BaseDatastore", username: str):
         self.default_read = config.default_read
         self.default_write = config.default_write
         self.default_exec = config.default_exec
@@ -177,10 +176,31 @@ class NacmRpc:
         if not isinstance(node, Instance):
             raise TypeError("Node not an Instance!")
 
-        root = node.top()
+        i = 0
+
+        print("rule node hashes:")
+        for rl in self.rule_lists:
+            for rule in rl.rules:
+                if rule.type_data.path:
+                    try:
+                        print("{} {} {}".format(i, rule.name, hash(self.data.get_node_path(rule.type_data.path, PathFormat.XPATH))))
+                        i += 1
+                    except NonexistentInstance:
+                        pass
+
         n = node
         while not n.is_top():
-            # debug("checking node {}".format(n.value))
+            #info("checking node {}".format(n.value))
+
+            # try:
+            info("checking node {} {}".format(hash(n.value), type(n.value)))
+
+            # except TypeError as e:
+            #     info("checking node hash error {}".format(type(n.value)))
+            #     info(str(e))
+            #     info(n.value)
+
+
             for rl in self.rule_lists:
                 for rule in rl.rules:
                     debug("Checking rule \"{}\"".format(rule.name))
@@ -209,8 +229,8 @@ class NacmRpc:
                         continue
 
                     try:
-                        selected = self.data.get_node_path(rule.type_data.path)
-                        if selected.value == n.value:
+                        selected = self.data.get_node_path(rule.type_data.path, PathFormat.XPATH)
+                        if hash(selected.value) == hash(n.value):
                             # Success!
                             # the path selects the node
                             info("Rule found: \"{}\"".format(rule.name))
@@ -226,6 +246,7 @@ class NacmRpc:
         # no rule found
         # default action
         info("No rule found, returning default action")
+
         if access == Permission.NACM_ACCESS_READ:
             return self.default_read
         elif access in (Permission.NACM_ACCESS_CREATE, Permission.NACM_ACCESS_DELETE, Permission.NACM_ACCESS_UPDATE):
@@ -239,7 +260,8 @@ class NacmRpc:
             # print("obj: {}".format(node.value))
             for child_key in node.value.keys():
                 # Do not check leaves
-                if not (isinstance(node.value[child_key], ObjectValue) or isinstance(node.value[child_key], ArrayValue)):
+                if not (
+                    isinstance(node.value[child_key], ObjectValue) or isinstance(node.value[child_key], ArrayValue)):
                     continue
 
                 m = node.member(child_key)
@@ -277,15 +299,15 @@ class NacmRpc:
 
 def test():
     nacm_data = JsonDatastore("./data", "./data/yang-library-data.json")
-    nacm_data.load_json("jetconf/example-data-nacm.json")
+    nacm_data.load("jetconf/example-data-nacm.json")
 
     nacm = NacmConfig(nacm_data)
 
     data = JsonDatastore("./data", "./data/yang-library-data.json")
-    data.load_json("jetconf/example-data.json")
+    data.load("jetconf/example-data.json")
     data.register_nacm(nacm)
 
-    rpc = NacmRpc(nacm, data, None, "dominik")
+    nrpc = NacmRpc(nacm, data, "dominik")
 
     test_paths = (
         (
@@ -303,11 +325,11 @@ def test():
     for test_path in test_paths:
         info("Testing path \"{}\"".format(test_path[0]))
 
-        datanode = data.get_node_path(test_path[0])
+        datanode = data.get_node_path(test_path[0], PathFormat.XPATH)
         if datanode:
             info("Node found")
             debug("Node contents: {}".format(datanode.value))
-            action = rpc.check_data_node(datanode, test_path[1])
+            action = nrpc.check_data_node(datanode, test_path[1])
             if action == test_path[2]:
                 info("Action = {}, {}\n".format(action.name, "OK"))
             else:
@@ -315,16 +337,37 @@ def test():
         else:
             info("Node not found!")
 
-    exit()
-    _node = data.get_node_path("/ietf-netconf-acm:nacm/groups")
+    _node = data.get_node_path("/dns-server:dns-server/zones/zone[domain='example.com']", PathFormat.XPATH)
     if not _node:
         print("Node null")
 
-    res = rpc.check_data_read(_node)
-    print("result = {}".format(res.value))
-    if json.loads(json.dumps(res.value)) == {'group': [{'name': 'users', 'user-name': ['lada', 'pavel', 'dominik', 'lojza@mail.cz']}]}:
+    res = nrpc.check_data_read(_node)
+    res = json.dumps(res.value, indent=4)
+    print("result = \n" + res + "\n")
+
+    res_expected = """
+    {
+    "master": [
+        "server1"
+    ],
+    "access-control-list": [
+        "acl-xfr-update",
+        "acl-notify"
+    ],
+    "any-to-tcp": false,
+    "template": "default",
+    "notify": {
+        "recipient": [
+            "server0"
+        ]
+    },
+    "domain": "example.com"
+    }"""
+
+    if json.loads(res) == json.loads(res_expected):
         info("OK")
     else:
         warn("FAILED")
 
-from .data import JsonDatastore
+
+from .data import JsonDatastore, PathFormat

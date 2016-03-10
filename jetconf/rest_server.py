@@ -4,16 +4,13 @@ import mimetypes
 import os
 import ssl
 from collections import OrderedDict
-import sys
-import logging
-import colorlog
 from colorlog import error, warning as warn, info, debug
 from typing import List, Tuple, Dict, Any
 import yaml
-import copy
 from .nacm import NacmConfig
-from .data import JsonDatastore, Rpc
+from .data import JsonDatastore, Rpc, NacmForbiddenError, DataLockError
 from yangson.schema import NonexistentSchemaNode
+from yangson.instance import NonexistentInstance
 
 from h2.connection import H2Connection
 from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged
@@ -31,6 +28,7 @@ CONFIG = {
     "CA_CERT": "ca.pem"
 }
 
+# NACM_ADMINS = []
 
 class CertHelpers:
     @staticmethod
@@ -85,9 +83,25 @@ class H2Protocol(asyncio.Protocol):
 
     def handle_get(self, headers: OrderedDict, stream_id: int):
         response = None
-        print(headers[":path"])
 
         if headers[":path"] == CONFIG["RESTCONF_NACM_API_ROOT"]:
+            # Top level api resource (appendix D.1.1)
+            response = ("{\n"
+                        "    \"ietf-restconf:restconf\": {\n"
+                        "        \"data\" : [ null ],\n"
+                        "        \"operations\" : [ null ]\n"
+                        "    }\n"
+                        "}")
+            response_headers = (
+                (':status', '200'),
+                ('content-type', 'application/yang.api+json'),
+                ('content-length', len(response)),
+                ('server', CONFIG["SERVER_NAME"]),
+            )
+            self.conn.send_headers(stream_id, response_headers)
+            self.conn.send_data(stream_id, response.encode(), end_stream=True)
+
+        elif headers[":path"] == CONFIG["RESTCONF_API_ROOT"]:
             # Top level api resource (appendix D.1.1)
             response = ("{\n"
                         "    \"ietf-restconf:restconf\": {\n"
@@ -109,21 +123,29 @@ class H2Protocol(asyncio.Protocol):
             info(("nacm_api_get: " + headers[":path"]))
 
             username = CertHelpers.get_field(self.client_cert, "emailAddress")
+            if username not in NACM_ADMINS:
+                warn(username + " not allowed to access NACM data")
+                response = "Forbidden"
+                http_status = "403"
+            else:
+                pth = headers[":path"][len(os.path.join(CONFIG["RESTCONF_NACM_API_ROOT"], "data")):]
 
-            pth = headers[":path"][len(os.path.join(CONFIG["RESTCONF_NACM_API_ROOT"], "data")):]
+                rpc1 = Rpc()
+                rpc1.username = username
+                rpc1.path = pth
 
-            rpc1 = Rpc()
-            rpc1.username = username
-            rpc1.path = pth
-
-            try:
-                n = ex_datastore.nacm.nacm_ds.get_node_rpc2(rpc1)
-                response = json.dumps(n.value, indent=4) + "\n"
-                http_status = "200"
-            except NonexistentSchemaNode:
-                warn("Node not found: " + pth)
-                response = "Not found"
-                http_status = "404"
+                try:
+                    n = ex_datastore.nacm.nacm_ds.get_node_rpc(rpc1)
+                    response = json.dumps(n.value, indent=4) + "\n"
+                    http_status = "200"
+                except NonexistentSchemaNode:
+                    warn("NonexistentSchemaNode: " + pth)
+                    response = "NonexistentSchemaNode"
+                    http_status = "404"
+                except NonexistentInstance:
+                    warn("NonexistentInstance: " + pth)
+                    response = "NonexistentInstance"
+                    http_status = "404"
 
             response_headers = (
                 (':status', http_status),
@@ -132,23 +154,6 @@ class H2Protocol(asyncio.Protocol):
                 ('server', CONFIG["SERVER_NAME"]),
             )
 
-            self.conn.send_headers(stream_id, response_headers)
-            self.conn.send_data(stream_id, response.encode(), end_stream=True)
-
-        elif headers[":path"] == CONFIG["RESTCONF_API_ROOT"]:
-            # Top level api resource (appendix D.1.1)
-            response = ("{\n"
-                        "    \"ietf-restconf:restconf\": {\n"
-                        "        \"data\" : [ null ],\n"
-                        "        \"operations\" : [ null ]\n"
-                        "    }\n"
-                        "}")
-            response_headers = (
-                (':status', '200'),
-                ('content-type', 'application/yang.api+json'),
-                ('content-length', len(response)),
-                ('server', CONFIG["SERVER_NAME"]),
-            )
             self.conn.send_headers(stream_id, response_headers)
             self.conn.send_data(stream_id, response.encode(), end_stream=True)
 
@@ -165,13 +170,26 @@ class H2Protocol(asyncio.Protocol):
             rpc1.path = pth
 
             try:
-                n = ex_datastore.get_node_rpc2(rpc1)
+                ex_datastore.lock_data(username)
+                n = ex_datastore.get_node_rpc(rpc1)
                 response = json.dumps(n.value, indent=4) + "\n"
                 http_status = "200"
+            except DataLockError as e:
+                warn(e.msg)
+            except NacmForbiddenError as e:
+                warn(e.msg)
+                response = "Forbidden"
+                http_status = "403"
             except NonexistentSchemaNode:
-                warn("Node not found: " + pth)
-                response = "Not found"
+                warn("NonexistentSchemaNode: " + pth)
+                response = "NonexistentSchemaNode"
                 http_status = "404"
+            except NonexistentInstance:
+                warn("NonexistentInstance: " + pth)
+                response = "NonexistentInstance"
+                http_status = "404"
+            finally:
+                ex_datastore.unlock_data()
 
             response_headers = (
                 (':status', http_status),
@@ -232,6 +250,7 @@ class H2Protocol(asyncio.Protocol):
 
     def handle_post(self, headers: OrderedDict, data: bytes, stream_id: int):
         print("post")
+        return
         parsed_url = yang_json_path.URLPath(headers[":path"])
         print(json.dumps({"query": parsed_url.query_table, "path": parsed_url.path_list}, indent=4))
 
@@ -255,24 +274,32 @@ class H2Protocol(asyncio.Protocol):
 
 
 def run():
+    global ex_datastore
+    global NACM_ADMINS
+
     try:
         with open("jetconf/config.yaml") as conf_fd:
             conf_yaml = yaml.load(conf_fd)
-            CONFIG.update(conf_yaml.get("HTTP_SERVER", {}))
+            try:
+                CONFIG.update(conf_yaml["HTTP_SERVER"])
+            except KeyError:
+                pass
+            try:
+                NACM_ADMINS = conf_yaml["NACM"]["ALLOWED_USERS"]
+            except KeyError:
+                pass
     except FileNotFoundError:
         warn("Configuration file does not exist")
 
     info("Using config:\n" + yaml.dump([CONFIG, ], default_flow_style=False))
 
-    global ex_datastore
-
-    nacm_data = JsonDatastore("./data", "./data/yang-library-data.json")
-    nacm_data.load_json("jetconf/example-data-nacm.json")
+    nacm_data = JsonDatastore("./data", "./data/yang-library-data.json", "NACM data")
+    nacm_data.load("jetconf/example-data-nacm.json")
 
     nacmc = NacmConfig(nacm_data)
 
-    ex_datastore = JsonDatastore("./data", "./data/yang-library-data.json")
-    ex_datastore.load_json("jetconf/example-data.json")
+    ex_datastore = JsonDatastore("./data", "./data/yang-library-data.json", "DNS data")
+    ex_datastore.load("jetconf/example-data.json")
     ex_datastore.register_nacm(nacmc)
 
     ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
