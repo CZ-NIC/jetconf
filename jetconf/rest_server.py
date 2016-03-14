@@ -41,7 +41,7 @@ class H2Protocol(asyncio.Protocol):
         self.conn = H2Connection(client_side=False)
         self.transport = None
         self.reqs_waiting_upload = dict()
-        self.client_cert = None
+        self.client_cert = None     # type: Dict[str, Any]
 
     def connection_made(self, transport: asyncio.Transport):
         self.transport = transport
@@ -176,6 +176,8 @@ class H2Protocol(asyncio.Protocol):
                 http_status = "200"
             except DataLockError as e:
                 warn(e.msg)
+                response = "Internal Server Error"
+                http_status = "500"
             except NacmForbiddenError as e:
                 warn(e.msg)
                 response = "Forbidden"

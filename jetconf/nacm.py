@@ -4,11 +4,13 @@ import logging
 from threading import Lock
 
 import colorlog
+import copy
 import sys
 from enum import Enum
 from colorlog import error, warning as warn, info, debug
 from typing import List, Any, Dict, TypeVar, Tuple, Set
-from yangson.instance import Instance, NonexistentInstance, ArrayValue, ObjectValue
+import yangson.instance
+from yangson.instance import Instance, NonexistentInstance, ArrayValue, ObjectValue, InstanceSelector, InstanceIdentifier
 from yangson.schema import NonexistentSchemaNode
 
 JsonNodeT = Dict[str, Any]
@@ -60,11 +62,59 @@ class NacmRule:
         self.action = Action.DENY
 
 
+class RuleTreeNode:
+    def __init__(self, isel: InstanceSelector=None, up: "RuleTreeNode"=None):
+        self.isel = isel
+        self.rule = None    # type: NacmRule
+        self.up = up
+        self.children = []  # type: List[RuleTreeNode]
+
+    def get_action(self, perm: Permission) -> Action:
+        n = self
+        while n:
+            if (n.rule is not None) and (perm in n.rule.access):
+                return n.rule.action
+            n = n.up
+
+        return None
+
+
 class NacmRuleList:
     def __init__(self):
         self.name = ""
         self.groups = []
         self.rules = []
+        self.rule_tree = []   # type: List[RuleTreeNode]
+
+    def _print_rule_tree(self, rule_node_list: List[RuleTreeNode], depth: int = 0, vbars=[]):
+        if depth == 0:
+            print("----- Rule tree of rule list \"{}\": -----".format(self.name))
+
+        ind_str = ""
+        d = depth
+        while d:
+            ind_str += "   "
+            d -= 1
+
+        ind_str += "+--"
+
+        # :o) :o) :o)
+        for vb in vbars:
+            isl = list(ind_str)
+            isl[vb * 3] = "|"
+            ind_str = "".join(isl)
+
+        for rule_node in rule_node_list:
+            action = rule_node.get_action(Permission.NACM_ACCESS_READ)
+            action_str = str(action.name) if action is not None else ""
+            print(ind_str + " " + str(rule_node.isel) + " " + action_str)
+            if rule_node is rule_node_list[-1]:
+                self._print_rule_tree(rule_node.children, depth + 1, vbars)
+            else:
+                self._print_rule_tree(rule_node.children, depth + 1, vbars + [depth])
+
+    def print_rule_tree(self):
+        self._print_rule_tree(self.rule_tree)
 
 
 class NacmConfig:
@@ -168,10 +218,131 @@ class NacmRpc:
         self.default_exec = config.default_exec
         user_groups = list(filter(lambda x: username in x.users, config.nacm_groups))
         user_groups_names = list(map(lambda x: x.name, user_groups))
-        self.rule_lists = list(filter(lambda x: (set(user_groups_names) & set(x.groups)), config.rule_lists))
+        self.rule_lists = list(filter(lambda x: (set(user_groups_names) & set(x.groups)), config.rule_lists)) # type: List[NacmRuleList]
         self.config = config
         self.data = data
 
+        for rl in self.rule_lists:
+            for rule in rl.rules:
+                if not rule.type_data.path:
+                    continue
+
+                ii = self.data._dm.parse_instance_id(rule.type_data.path)
+                nl = rl.rule_tree
+                node_match_prev = None
+                for isel in ii:
+                    node_match = (list(filter(lambda x: x.isel == isel, nl)) or [None])[0]
+                    if node_match is None:
+                        new_elem = RuleTreeNode()
+                        new_elem.isel = isel
+                        new_elem.up = node_match_prev
+
+                        if isel is ii[-1]:
+                            new_elem.rule = rule
+                        nl.append(new_elem)
+                        node_match_prev = new_elem
+                        nl = new_elem.children
+                    else:
+                        if isel is ii[-1]:
+                            node_match.rule = rule
+                        node_match_prev = node_match
+                        nl = node_match.children
+
+    def check_data_node_path(self, ii: InstanceIdentifier, access: Permission) -> Action:
+        retval = None
+        # nl = self.rule_lists[0].rule_tree
+        data_node = self.data.get_data_root()   # type: Instance
+
+        for nl in map(lambda rl: rl.rule_tree, self.rule_lists):
+            for isel in ii:
+                # node_match = (list(filter(lambda x: x.isel == isel, nl)) or [None])[0]
+
+                # print("j {}".format(isel))
+                node_match = None
+                for rule_node in nl:
+                    if (type(rule_node.isel) == type(isel)) and (rule_node.isel == isel):
+                        node_match = rule_node
+                        break
+
+                    # print("{} {}".format(type(isel), type(rule_node.isel)))
+                    if isinstance(isel, yangson.instance.EntryIndex) and isinstance(rule_node.isel, yangson.instance.EntryKeys):
+                        # print("k")
+                        if isel.peek_step(data_node.value) is rule_node.isel.peek_step(data_node.value):
+                            node_match = rule_node
+                            break
+
+                data_node = isel.goto_step(data_node)
+
+                if node_match:
+                    retval = node_match.get_action(access)
+                    nl = node_match.children
+                else:
+                    break
+
+        if retval is None:
+            # No matching rule
+            if access in {Permission.NACM_ACCESS_READ}:
+                retval = self.default_read
+            else:
+                retval = self.default_write
+
+        return retval
+
+    def _check_data_read_path(self, node: Instance, ii: InstanceIdentifier) -> Instance:
+        # node = self.data.get_node(ii)
+
+        if isinstance(node.value, ObjectValue):
+            # print("obj: {}".format(node.value))
+            # print(str(ii))
+            for child_key in sorted(node.value.keys()):
+                # Do not check leaves
+                # if not (isinstance(node.value[child_key], ObjectValue) or isinstance(node.value[child_key], ArrayValue)):
+                #     continue
+
+                nsel = yangson.instance.MemberName(child_key)
+                m = nsel.goto_step(node)
+                mii = copy.copy(ii)
+                mii.append(nsel)
+
+                info("checking mii {}".format(mii))
+                if self.check_data_node_path(mii, Permission.NACM_ACCESS_READ) == Action.DENY:
+                    # info("Pruning node {} {}".format(id(node.value[child_key]), node.value[child_key]))
+                    info("Pruning node {}".format(mii))
+                    node = node.remove_member(child_key)
+                else:
+                    node = self._check_data_read_path(m, mii).up()
+        elif isinstance(node.value, ArrayValue):
+            # print("array: {}".format(node.value))
+            i = 0
+            arr_len = len(node.value)
+            while i < arr_len:
+                # Do not check leaves
+                # if not (isinstance(node.value[i], ObjectValue) or isinstance(node.value[i], ArrayValue)):
+                #     i += 1
+                #     continue
+
+                nsel = yangson.instance.EntryIndex(i)
+                e = nsel.goto_step(node)
+                eii = copy.copy(ii)
+                eii.append(yangson.instance.EntryIndex(i))
+
+                info("checking eii {}".format(eii))
+                if self.check_data_node_path(eii, Permission.NACM_ACCESS_READ) == Action.DENY:
+                    info("Pruning node {} {}".format(id(node.value[i]), node.value[i]))
+                    node = node.remove_entry(i)
+                    arr_len -= 1
+                else:
+                    i += 1
+                    node = self._check_data_read_path(e, eii).up()
+
+
+        return node
+
+    def check_data_read_path(self, ii: InstanceIdentifier) -> Instance:
+        n = self.data.get_node(ii)
+        return self._check_data_read_path(n, ii)
+
+    """
     def check_data_node(self, node: Instance, access: Permission) -> Action:
         if not isinstance(node, Instance):
             raise TypeError("Node not an Instance!")
@@ -230,7 +401,7 @@ class NacmRpc:
 
                     try:
                         selected = self.data.get_node_path(rule.type_data.path, PathFormat.XPATH)
-                        if hash(selected.value) == hash(n.value):
+                        if id(selected.value) == id(n.value):
                             # Success!
                             # the path selects the node
                             info("Rule found: \"{}\"".format(rule.name))
@@ -295,6 +466,7 @@ class NacmRpc:
 
     def check_data_read(self, node: Instance) -> Instance:
         return self._check_data_read_recursion(node)
+    """
 
 
 def test():
@@ -308,6 +480,19 @@ def test():
     data.register_nacm(nacm)
 
     nrpc = NacmRpc(nacm, data, "dominik")
+    ii = nrpc.data._dm.parse_instance_id("/dns-server:dns-server/zones/zone[domain='example.com']")
+    act = nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_READ)
+    print("\n1 {}".format(act))
+
+    ii2 = nrpc.data._dm.parse_instance_id("/dns-server:dns-server/zones/zone[domain='example.com']/notify")
+    act = nrpc.check_data_node_path(ii2, Permission.NACM_ACCESS_READ)
+    print("\n2 {}".format(act))
+
+    ii3 = nrpc.data._dm.parse_instance_id("/dns-server:dns-server/zones")
+    n = nrpc.check_data_read_path(ii3)
+    print("\n3 {}".format(n.value))
+
+    exit()
 
     test_paths = (
         (
@@ -342,7 +527,7 @@ def test():
         print("Node null")
 
     res = nrpc.check_data_read(_node)
-    res = json.dumps(res.value, indent=4)
+    res = json.dumps(res.value, indent=4, sort_keys=True)
     print("result = \n" + res + "\n")
 
     res_expected = """

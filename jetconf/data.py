@@ -90,11 +90,11 @@ class BaseDatastore:
 
         if self.nacm:
             nrpc = NacmRpc(self.nacm, self, rpc.username)
-            if nrpc.check_data_node(n, Permission.NACM_ACCESS_READ) == Action.DENY:
+            if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_READ) == Action.DENY:
                 raise NacmForbiddenError()
             else:
                 # Prun subtree data
-                n = nrpc.check_data_read(n)
+                n = nrpc.check_data_read_path(ii)
 
         return n
 

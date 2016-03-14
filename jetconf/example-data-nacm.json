@@ -56,6 +56,13 @@
             "action": "deny"
           },
           {
+            "name": "no-writes-on-example.com",
+            "path": "/dns-server:dns-server/zones/zone[domain='mydomain.com']",
+            "access-operations": "create update delete",
+            "comment": "Users cannot write example.com.",
+            "action": "deny"
+          },
+          {
             "name": "permit-zone-access",
             "path": "/dns-server:dns-server/zones/zone",
             "access-operations": "*",
