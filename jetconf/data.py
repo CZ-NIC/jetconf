@@ -57,36 +57,30 @@ class BaseDatastore:
     def get_data_root(self) -> Instance:
         return self._data
 
-    # Just get the node, do not evaluate NACM (for testing purposes)
-    def get_node(self, ii: InstanceIdentifier) -> Instance:
-        # self.lock_data("get_node")
-        n = self._data.goto(ii)
-        # self.unlock_data()
-        return n
-
-    # Just get the node, do not evaluate NACM (for testing purposes)
-    def get_node_path(self, path: str, path_format: PathFormat) -> Instance:
-        n = None
+    # Parse Instance Identifier from string
+    def parse_ii(self, path: str, path_format: PathFormat) -> InstanceIdentifier:
         if path_format == PathFormat.URL:
             ii = self._dm.parse_resource_id(path)
         else:
             ii = self._dm.parse_instance_id(path)
 
-        # self.lock_data("get_node_path")
+        return ii
+
+    # Just get the node, do not evaluate NACM (for testing purposes)
+    def get_node(self, ii: InstanceIdentifier) -> Instance:
         n = self._data.goto(ii)
-        # self.unlock_data()
+        return n
+
+    # Just get the node, do not evaluate NACM (for testing purposes)
+    def get_node_path(self, path: str, path_format: PathFormat) -> Instance:
+        ii = self.parse_ii(path, path_format)
+        n = self._data.goto(ii)
         return n
 
     # Get data node, evaluate NACM if possible
     def get_node_rpc(self, rpc: Rpc) -> Instance:
-        n = None
-        if rpc.path_format == PathFormat.URL:
-            ii = self._dm.parse_resource_id(rpc.path)
-        else:
-            ii = self._dm.parse_instance_id(rpc.path)
-        # self.lock_data(rpc.username)
+        ii = self.parse_ii(rpc.path, rpc.path_format)
         n = self._data.goto(ii)
-        # self.unlock_data()
 
         if self.nacm:
             nrpc = NacmRpc(self.nacm, self, rpc.username)
@@ -98,9 +92,24 @@ class BaseDatastore:
 
         return n
 
+    def put_node_rpc(self, rpc: Rpc, value: Any):
+        ii = self.parse_ii(rpc.path, rpc.path_format)
+        n = self._data.goto(ii)
+
+        # if self.nacm:
+        #     nrpc = NacmRpc(self.nacm, self, rpc.username)
+        #     if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_READ) == Action.DENY:
+        #         raise NacmForbiddenError()
+        #     else:
+        #         # Prun subtree data
+        #         n = nrpc.check_data_read_path(ii)
+
+        new_n = n.update(value)
+        self._data = new_n.top()
+
     # Locks datastore data
-    def lock_data(self, username: str = None):
-        ret = self._data_lock.acquire(blocking=False)
+    def lock_data(self, username: str = None, blocking: bool=True):
+        ret = self._data_lock.acquire(blocking=blocking, timeout=1)
         if ret:
             self._lock_username = username or "(unknown)"
             info("Acquired lock in datastore \"{}\" for user \"{}\"".format(self.name, username))
@@ -142,16 +151,6 @@ class JsonDatastore(BaseDatastore):
 
 
 def test():
-    """
-    with open("./data/yang-library-data.json") as ylfile:
-        yl = ylfile.read()
-    _dm = DataModel.from_yang_library(yl, "./data")
-    with open("jetconf/example-data.json", "rt") as fp:
-        _root = _dm.from_raw(json.load(fp))
-    print(hash(_root.member("dns-server:dns-server").value))
-    """
-
-    # exit()
     data = JsonDatastore("./data", "./data/yang-library-data.json")
     data.load("jetconf/example-data.json")
 
@@ -160,9 +159,13 @@ def test():
     rpc.path = "/dns-server:dns-server/zones/zone[domain='example.com']/query-module"
     rpc.path_format = PathFormat.XPATH
 
+    info("Reading: " + rpc.path)
     n = data.get_node_rpc(rpc)
+    info("Result =")
     print(n.value)
-    print(hash(data.get_data_root().member("dns-server:dns-server").value))
-
+    if json.loads(json.dumps(n.value)) == [{'name': 'test1', 'type': 'knot-dns:synth-record'}, {'name': 'test2', 'type': 'knot-dns:synth-record'}]:
+        info("OK")
+    else:
+        warn("FAILED")
 
 from .nacm import NacmConfig, NacmRpc, Permission, Action

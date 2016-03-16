@@ -30,6 +30,7 @@ CONFIG = {
 
 # NACM_ADMINS = []
 
+
 class CertHelpers:
     @staticmethod
     def get_field(cert: Dict[str, Any], key: str) -> str:
@@ -135,9 +136,14 @@ class H2Protocol(asyncio.Protocol):
                 rpc1.path = pth
 
                 try:
+                    ex_datastore.nacm.nacm_ds.lock_data(username)
                     n = ex_datastore.nacm.nacm_ds.get_node_rpc(rpc1)
-                    response = json.dumps(n.value, indent=4) + "\n"
+                    response = json.dumps(n.value, indent=4)
                     http_status = "200"
+                except DataLockError as e:
+                    warn(e.msg)
+                    response = "Internal Server Error"
+                    http_status = "500"
                 except NonexistentSchemaNode:
                     warn("NonexistentSchemaNode: " + pth)
                     response = "NonexistentSchemaNode"
@@ -146,7 +152,10 @@ class H2Protocol(asyncio.Protocol):
                     warn("NonexistentInstance: " + pth)
                     response = "NonexistentInstance"
                     http_status = "404"
+                finally:
+                    ex_datastore.nacm.nacm_ds.unlock_data()
 
+            response += "\n"
             response_headers = (
                 (':status', http_status),
                 ('content-type', 'application/yang.api+json'),
@@ -172,7 +181,7 @@ class H2Protocol(asyncio.Protocol):
             try:
                 ex_datastore.lock_data(username)
                 n = ex_datastore.get_node_rpc(rpc1)
-                response = json.dumps(n.value, indent=4) + "\n"
+                response = json.dumps(n.value, indent=4)
                 http_status = "200"
             except DataLockError as e:
                 warn(e.msg)
@@ -193,6 +202,7 @@ class H2Protocol(asyncio.Protocol):
             finally:
                 ex_datastore.unlock_data()
 
+            response += "\n"
             response_headers = (
                 (':status', http_status),
                 ('content-type', 'application/yang.api+json'),
@@ -251,28 +261,60 @@ class H2Protocol(asyncio.Protocol):
         print("put")
 
     def handle_post(self, headers: OrderedDict, data: bytes, stream_id: int):
-        print("post")
-        return
-        parsed_url = yang_json_path.URLPath(headers[":path"])
-        print(json.dumps({"query": parsed_url.query_table, "path": parsed_url.path_list}, indent=4))
+        data_str = data.decode("utf-8")
+        info("prijato: " + data_str)
 
-        print("prijato: " + data.decode("utf-8"))
-        print(json.dumps({"headers": headers}, indent=4))
+        if headers[":path"].startswith(os.path.join(CONFIG["RESTCONF_NACM_API_ROOT"], "data")):
+            info(("nacm_api_post: " + headers[":path"]))
 
-        response = "Jmenujes se {} a tvuj e-mail je {}\n".format(
-                CertHelpers.get_field(self.client_cert, "organizationName"),
-                CertHelpers.get_field(self.client_cert, "emailAddress")
-        ).encode()
+            username = CertHelpers.get_field(self.client_cert, "emailAddress")
 
-        response_headers = (
-            (':status', '200'),
-            ('content-type', 'application/yang.api+json'),
-            ('content-length', len(response)),
-            ('server', CONFIG["SERVER_NAME"]),
-        )
+            pth = headers[":path"][len(os.path.join(CONFIG["RESTCONF_NACM_API_ROOT"], "data")):]
 
-        self.conn.send_headers(stream_id, response_headers)
-        self.conn.send_data(stream_id, response, end_stream=True)
+            rpc1 = Rpc()
+            rpc1.username = username
+            rpc1.path = pth
+
+            try:
+                ex_datastore.nacm.nacm_ds.lock_data(username)
+                ex_datastore.nacm.nacm_ds.put_node_rpc(rpc1, json.loads(data_str))
+                response = "Done\n"
+                http_status = "200"
+            except DataLockError as e:
+                warn(e.msg)
+                response = "Internal Server Error"
+                http_status = "500"
+            except NacmForbiddenError as e:
+                warn(e.msg)
+                response = "Forbidden"
+                http_status = "403"
+            except NonexistentSchemaNode:
+                warn("NonexistentSchemaNode: " + pth)
+                response = "NonexistentSchemaNode"
+                http_status = "404"
+            except NonexistentInstance:
+                warn("NonexistentInstance: " + pth)
+                response = "NonexistentInstance"
+                http_status = "404"
+            finally:
+                ex_datastore.nacm.nacm_ds.unlock_data()
+                ex_datastore.nacm.update(ex_datastore.nacm.nacm_ds.get_data_root().member("ietf-netconf-acm:nacm"))
+
+            response += "\n"
+            response = response.encode()
+            response_headers = (
+                (':status', http_status),
+                ('content-type', 'application/yang.api+json'),
+                ('content-length', len(response)),
+                ('server', CONFIG["SERVER_NAME"]),
+            )
+
+            self.conn.send_headers(stream_id, response_headers)
+            self.conn.send_data(stream_id, response, end_stream=True)
+
+        else:
+            # Unknown POST URL
+            pass
 
 
 def run():
