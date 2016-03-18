@@ -8,7 +8,7 @@ from h2.connection import H2Connection
 from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged
 
 import jetconf.http_handlers as handlers
-from .config import CONFIG_HTTP, RESTCONF_NACM_API_ROOT_data, RESTCONF_API_ROOT_data, load_config, print_config
+from .config import CONFIG_HTTP, NACM_API_ROOT_data, API_ROOT_data, load_config, print_config
 from .nacm import NacmConfig
 from .data import JsonDatastore, Rpc, NacmForbiddenError, DataLockError, InstanceAlreadyPresent
 
@@ -121,11 +121,11 @@ def run():
     put_post_nacm_api = handlers.create_put_post_nacm_api(ex_datastore)
 
     gl_handlers = HandlerList()
-    gl_handlers.register_handler(lambda m, p: (m == "POST") and (p.startswith(RESTCONF_NACM_API_ROOT_data)), put_post_nacm_api)
-    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["RESTCONF_NACM_API_ROOT"]), handlers.api_root_handler)
-    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["RESTCONF_API_ROOT"]), handlers.api_root_handler)
-    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(RESTCONF_NACM_API_ROOT_data)), get_nacm_api)
-    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(RESTCONF_API_ROOT_data)), get_api)
+    gl_handlers.register_handler(lambda m, p: (m == "POST") and (p.startswith(NACM_API_ROOT_data)), put_post_nacm_api)
+    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["NACM_API_ROOT"]), handlers.api_root_handler)
+    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["API_ROOT"]), handlers.api_root_handler)
+    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(NACM_API_ROOT_data)), get_nacm_api)
+    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_data)), get_api)
     gl_handlers.register_handler(lambda m, p: m == "GET", handlers.get_file)
 
     # HTTP server init

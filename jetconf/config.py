@@ -5,8 +5,8 @@ from colorlog import warning as warn, info
 CONFIG_HTTP = {
     "DOC_ROOT": "doc-root",
     "DOC_DEFAULT_NAME": "index.html",
-    "RESTCONF_API_ROOT": "/restconf",
-    "RESTCONF_NACM_API_ROOT": "/restconf_nacm",
+    "API_ROOT": "/restconf",
+    "NACM_API_ROOT": "/restconf_nacm",
     "SERVER_NAME": "hyper-h2",
     "PORT": 8443,
 
@@ -25,14 +25,14 @@ CONFIG = {
 }
 
 NACM_ADMINS = CONFIG["NACM"]["ALLOWED_USERS"]
-RESTCONF_NACM_API_ROOT_data = os.path.join(CONFIG_HTTP["RESTCONF_NACM_API_ROOT"], "data")
-RESTCONF_API_ROOT_data = os.path.join(CONFIG_HTTP["RESTCONF_API_ROOT"], "data")
+NACM_API_ROOT_data = os.path.join(CONFIG_HTTP["NACM_API_ROOT"], "data")
+API_ROOT_data = os.path.join(CONFIG_HTTP["API_ROOT"], "data")
 
 
 def load_config(filename: str):
     global NACM_ADMINS
-    global RESTCONF_NACM_API_ROOT_data
-    global RESTCONF_API_ROOT_data
+    global NACM_API_ROOT_data
+    global API_ROOT_data
 
     try:
         with open(filename) as conf_fd:
@@ -48,8 +48,8 @@ def load_config(filename: str):
 
     # Shortcuts
     NACM_ADMINS = CONFIG["NACM"]["ALLOWED_USERS"]
-    RESTCONF_NACM_API_ROOT_data = os.path.join(CONFIG_HTTP["RESTCONF_NACM_API_ROOT"], "data")
-    RESTCONF_API_ROOT_data = os.path.join(CONFIG_HTTP["RESTCONF_API_ROOT"], "data")
+    NACM_API_ROOT_data = os.path.join(CONFIG_HTTP["NACM_API_ROOT"], "data")
+    API_ROOT_data = os.path.join(CONFIG_HTTP["API_ROOT"], "data")
 
 
 def print_config():

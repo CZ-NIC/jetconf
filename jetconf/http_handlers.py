@@ -8,7 +8,7 @@ from urllib.parse import parse_qs
 from yangson.schema import NonexistentSchemaNode
 from yangson.instance import NonexistentInstance
 
-from .config import CONFIG_HTTP, NACM_ADMINS, RESTCONF_API_ROOT_data, RESTCONF_NACM_API_ROOT_data
+from .config import CONFIG_HTTP, NACM_ADMINS, API_ROOT_data, NACM_API_ROOT_data
 from .helpers import CertHelpers
 from .data import BaseDatastore, Rpc, DataLockError, NacmForbiddenError, InstanceAlreadyPresent
 
@@ -105,7 +105,7 @@ def create_get_nacm_api(ds: BaseDatastore):
             prot.conn.send_headers(stream_id, response_headers)
             prot.conn.send_data(stream_id, response.encode(), end_stream=True)
         else:
-            pth = url_path[len(RESTCONF_NACM_API_ROOT_data):] or "/"
+            pth = url_path[len(NACM_API_ROOT_data):] or "/"
             get(prot, headers, stream_id, ds.nacm.nacm_ds, pth)
 
     return get_nacm_api_closure
@@ -123,7 +123,7 @@ def create_get_api(ds: BaseDatastore):
         else:
             query_string = {}
 
-        pth = url_path[len(RESTCONF_API_ROOT_data):] or "/"
+        pth = url_path[len(API_ROOT_data):] or "/"
 
         get(prot, headers, stream_id, ds, pth)
 
@@ -196,7 +196,7 @@ def create_put_post_nacm_api(ds: BaseDatastore):
 
         username = CertHelpers.get_field(prot.client_cert, "emailAddress")
 
-        pth = path[len(RESTCONF_NACM_API_ROOT_data):]
+        pth = path[len(NACM_API_ROOT_data):]
 
         rpc1 = Rpc()
         rpc1.username = username
