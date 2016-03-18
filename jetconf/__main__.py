@@ -34,8 +34,8 @@ def main():
             tm.test()
         except ImportError as e:
             print(e.msg)
-        #except AttributeError:
-        #    print("Module \"{}\" has no test() function".format(test_module))
+        # except AttributeError:
+        #     print("Module \"{}\" has no test() function".format(test_module))
 
     else:
         rest_server.run()

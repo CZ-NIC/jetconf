@@ -77,20 +77,6 @@
             "action": "deny"
           },
           {
-            "name": "povol pristup ke groups",
-            "path": "/ietf-netconf-acm:nacm/groups",
-            "access-operations": "read",
-            "comment": "komentar",
-            "action": "permit"
-          },
-          {
-            "name": "zakaz pristup k admin group",
-            "path": "/ietf-netconf-acm:nacm/groups/group[name='admin']",
-            "access-operations": "*",
-            "comment": "komentar",
-            "action": "deny"
-          },
-          {
             "name": "permit-zone-reload",
             "module-name": "dns-server",
             "rpc-name": "zone-reload",
