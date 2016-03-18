@@ -3,14 +3,14 @@ import ssl
 from collections import OrderedDict
 from colorlog import error, warning as warn, info, debug
 from typing import List, Tuple, Dict, Any, Callable
-from .nacm import NacmConfig
-from .data import JsonDatastore, Rpc, NacmForbiddenError, DataLockError, InstanceAlreadyPresent
-import jetconf.http_handlers
 
 from h2.connection import H2Connection
 from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged
 
+import jetconf.http_handlers as handlers
 from .config import CONFIG_HTTP, RESTCONF_NACM_API_ROOT_data, RESTCONF_API_ROOT_data, load_config, print_config
+from .nacm import NacmConfig
+from .data import JsonDatastore, Rpc, NacmForbiddenError, DataLockError, InstanceAlreadyPresent
 
 
 # Function(method, path) -> bool
@@ -98,21 +98,11 @@ class H2Protocol(asyncio.Protocol):
 
 
 def run():
-    global ex_datastore
     global gl_handlers
 
     # Load configuration
     load_config("jetconf/config.yaml")
     print_config()
-
-    # Register HTTP handlers
-    gl_handlers = HandlerList()
-    gl_handlers.register_handler(lambda m, p: (m == "POST") and (p.startswith(RESTCONF_NACM_API_ROOT_data)), jetconf.http_handlers.put_post_nacm_api)
-    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["RESTCONF_NACM_API_ROOT"]), jetconf.http_handlers.api_root_handler)
-    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["RESTCONF_API_ROOT"]), jetconf.http_handlers.api_root_handler)
-    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(RESTCONF_NACM_API_ROOT_data)), jetconf.http_handlers.get_nacm_api)
-    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(RESTCONF_API_ROOT_data)), jetconf.http_handlers.get_api)
-    gl_handlers.register_handler(lambda m, p: m == "GET", jetconf.http_handlers.get_file)
 
     # NACM init
     nacm_data = JsonDatastore("./data", "./data/yang-library-data.json", "NACM data")
@@ -124,6 +114,19 @@ def run():
     ex_datastore = JsonDatastore("./data", "./data/yang-library-data.json", "DNS data")
     ex_datastore.load("jetconf/example-data.json")
     ex_datastore.register_nacm(nacmc)
+
+    # Register HTTP handlers
+    get_api = handlers.create_get_api(ex_datastore)
+    get_nacm_api = handlers.create_get_nacm_api(ex_datastore)
+    put_post_nacm_api = handlers.create_put_post_nacm_api(ex_datastore)
+
+    gl_handlers = HandlerList()
+    gl_handlers.register_handler(lambda m, p: (m == "POST") and (p.startswith(RESTCONF_NACM_API_ROOT_data)), put_post_nacm_api)
+    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["RESTCONF_NACM_API_ROOT"]), handlers.api_root_handler)
+    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["RESTCONF_API_ROOT"]), handlers.api_root_handler)
+    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(RESTCONF_NACM_API_ROOT_data)), get_nacm_api)
+    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(RESTCONF_API_ROOT_data)), get_api)
+    gl_handlers.register_handler(lambda m, p: m == "GET", handlers.get_file)
 
     # HTTP server init
     ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)

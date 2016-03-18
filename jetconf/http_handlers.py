@@ -10,8 +10,7 @@ from yangson.instance import NonexistentInstance
 
 from .config import CONFIG_HTTP, NACM_ADMINS, RESTCONF_API_ROOT_data, RESTCONF_NACM_API_ROOT_data
 from .helpers import CertHelpers
-import jetconf.rest_server
-from .data import Rpc, DataLockError, NacmForbiddenError, InstanceAlreadyPresent
+from .data import BaseDatastore, Rpc, DataLockError, NacmForbiddenError, InstanceAlreadyPresent
 
 
 def api_root_handler(prot: "H2Protocol", headers: OrderedDict, stream_id: int):
@@ -77,52 +76,58 @@ def get(prot: "H2Protocol", headers: OrderedDict, stream_id: int, ds, pth):
     prot.conn.send_data(stream_id, response.encode(), end_stream=True)
 
 
-def get_nacm_api(prot: "H2Protocol", headers: OrderedDict, stream_id: int):
-    # NACM api request
-    info(("nacm_api_get: " + headers[":path"]))
+def create_get_nacm_api(ds: BaseDatastore):
+    def get_nacm_api_closure(prot: "H2Protocol", headers: OrderedDict, stream_id: int):
+        # NACM api request
+        info(("nacm_api_get: " + headers[":path"]))
 
-    url_split = headers[":path"].split("?")
-    url_path = url_split[0]
-    if len(url_split) > 1:
-        query_string = parse_qs(url_split[1])
-    else:
-        query_string = {}
+        url_split = headers[":path"].split("?")
+        url_path = url_split[0]
+        if len(url_split) > 1:
+            query_string = parse_qs(url_split[1])
+        else:
+            query_string = {}
 
-    username = CertHelpers.get_field(prot.client_cert, "emailAddress")
-    if username not in NACM_ADMINS:
-        warn(username + " not allowed to access NACM data")
-        response = "Forbidden"
-        http_status = "403"
+        username = CertHelpers.get_field(prot.client_cert, "emailAddress")
+        if username not in NACM_ADMINS:
+            warn(username + " not allowed to access NACM data")
+            response = "Forbidden"
+            http_status = "403"
 
-        response += "\n"
-        response_headers = (
-            (':status', http_status),
-            ('content-type', 'application/yang.api+json'),
-            ('content-length', len(response)),
-            ('server', CONFIG_HTTP["SERVER_NAME"]),
-        )
+            response += "\n"
+            response_headers = (
+                (':status', http_status),
+                ('content-type', 'application/yang.api+json'),
+                ('content-length', len(response)),
+                ('server', CONFIG_HTTP["SERVER_NAME"]),
+            )
 
-        prot.conn.send_headers(stream_id, response_headers)
-        prot.conn.send_data(stream_id, response.encode(), end_stream=True)
-    else:
-        pth = url_path[len(jetconf.rest_server.RESTCONF_NACM_API_ROOT_data):] or "/"
-        get(prot, headers, stream_id, jetconf.rest_server.ex_datastore.nacm.nacm_ds, pth)
+            prot.conn.send_headers(stream_id, response_headers)
+            prot.conn.send_data(stream_id, response.encode(), end_stream=True)
+        else:
+            pth = url_path[len(RESTCONF_NACM_API_ROOT_data):] or "/"
+            get(prot, headers, stream_id, ds.nacm.nacm_ds, pth)
+
+    return get_nacm_api_closure
 
 
-def get_api(prot: "H2Protocol", headers: OrderedDict, stream_id: int):
-    # api request
-    info(("api_get: " + headers[":path"]))
+def create_get_api(ds: BaseDatastore):
+    def get_api_closure(prot: "H2Protocol", headers: OrderedDict, stream_id: int):
+        # api request
+        info(("api_get: " + headers[":path"]))
 
-    url_split = headers[":path"].split("?")
-    url_path = url_split[0]
-    if len(url_split) > 1:
-        query_string = parse_qs(url_split[1])
-    else:
-        query_string = {}
+        url_split = headers[":path"].split("?")
+        url_path = url_split[0]
+        if len(url_split) > 1:
+            query_string = parse_qs(url_split[1])
+        else:
+            query_string = {}
 
-    pth = url_path[len(jetconf.rest_server.RESTCONF_API_ROOT_data):] or "/"
+        pth = url_path[len(RESTCONF_API_ROOT_data):] or "/"
 
-    get(prot, headers, stream_id, jetconf.rest_server.ex_datastore, pth)
+        get(prot, headers, stream_id, ds, pth)
+
+    return get_api_closure
 
 
 def get_file(prot: "H2Protocol", headers: OrderedDict, stream_id: int):
@@ -174,71 +179,74 @@ def get_file(prot: "H2Protocol", headers: OrderedDict, stream_id: int):
     prot.conn.send_data(stream_id, bytes(), end_stream=True)
 
 
-def put_post_nacm_api(prot: "H2Protocol", headers: OrderedDict, data: bytes, stream_id: int):
-    data_str = data.decode("utf-8")
-    info("prijato: " + data_str)
+def create_put_post_nacm_api(ds: BaseDatastore):
+    def put_post_nacm_api_closure(prot: "H2Protocol", headers: OrderedDict, data: bytes, stream_id: int):
+        data_str = data.decode("utf-8")
+        info("prijato: " + data_str)
 
-    url_split = headers[":path"].split("?")
-    path = url_split[0]
-    if len(url_split) > 1:
-        query_string = parse_qs(url_split[1])
-    else:
-        query_string = {}
-
-    info(("nacm_api_put: " + path))
-    info("qs = {}".format(query_string))
-
-    username = CertHelpers.get_field(prot.client_cert, "emailAddress")
-
-    pth = path[len(jetconf.rest_server.RESTCONF_NACM_API_ROOT_data):]
-
-    rpc1 = Rpc()
-    rpc1.username = username
-    rpc1.path = pth
-
-    json_data = json.loads(data_str)
-
-    try:
-        jetconf.rest_server.ex_datastore.nacm.nacm_ds.lock_data(username)
-        if headers[":method"] == "PUT":
-            jetconf.rest_server.ex_datastore.nacm.nacm_ds.put_node_rpc(rpc1, json_data)
+        url_split = headers[":path"].split("?")
+        path = url_split[0]
+        if len(url_split) > 1:
+            query_string = parse_qs(url_split[1])
         else:
-            ins_pos = (query_string.get("insert") or [None])[0]
-            jetconf.rest_server.ex_datastore.nacm.nacm_ds.create_node_rpc(rpc1, json_data, insert=ins_pos)
-        response = "Done\n"
-        http_status = "200"
-    except DataLockError as e:
-        warn(e.msg)
-        response = "Internal Server Error"
-        http_status = "500"
-    except NacmForbiddenError as e:
-        warn(e.msg)
-        response = "Forbidden"
-        http_status = "403"
-    except NonexistentSchemaNode:
-        warn("NonexistentSchemaNode: " + pth)
-        response = "NonexistentSchemaNode"
-        http_status = "404"
-    except NonexistentInstance:
-        warn("NonexistentInstance: " + pth)
-        response = "NonexistentInstance"
-        http_status = "404"
-    except InstanceAlreadyPresent:
-        warn("InstanceAlreadyPresent: " + pth)
-        response = "Conflict"
-        http_status = "409"
-    finally:
-        jetconf.rest_server.ex_datastore.nacm.nacm_ds.unlock_data()
-        jetconf.rest_server.ex_datastore.nacm.update(jetconf.rest_server.ex_datastore.nacm.nacm_ds.get_data_root().member("ietf-netconf-acm:nacm"))
+            query_string = {}
 
-    response += "\n"
-    response = response.encode()
-    response_headers = (
-        (':status', http_status),
-        ('content-type', 'application/yang.api+json'),
-        ('content-length', len(response)),
-        ('server', CONFIG_HTTP["SERVER_NAME"]),
-    )
+        info(("nacm_api_put: " + path))
+        info("qs = {}".format(query_string))
 
-    prot.conn.send_headers(stream_id, response_headers)
-    prot.conn.send_data(stream_id, response, end_stream=True)
+        username = CertHelpers.get_field(prot.client_cert, "emailAddress")
+
+        pth = path[len(RESTCONF_NACM_API_ROOT_data):]
+
+        rpc1 = Rpc()
+        rpc1.username = username
+        rpc1.path = pth
+
+        json_data = json.loads(data_str)
+
+        try:
+            ds.nacm.nacm_ds.lock_data(username)
+            if headers[":method"] == "PUT":
+                ds.nacm.nacm_ds.put_node_rpc(rpc1, json_data)
+            else:
+                ins_pos = (query_string.get("insert") or [None])[0]
+                ds.nacm.nacm_ds.create_node_rpc(rpc1, json_data, insert=ins_pos)
+            response = "Done\n"
+            http_status = "200"
+        except DataLockError as e:
+            warn(e.msg)
+            response = "Internal Server Error"
+            http_status = "500"
+        except NacmForbiddenError as e:
+            warn(e.msg)
+            response = "Forbidden"
+            http_status = "403"
+        except NonexistentSchemaNode:
+            warn("NonexistentSchemaNode: " + pth)
+            response = "NonexistentSchemaNode"
+            http_status = "404"
+        except NonexistentInstance:
+            warn("NonexistentInstance: " + pth)
+            response = "NonexistentInstance"
+            http_status = "404"
+        except InstanceAlreadyPresent:
+            warn("InstanceAlreadyPresent: " + pth)
+            response = "Conflict"
+            http_status = "409"
+        finally:
+            ds.nacm.nacm_ds.unlock_data()
+            ds.nacm.update(ds.nacm.nacm_ds.get_data_root().member("ietf-netconf-acm:nacm"))
+
+        response += "\n"
+        response = response.encode()
+        response_headers = (
+            (':status', http_status),
+            ('content-type', 'application/yang.api+json'),
+            ('content-length', len(response)),
+            ('server', CONFIG_HTTP["SERVER_NAME"]),
+        )
+
+        prot.conn.send_headers(stream_id, response_headers)
+        prot.conn.send_data(stream_id, response, end_stream=True)
+
+    return put_post_nacm_api_closure
