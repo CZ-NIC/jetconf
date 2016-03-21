@@ -6,7 +6,7 @@ from colorlog import error, warning as warn, info, debug
 from urllib.parse import parse_qs
 
 from yangson.schema import NonexistentSchemaNode
-from yangson.instance import NonexistentInstance
+from yangson.instance import NonexistentInstance, InstanceTypeError
 
 from .config import CONFIG_HTTP, NACM_ADMINS, API_ROOT_data, NACM_API_ROOT_data
 from .helpers import CertHelpers
@@ -60,6 +60,10 @@ def get(prot: "H2Protocol", headers: OrderedDict, stream_id: int, ds, pth):
     except NonexistentInstance:
         warn("NonexistentInstance: " + pth)
         response = "NonexistentInstance"
+        http_status = "404"
+    except InstanceTypeError:
+        warn("InstanceTypeError: " + pth)
+        response = "InstanceTypeError"
         http_status = "404"
     finally:
         ds.unlock_data()
@@ -213,6 +217,71 @@ def create_put_post_nacm_api(ds: BaseDatastore):
                 ds.nacm.nacm_ds.create_node_rpc(rpc1, json_data, insert=ins_pos)
             response = "Done\n"
             http_status = "200"
+        except DataLockError as e:
+            warn(e.msg)
+            response = "Internal Server Error"
+            http_status = "500"
+        except NacmForbiddenError as e:
+            warn(e.msg)
+            response = "Forbidden"
+            http_status = "403"
+        except NonexistentSchemaNode:
+            warn("NonexistentSchemaNode: " + pth)
+            response = "NonexistentSchemaNode"
+            http_status = "404"
+        except NonexistentInstance:
+            warn("NonexistentInstance: " + pth)
+            response = "NonexistentInstance"
+            http_status = "404"
+        except InstanceAlreadyPresent:
+            warn("InstanceAlreadyPresent: " + pth)
+            response = "Conflict"
+            http_status = "409"
+        finally:
+            ds.nacm.nacm_ds.unlock_data()
+            ds.nacm.update(ds.nacm.nacm_ds.get_data_root().member("ietf-netconf-acm:nacm"))
+
+        response += "\n"
+        response = response.encode()
+        response_headers = (
+            (':status', http_status),
+            ('content-type', 'application/yang.api+json'),
+            ('content-length', len(response)),
+            ('server', CONFIG_HTTP["SERVER_NAME"]),
+        )
+
+        prot.conn.send_headers(stream_id, response_headers)
+        prot.conn.send_data(stream_id, response, end_stream=True)
+
+    return put_post_nacm_api_closure
+
+
+def create_nacm_api_delete(ds: BaseDatastore):
+    def put_post_nacm_api_closure(prot: "H2Protocol", headers: OrderedDict, stream_id: int):
+
+        url_split = headers[":path"].split("?")
+        path = url_split[0]
+        if len(url_split) > 1:
+            query_string = parse_qs(url_split[1])
+        else:
+            query_string = {}
+
+        info(("nacm_api_delete: " + path))
+        info("qs = {}".format(query_string))
+
+        username = CertHelpers.get_field(prot.client_cert, "emailAddress")
+
+        pth = path[len(NACM_API_ROOT_data):]
+
+        rpc1 = Rpc()
+        rpc1.username = username
+        rpc1.path = pth
+
+        try:
+            ds.nacm.nacm_ds.lock_data(username)
+            ds.nacm.nacm_ds.delete_node_rpc(rpc1)
+            response = "No Content"
+            http_status = "204"
         except DataLockError as e:
             warn(e.msg)
             response = "Internal Server Error"

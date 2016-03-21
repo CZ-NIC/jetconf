@@ -58,9 +58,9 @@ class H2Protocol(asyncio.Protocol):
                 headers = OrderedDict(event.headers)
 
                 http_method = headers[":method"]
-                if http_method == "GET":
-                    # Handle GET
-                    self.handle_get(headers, event.stream_id)
+                if http_method in ("GET", "DELETE"):
+                    # Handle immediately, no need to wait for incoming data
+                    self.handle_get_delete(headers, event.stream_id)
                 elif http_method in ("PUT", "POST"):
                     # Store headers and wait for data upload
                     self.reqs_waiting_upload[event.stream_id] = headers
@@ -70,8 +70,6 @@ class H2Protocol(asyncio.Protocol):
                 self.http_handle_upload(event.data, event.stream_id)
             elif isinstance(event, RemoteSettingsChanged):
                 self.conn.acknowledge_settings(event)
-
-            self.transport.write(self.conn.data_to_send())
 
     def http_handle_upload(self, data: bytes, stream_id: int):
         try:
@@ -83,22 +81,22 @@ class H2Protocol(asyncio.Protocol):
         url_split = headers[":path"].split("?")
         url_path = url_split[0]
 
-        h = gl_handlers.get_handler(headers[":method"], url_path)
+        h = h2_handlers.get_handler(headers[":method"], url_path)
         if h:
             h(self, headers, data, stream_id)
 
-    def handle_get(self, headers: OrderedDict, stream_id: int):
-        # Handle GET
+    def handle_get_delete(self, headers: OrderedDict, stream_id: int):
+        # Handle GET, DELETE
         url_split = headers[":path"].split("?")
         url_path = url_split[0]
 
-        h = gl_handlers.get_handler("GET", url_path)
+        h = h2_handlers.get_handler(headers[":method"], url_path)
         if h:
             h(self, headers, stream_id)
 
 
 def run():
-    global gl_handlers
+    global h2_handlers
 
     # Load configuration
     load_config("jetconf/config.yaml")
@@ -119,14 +117,16 @@ def run():
     get_api = handlers.create_get_api(ex_datastore)
     get_nacm_api = handlers.create_get_nacm_api(ex_datastore)
     put_post_nacm_api = handlers.create_put_post_nacm_api(ex_datastore)
+    nacm_api_delete = handlers.create_nacm_api_delete(ex_datastore)
 
-    gl_handlers = HandlerList()
-    gl_handlers.register_handler(lambda m, p: (m == "POST") and (p.startswith(NACM_API_ROOT_data)), put_post_nacm_api)
-    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["NACM_API_ROOT"]), handlers.api_root_handler)
-    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["API_ROOT"]), handlers.api_root_handler)
-    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(NACM_API_ROOT_data)), get_nacm_api)
-    gl_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_data)), get_api)
-    gl_handlers.register_handler(lambda m, p: m == "GET", handlers.get_file)
+    h2_handlers = HandlerList()
+    h2_handlers.register_handler(lambda m, p: (m == "POST") and (p.startswith(NACM_API_ROOT_data)), put_post_nacm_api)
+    h2_handlers.register_handler(lambda m, p: (m == "DELETE") and (p.startswith(NACM_API_ROOT_data)), nacm_api_delete)
+    h2_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["NACM_API_ROOT"]), handlers.api_root_handler)
+    h2_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["API_ROOT"]), handlers.api_root_handler)
+    h2_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(NACM_API_ROOT_data)), get_nacm_api)
+    h2_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_data)), get_api)
+    h2_handlers.register_handler(lambda m, p: m == "GET", handlers.get_file)
 
     # HTTP server init
     ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)

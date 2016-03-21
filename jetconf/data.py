@@ -9,7 +9,7 @@ from colorlog import error, warning as warn, info, debug
 from typing import List, Any, Dict, TypeVar, Tuple, Set
 import copy
 import yangson.instance
-from yangson.instance import Instance, NonexistentInstance, InstanceError, ArrayValue, ObjectValue, MemberName, EntryKeys
+from yangson.instance import Instance, NonexistentInstance, InstanceError, ArrayValue, ObjectValue, MemberName, EntryKeys, EntryIndex
 from yangson import DataModel
 from yangson.datamodel import InstanceIdentifier
 from .helpers import DataHelpers
@@ -170,6 +170,29 @@ class BaseDatastore:
         inst_val = tuple(value_keys)[0]
 
         new_n = n.update(inst_val)
+        self._data = new_n.top()
+
+    def delete_node_rpc(self, rpc: Rpc, insert=None, point=None):
+        ii = self.parse_ii(rpc.path, rpc.path_format)
+        n = self._data.goto(ii)
+        n_parent = n.up()
+        last_isel = ii[-1]
+
+        # if self.nacm:
+        #     nrpc = NacmRpc(self.nacm, self, rpc.username)
+        #     if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_READ) == Action.DENY:
+        #         raise NacmForbiddenError()
+        #     else:
+        #         # Prun subtree data
+        #         n = nrpc.check_data_read_path(ii)
+
+        if isinstance(last_isel, EntryIndex):
+            new_n = n_parent.remove_entry(last_isel.index)
+        elif isinstance(last_isel, EntryKeys):
+            new_n = n_parent.remove_entry(n.crumb.pointer_fragment())
+        elif isinstance(last_isel, MemberName):
+            new_n = n_parent.remove_member(last_isel.name)
+
         self._data = new_n.top()
 
     # Locks datastore data
