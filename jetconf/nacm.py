@@ -1,11 +1,11 @@
 import json
 import collections
 import copy
-
 from threading import Lock
 from enum import Enum
 from colorlog import error, warning as warn, info, debug
 from typing import List, Set
+
 from yangson.instance import \
     Instance, \
     NonexistentInstance, \
@@ -133,14 +133,14 @@ class NacmConfig:
         self._lock_username = None
 
         try:
-            nacm_data_root = self.nacm_ds.get_data_root().member("ietf-netconf-acm:nacm")
+            self.nacm_ds.get_data_root().member("ietf-netconf-acm:nacm")
         except NonexistentInstance:
             raise ValueError("Data does not contain \"ietf-netconf-acm:nacm\" root element")
 
-        self.update(nacm_data_root)
+        self.update()
 
     # Fills internal read-only data structures
-    def update(self, nacm_data: Instance):
+    def update(self):
         lock_res = self.internal_data_lock.acquire(blocking=True, timeout=1)
         if not lock_res:
             error("NACM update: cannot acquire data lock")
@@ -149,7 +149,7 @@ class NacmConfig:
         self.nacm_groups = []
         self.rule_lists = []
 
-        nacm_json = nacm_data.value
+        nacm_json = self.nacm_ds.get_data_root().member("ietf-netconf-acm:nacm").value
         self.enabled = nacm_json["enable-nacm"]
 
         # NACM not enabled, no need to continue

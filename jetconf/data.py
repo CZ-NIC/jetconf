@@ -1,17 +1,24 @@
 import json
 import logging
-from threading import Lock
-
 import colorlog
 import sys
+import copy
+from threading import Lock
 from enum import Enum
 from colorlog import error, warning as warn, info, debug
 from typing import List, Any, Dict, TypeVar, Tuple, Set
-import copy
-import yangson.instance
-from yangson.instance import Instance, NonexistentInstance, InstanceError, ArrayValue, ObjectValue, MemberName, EntryKeys, EntryIndex
-from yangson import DataModel
-from yangson.datamodel import InstanceIdentifier
+
+from yangson.datamodel import InstanceIdentifier, DataModel
+from yangson.instance import \
+    Instance, \
+    NonexistentInstance, \
+    InstanceError, \
+    ArrayValue, \
+    ObjectValue, \
+    MemberName, \
+    EntryKeys, \
+    EntryIndex
+
 from .helpers import DataHelpers
 
 
@@ -21,8 +28,9 @@ class PathFormat(Enum):
 
 
 class NacmForbiddenError(Exception):
-    def __init__(self, msg="Access to data node rejected by NACM"):
+    def __init__(self, msg="Access to data node rejected by NACM", rule=None):
         self.msg = msg
+        self.rulename = rule
 
 
 class DataLockError(Exception):
@@ -38,6 +46,7 @@ class Rpc:
     def __init__(self):
         self.username = None    # type: str
         self.path = None        # type: str
+        self.qs = None          # type: Dict[str, List[str]]
         self.path_format = PathFormat.URL  # type: PathFormat
 
 
@@ -101,75 +110,68 @@ class BaseDatastore:
         ii = self.parse_ii(rpc.path, rpc.path_format)
         n = self._data.goto(ii)
 
-        # if self.nacm:
-        #     nrpc = NacmRpc(self.nacm, self, rpc.username)
-        #     if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_READ) == Action.DENY:
-        #         raise NacmForbiddenError()
-        #     else:
-        #         # Prun subtree data
-        #         n = nrpc.check_data_read_path(ii)
+        if self.nacm:
+            nrpc = NacmRpc(self.nacm, self, rpc.username)
+            if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_CREATE) == Action.DENY:
+                raise NacmForbiddenError()
 
-        value_keys = value.keys()
-        if len(value_keys) > 1:
-            raise ValueError("Received data containing more than one instance")
+        if isinstance(n.value, ObjectValue):
+            # Only one member can be appended at time
+            value_keys = value.keys()
+            if len(value_keys) > 1:
+                raise ValueError("Received data contains more than one object")
 
-        val_key = tuple(value_keys)[0]
-        val_data = value[val_key]
+            recv_object_key = tuple(value_keys)[0]
+            recv_object_value = value[recv_object_key]
 
-        existing_member = None
-        try:
-            existing_member = n.member(val_key)
-        except NonexistentInstance:
-            pass
+            # Check if member is not already present in data
+            existing_member = None
+            try:
+                existing_member = n.member(recv_object_key)
+            except NonexistentInstance:
+                pass
 
-        if existing_member is None:
-            # Create new data node
-            data_doc = DataHelpers.node2doc(ii + [MemberName(val_key)], val_data)
+            if existing_member is not None:
+                raise InstanceAlreadyPresent("InstanceAlreadyPresent")
+
+            # Create new member
+            new_member_ii = ii + [MemberName(recv_object_key)]
+            data_doc = DataHelpers.node2doc(new_member_ii, recv_object_value)
             data_doc_inst = self._dm.from_raw(data_doc)
-            new_value = data_doc_inst.goto(ii).value
+            new_value = data_doc_inst.goto(new_member_ii).value
 
-            new_value_data = new_value[val_key]
-
-            new_n = n.new_member(val_key, new_value_data)
+            new_n = n.new_member(recv_object_key, new_value)
             self._data = new_n.top()
-        elif isinstance(existing_member.value, ArrayValue):
+        elif isinstance(n.value, ArrayValue):
             # Append received node to list
-            data_doc = DataHelpers.node2doc(ii + [MemberName(val_key)], [val_data])
+            data_doc = DataHelpers.node2doc(ii, [value])
+            print(data_doc)
             data_doc_inst = self._dm.from_raw(data_doc)
             new_value = data_doc_inst.goto(ii).value
-
-            new_value_data = new_value[val_key][0]
 
             if insert == "first":
-                new_n = existing_member.update(ArrayValue(val=[new_value_data] + existing_member.value))
+                new_n = n.update(ArrayValue(val=new_value + n.value))
             else:
-                new_n = existing_member.update(ArrayValue(val=existing_member.value + [new_value_data]))
+                new_n = n.update(ArrayValue(val=n.value + new_value))
             self._data = new_n.top()
         else:
-            raise InstanceAlreadyPresent("InstanceAlreadyPresent")
+            raise ValueError("Child node can only be appended to Object or Array")
 
-        if not isinstance(n.value, ObjectValue):
-            error("create_node: target resource not an object")
 
     def put_node_rpc(self, rpc: Rpc, value: Any):
         ii = self.parse_ii(rpc.path, rpc.path_format)
         n = self._data.goto(ii)
 
-        # if self.nacm:
-        #     nrpc = NacmRpc(self.nacm, self, rpc.username)
-        #     if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_READ) == Action.DENY:
-        #         raise NacmForbiddenError()
-        #     else:
-        #         # Prun subtree data
-        #         n = nrpc.check_data_read_path(ii)
+        if self.nacm:
+            nrpc = NacmRpc(self.nacm, self, rpc.username)
+            if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_UPDATE) == Action.DENY:
+                raise NacmForbiddenError()
 
-        value_keys = value.keys()
-        if len(value_keys) > 1:
-            raise ValueError("Received data containing more than one instance")
+        data_doc = DataHelpers.node2doc(ii, value)
+        data_doc_inst = self._dm.from_raw(data_doc)
+        new_value = data_doc_inst.goto(ii).value
 
-        inst_val = tuple(value_keys)[0]
-
-        new_n = n.update(inst_val)
+        new_n = n.update(new_value)
         self._data = new_n.top()
 
     def delete_node_rpc(self, rpc: Rpc, insert=None, point=None):
@@ -178,13 +180,10 @@ class BaseDatastore:
         n_parent = n.up()
         last_isel = ii[-1]
 
-        # if self.nacm:
-        #     nrpc = NacmRpc(self.nacm, self, rpc.username)
-        #     if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_READ) == Action.DENY:
-        #         raise NacmForbiddenError()
-        #     else:
-        #         # Prun subtree data
-        #         n = nrpc.check_data_read_path(ii)
+        if self.nacm:
+            nrpc = NacmRpc(self.nacm, self, rpc.username)
+            if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_DELETE) == Action.DENY:
+                raise NacmForbiddenError()
 
         if isinstance(last_isel, EntryIndex):
             new_n = n_parent.remove_entry(last_isel.index)
@@ -251,7 +250,13 @@ def test():
     n = data.get_node_rpc(rpc)
     info("Result =")
     print(n.value)
-    if json.loads(json.dumps(n.value)) == [{'name': 'test1', 'type': 'knot-dns:synth-record'}, {'name': 'test2', 'type': 'knot-dns:synth-record'}]:
+    expected_value = \
+    [
+        {'name': 'test1', 'type': 'knot-dns:synth-record'},
+        {'name': 'test2', 'type': 'knot-dns:synth-record'}
+    ]
+
+    if json.loads(json.dumps(n.value)) == expected_value:
         info("OK")
     else:
         warn("FAILED")

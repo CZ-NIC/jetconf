@@ -10,7 +10,7 @@ from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged
 import jetconf.http_handlers as handlers
 from .config import CONFIG_HTTP, NACM_API_ROOT_data, API_ROOT_data, load_config, print_config
 from .nacm import NacmConfig
-from .data import JsonDatastore, Rpc, NacmForbiddenError, DataLockError, InstanceAlreadyPresent
+from .data import JsonDatastore
 
 
 # Function(method, path) -> bool
@@ -114,18 +114,29 @@ def run():
     ex_datastore.register_nacm(nacmc)
 
     # Register HTTP handlers
-    get_api = handlers.create_get_api(ex_datastore)
-    get_nacm_api = handlers.create_get_nacm_api(ex_datastore)
-    put_post_nacm_api = handlers.create_put_post_nacm_api(ex_datastore)
+    api_get_root = handlers.api_root_handler
+    api_get = handlers.create_get_api(ex_datastore)
+    api_post = handlers.create_post_api(ex_datastore)
+    api_put = handlers.create_put_api(ex_datastore)
+    api_delete = handlers.create_api_delete(ex_datastore)
+    nacm_api_get = handlers.create_get_nacm_api(ex_datastore)
+    nacm_api_post = handlers.create_post_nacm_api(ex_datastore)
+    nacm_api_put = handlers.create_put_nacm_api(ex_datastore)
     nacm_api_delete = handlers.create_nacm_api_delete(ex_datastore)
 
     h2_handlers = HandlerList()
-    h2_handlers.register_handler(lambda m, p: (m == "POST") and (p.startswith(NACM_API_ROOT_data)), put_post_nacm_api)
+    h2_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["API_ROOT"]), api_get_root)
+    h2_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_data)), api_get)
+    h2_handlers.register_handler(lambda m, p: (m == "POST") and (p.startswith(API_ROOT_data)), api_post)
+    h2_handlers.register_handler(lambda m, p: (m == "PUT") and (p.startswith(API_ROOT_data)), api_put)
+    h2_handlers.register_handler(lambda m, p: (m == "DELETE") and (p.startswith(API_ROOT_data)), api_delete)
+
+    h2_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["NACM_API_ROOT"]), api_get_root)
+    h2_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(NACM_API_ROOT_data)), nacm_api_get)
+    h2_handlers.register_handler(lambda m, p: (m == "POST") and (p.startswith(NACM_API_ROOT_data)), nacm_api_post)
+    h2_handlers.register_handler(lambda m, p: (m == "PUT") and (p.startswith(NACM_API_ROOT_data)), nacm_api_put)
     h2_handlers.register_handler(lambda m, p: (m == "DELETE") and (p.startswith(NACM_API_ROOT_data)), nacm_api_delete)
-    h2_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["NACM_API_ROOT"]), handlers.api_root_handler)
-    h2_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["API_ROOT"]), handlers.api_root_handler)
-    h2_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(NACM_API_ROOT_data)), get_nacm_api)
-    h2_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_data)), get_api)
+
     h2_handlers.register_handler(lambda m, p: m == "GET", handlers.get_file)
 
     # HTTP server init
