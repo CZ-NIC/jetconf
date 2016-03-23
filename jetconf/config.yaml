@@ -1,3 +1,6 @@
+GLOBAL:
+    TIMEZONE: "Europe/Prague"
+
 HTTP_SERVER:
     DOC_ROOT: "jetconf/doc-root"
     DOC_DEFAULT_NAME: "index.html"

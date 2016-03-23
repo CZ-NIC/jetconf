@@ -1,4 +1,6 @@
 from typing import Dict, Any
+from datetime import datetime
+from pytz import timezone
 from yangson.instance import InstanceIdentifier, MemberName, EntryKeys
 
 
@@ -25,3 +27,15 @@ class DataHelpers:
                 new_node.append(n)
                 n = new_node
         return n
+
+
+class DateTimeHelpers:
+    @staticmethod
+    def to_httpdate_str(dt: datetime, local_tz: str=None) -> str:
+        if local_tz is not None:
+            dtl = timezone(local_tz).localize(dt)
+            dt_gmt = dtl.astimezone(timezone("GMT"))
+        else:
+            dt_gmt = dt
+
+        return dt_gmt.strftime("%a, %d %b %Y %H:%M:%S GMT")

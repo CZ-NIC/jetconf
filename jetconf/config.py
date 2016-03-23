@@ -2,6 +2,10 @@ import os
 import yaml
 from colorlog import warning as warn, info
 
+CONFIG_GLOBAL = {
+    "TIMEZONE": "GMT"
+}
+
 CONFIG_HTTP = {
     "DOC_ROOT": "doc-root",
     "DOC_DEFAULT_NAME": "index.html",
@@ -20,6 +24,7 @@ CONFIG_NACM = {
 }
 
 CONFIG = {
+    "GLOBAL": CONFIG_GLOBAL,
     "HTTP_SERVER": CONFIG_HTTP,
     "NACM": CONFIG_NACM
 }
