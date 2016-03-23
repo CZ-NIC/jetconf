@@ -12,7 +12,8 @@ from yangson.datamodel import InstanceIdentifier, DataModel
 from yangson.instance import \
     Instance, \
     NonexistentInstance, \
-    InstanceError, \
+    InstanceTypeError, \
+    DuplicateMember, \
     ArrayValue, \
     ObjectValue, \
     MemberName, \
@@ -37,9 +38,8 @@ class DataLockError(Exception):
     def __init__(self, msg=""):
         self.msg = msg
 
-
-class InstanceAlreadyPresent(InstanceError):
-    pass
+    def __str__(self):
+        return self.msg
 
 
 class Rpc:
@@ -132,7 +132,7 @@ class BaseDatastore:
                 pass
 
             if existing_member is not None:
-                raise InstanceAlreadyPresent("InstanceAlreadyPresent")
+                raise DuplicateMember(n, recv_object_key)
 
             # Create new member
             new_member_ii = ii + [MemberName(recv_object_key)]
@@ -155,7 +155,7 @@ class BaseDatastore:
                 new_n = n.update(ArrayValue(val=n.value + new_value))
             self._data = new_n.top()
         else:
-            raise ValueError("Child node can only be appended to Object or Array")
+            raise InstanceTypeError(n, "Child node can only be appended to Object or Array")
 
 
     def put_node_rpc(self, rpc: Rpc, value: Any):
@@ -199,7 +199,7 @@ class BaseDatastore:
         ret = self._data_lock.acquire(blocking=blocking, timeout=1)
         if ret:
             self._lock_username = username or "(unknown)"
-            info("Acquired lock in datastore \"{}\" for user \"{}\"".format(self.name, username))
+            debug("Acquired lock in datastore \"{}\" for user \"{}\"".format(self.name, username))
         else:
             raise DataLockError(
                     "Failed to acquire lock in datastore \"{}\" for user \"{}\", already locked by \"{}\"".format(
@@ -212,7 +212,7 @@ class BaseDatastore:
     # Unlocks datastore data
     def unlock_data(self):
         self._data_lock.release()
-        info("Released lock in datastore \"{}\" for user \"{}\"".format(self.name, self._lock_username))
+        debug("Released lock in datastore \"{}\" for user \"{}\"".format(self.name, self._lock_username))
         self._lock_username = None
 
     # Loads the data from file

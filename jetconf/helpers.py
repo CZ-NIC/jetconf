@@ -39,3 +39,9 @@ class DateTimeHelpers:
             dt_gmt = dt
 
         return dt_gmt.strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+
+class ErrorHelpers:
+    @staticmethod
+    def epretty(e: BaseException) -> str:
+        return e.__class__.__name__ + ": " + str(e)

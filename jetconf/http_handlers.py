@@ -7,13 +7,14 @@ from urllib.parse import parse_qs
 from typing import Dict, List
 
 from yangson.schema import NonexistentSchemaNode
-from yangson.instance import NonexistentInstance, InstanceTypeError
+from yangson.instance import NonexistentInstance, InstanceTypeError, DuplicateMember
 
 from .config import CONFIG_GLOBAL, CONFIG_HTTP, NACM_ADMINS, API_ROOT_data, NACM_API_ROOT_data
-from .helpers import CertHelpers, DateTimeHelpers
-from .data import BaseDatastore, Rpc, DataLockError, NacmForbiddenError, InstanceAlreadyPresent
+from .helpers import CertHelpers, DateTimeHelpers, ErrorHelpers
+from .data import BaseDatastore, Rpc, DataLockError, NacmForbiddenError
 
 QueryStrT = Dict[str, List[str]]
+epretty = ErrorHelpers.epretty
 
 
 def http_send_empty(prot: "H2Protocol", stream_id: int, status_code: str, status_msg: str, status_in_body: bool = True):
@@ -91,20 +92,20 @@ def _get(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str):
         prot.conn.send_headers(stream_id, response_headers)
         prot.conn.send_data(stream_id, response_bytes, end_stream=True)
     except DataLockError as e:
-        warn(e.msg)
+        warn(epretty(e))
         http_send_empty(prot, stream_id, "500", "Internal Server Error")
     except NacmForbiddenError as e:
-        warn(e.msg)
+        warn(epretty(e))
         http_send_empty(prot, stream_id, "403", "Forbidden")
-    except NonexistentSchemaNode:
-        warn("NonexistentSchemaNode: " + pth)
+    except NonexistentSchemaNode as e:
+        warn(epretty(e))
         http_send_empty(prot, stream_id, "404", "Not Found")
-    except NonexistentInstance:
-        warn("NonexistentInstance: " + pth)
+    except NonexistentInstance as e:
+        warn(epretty(e))
         http_send_empty(prot, stream_id, "404", "Not Found")
-    except InstanceTypeError:
-        warn("InstanceTypeError: " + pth)
-        http_send_empty(prot, stream_id, "404", "Not Found")
+    except InstanceTypeError as e:
+        warn(epretty(e))
+        http_send_empty(prot, stream_id, "400", "Bad Request")
     finally:
         ds.unlock_data()
 
@@ -186,7 +187,7 @@ def get_file(prot: "H2Protocol", headers: OrderedDict, stream_id: int):
 
 def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth: str):
     data_str = data.decode("utf-8")
-    debug("prijato: " + data_str)
+    debug("HTTP data received: " + data_str)
 
     url_split = pth.split("?")
     url_path = url_split[0]
@@ -195,15 +196,18 @@ def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pt
     else:
         query_string = {}
 
-    info("qs = {}".format(query_string))
-
     username = CertHelpers.get_field(prot.client_cert, "emailAddress")
 
     rpc1 = Rpc()
     rpc1.username = username
     rpc1.path = url_path
 
-    json_data = json.loads(data_str)
+    try:
+        json_data = json.loads(data_str)
+    except ValueError as e:
+        error("Invalid HTTP data: " + str(e))
+        http_send_empty(prot, stream_id, "400", "Bad Request")
+        return
 
     try:
         ds.lock_data(username)
@@ -211,20 +215,23 @@ def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pt
         ds.create_node_rpc(rpc1, json_data, insert=ins_pos)
         http_send_empty(prot, stream_id, "201", "Created")
     except DataLockError as e:
-        warn(e.msg)
+        warn(epretty(e))
         http_send_empty(prot, stream_id, "500", "Internal Server Error")
     except NacmForbiddenError as e:
-        warn(e.msg)
+        warn(epretty(e))
         http_send_empty(prot, stream_id, "403", "Forbidden")
-    except NonexistentSchemaNode:
-        warn("NonexistentSchemaNode: " + pth)
+    except NonexistentSchemaNode as e:
+        warn(epretty(e))
         http_send_empty(prot, stream_id, "404", "Not Found")
-    except NonexistentInstance:
-        warn("NonexistentInstance: " + pth)
+    except NonexistentInstance as e:
+        warn(epretty(e))
         http_send_empty(prot, stream_id, "404", "Not Found")
-    except InstanceAlreadyPresent:
-        warn("InstanceAlreadyPresent: " + pth)
+    except DuplicateMember as e:
+        warn(epretty(e))
         http_send_empty(prot, stream_id, "409", "Conflict")
+    except InstanceTypeError as e:
+        warn(epretty(e))
+        http_send_empty(prot, stream_id, "400", "Bad Request")
     finally:
         ds.unlock_data()
 
@@ -256,7 +263,7 @@ def create_post_api(ds: BaseDatastore):
 
 def _put(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth: str):
     data_str = data.decode("utf-8")
-    info("prijato: " + data_str)
+    debug("HTTP data received: " + data_str)
 
     url_split = pth.split("?")
     url_path = url_split[0]
@@ -264,8 +271,6 @@ def _put(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth
         query_string = parse_qs(url_split[1])
     else:
         query_string = {}
-
-    info("qs = {}".format(query_string))
 
     username = CertHelpers.get_field(prot.client_cert, "emailAddress")
 
@@ -280,16 +285,16 @@ def _put(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth
         ds.put_node_rpc(rpc1, json_data)
         http_send_empty(prot, stream_id, "204", "No Content", False)
     except DataLockError as e:
-        warn(e.msg)
+        warn(epretty(e))
         http_send_empty(prot, stream_id, "500", "Internal Server Error")
     except NacmForbiddenError as e:
-        warn(e.msg)
+        warn(epretty(e))
         http_send_empty(prot, stream_id, "403", "Forbidden")
-    except NonexistentSchemaNode:
-        warn("NonexistentSchemaNode: " + pth)
+    except NonexistentSchemaNode as e:
+        warn(epretty(e))
         http_send_empty(prot, stream_id, "404", "Not Found")
-    except NonexistentInstance:
-        warn("NonexistentInstance: " + pth)
+    except NonexistentInstance as e:
+        warn(epretty(e))
         http_send_empty(prot, stream_id, "404", "Not Found")
     finally:
         ds.unlock_data()
@@ -328,8 +333,6 @@ def _delete(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str):
         else:
             query_string = {}
 
-        info("qs = {}".format(query_string))
-
         username = CertHelpers.get_field(prot.client_cert, "emailAddress")
 
         rpc1 = Rpc()
@@ -341,16 +344,16 @@ def _delete(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str):
             ds.delete_node_rpc(rpc1)
             http_send_empty(prot, stream_id, "204", "No Content", False)
         except DataLockError as e:
-            warn(e.msg)
+            warn(epretty(e))
             http_send_empty(prot, stream_id, "500", "Internal Server Error")
         except NacmForbiddenError as e:
-            warn(e.msg)
+            warn(epretty(e))
             http_send_empty(prot, stream_id, "403", "Forbidden")
-        except NonexistentSchemaNode:
-            warn("NonexistentSchemaNode: " + pth)
+        except NonexistentSchemaNode as e:
+            warn(epretty(e))
             http_send_empty(prot, stream_id, "404", "Not Found")
-        except NonexistentInstance:
-            warn("NonexistentInstance: " + pth)
+        except NonexistentInstance as e:
+            warn(epretty(e))
             http_send_empty(prot, stream_id, "404", "Not Found")
         finally:
             ds.unlock_data()
