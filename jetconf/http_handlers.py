@@ -9,26 +9,16 @@ from typing import Dict, List
 from yangson.schema import NonexistentSchemaNode
 from yangson.instance import NonexistentInstance, InstanceTypeError, DuplicateMember
 
-from .config import CONFIG_GLOBAL, CONFIG_HTTP, NACM_ADMINS, API_ROOT_data, NACM_API_ROOT_data
-from .helpers import CertHelpers, DateTimeHelpers, ErrorHelpers
+from .config import CONFIG_GLOBAL, CONFIG_HTTP, NACM_ADMINS, API_ROOT_data
+from .helpers import CertHelpers, DataHelpers, DateTimeHelpers, ErrorHelpers
 from .data import BaseDatastore, Rpc, DataLockError, NacmForbiddenError
 
 QueryStrT = Dict[str, List[str]]
 epretty = ErrorHelpers.epretty
 
 
-def http_send_empty(prot: "H2Protocol", stream_id: int, status_code: str, status_msg: str, status_in_body: bool = True):
-    response = status_code + " " + status_msg + "\n" if status_in_body else ""
-    response_bytes = response.encode()
-    response_headers = (
-        (":status", status_code),
-        ("content-type", "text/plain"),
-        ("content-length", len(response_bytes)),
-        ("server", CONFIG_HTTP["SERVER_NAME"]),
-    )
-
-    prot.conn.send_headers(stream_id, response_headers)
-    prot.conn.send_data(stream_id, response_bytes, end_stream=True)
+def unknown_req_handler(prot: "H2Protocol", stream_id: int, headers: OrderedDict, data: bytes=None):
+    prot.send_empty(stream_id, "400", "Bad Request")
 
 
 def api_root_handler(prot: "H2Protocol", headers: OrderedDict, stream_id: int):
@@ -93,51 +83,45 @@ def _get(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str):
         prot.conn.send_data(stream_id, response_bytes, end_stream=True)
     except DataLockError as e:
         warn(epretty(e))
-        http_send_empty(prot, stream_id, "500", "Internal Server Error")
+        prot.send_empty(stream_id, "500", "Internal Server Error")
     except NacmForbiddenError as e:
         warn(epretty(e))
-        http_send_empty(prot, stream_id, "403", "Forbidden")
+        prot.send_empty(stream_id, "403", "Forbidden")
     except NonexistentSchemaNode as e:
         warn(epretty(e))
-        http_send_empty(prot, stream_id, "404", "Not Found")
+        prot.send_empty(stream_id, "404", "Not Found")
     except NonexistentInstance as e:
         warn(epretty(e))
-        http_send_empty(prot, stream_id, "404", "Not Found")
+        prot.send_empty(stream_id, "404", "Not Found")
     except InstanceTypeError as e:
         warn(epretty(e))
-        http_send_empty(prot, stream_id, "400", "Bad Request")
+        prot.send_empty(stream_id, "400", "Bad Request")
     finally:
         ds.unlock_data()
 
 
-def create_get_nacm_api(ds: BaseDatastore):
-    def get_nacm_api_closure(prot: "H2Protocol", headers: OrderedDict, stream_id: int):
-        # NACM api request
-        info(("nacm_api_get: " + headers[":path"]))
-
-        username = CertHelpers.get_field(prot.client_cert, "emailAddress")
-        if username not in NACM_ADMINS:
-            warn(username + " not allowed to access NACM data")
-            http_send_empty(prot, stream_id, "403", "Forbidden")
-        else:
-            api_pth = headers[":path"][len(NACM_API_ROOT_data):]
-            _get(prot, stream_id, ds.nacm.nacm_ds, api_pth)
-
-    return get_nacm_api_closure
-
-
 def create_get_api(ds: BaseDatastore):
-    def get_api_closure(prot: "H2Protocol", headers: OrderedDict, stream_id: int):
+    def get_api_closure(prot: "H2Protocol", stream_id: int, headers: OrderedDict):
         # api request
         info(("api_get: " + headers[":path"]))
 
         api_pth = headers[":path"][len(API_ROOT_data):]
-        _get(prot, stream_id, ds, api_pth)
+        ns = DataHelpers.path_first_ns(api_pth)
+
+        if ns == "ietf-netconf-acm":
+            username = CertHelpers.get_field(prot.client_cert, "emailAddress")
+            if username not in NACM_ADMINS:
+                warn(username + " not allowed to access NACM data")
+                prot.send_empty(stream_id, "403", "Forbidden")
+            else:
+                _get(prot, stream_id, ds.nacm.nacm_ds, api_pth)
+        else:
+            _get(prot, stream_id, ds, api_pth)
 
     return get_api_closure
 
 
-def get_file(prot: "H2Protocol", headers: OrderedDict, stream_id: int):
+def get_file(prot: "H2Protocol", stream_id: int, headers: OrderedDict):
     # Ordinary file on filesystem
 
     url_split = headers[":path"].split("?")
@@ -206,57 +190,53 @@ def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pt
         json_data = json.loads(data_str)
     except ValueError as e:
         error("Invalid HTTP data: " + str(e))
-        http_send_empty(prot, stream_id, "400", "Bad Request")
+        prot.send_empty(stream_id, "400", "Bad Request")
         return
 
     try:
         ds.lock_data(username)
         ins_pos = (query_string.get("insert") or [None])[0]
         ds.create_node_rpc(rpc1, json_data, insert=ins_pos)
-        http_send_empty(prot, stream_id, "201", "Created")
+        prot.send_empty(stream_id, "201", "Created")
     except DataLockError as e:
         warn(epretty(e))
-        http_send_empty(prot, stream_id, "500", "Internal Server Error")
+        prot.send_empty(stream_id, "500", "Internal Server Error")
     except NacmForbiddenError as e:
         warn(epretty(e))
-        http_send_empty(prot, stream_id, "403", "Forbidden")
+        prot.send_empty(stream_id, "403", "Forbidden")
     except NonexistentSchemaNode as e:
         warn(epretty(e))
-        http_send_empty(prot, stream_id, "404", "Not Found")
+        prot.send_empty(stream_id, "404", "Not Found")
     except NonexistentInstance as e:
         warn(epretty(e))
-        http_send_empty(prot, stream_id, "404", "Not Found")
+        prot.send_empty(stream_id, "404", "Not Found")
     except DuplicateMember as e:
         warn(epretty(e))
-        http_send_empty(prot, stream_id, "409", "Conflict")
+        prot.send_empty(stream_id, "409", "Conflict")
     except InstanceTypeError as e:
         warn(epretty(e))
-        http_send_empty(prot, stream_id, "400", "Bad Request")
+        prot.send_empty(stream_id, "400", "Bad Request")
     finally:
         ds.unlock_data()
 
 
-def create_post_nacm_api(ds: BaseDatastore):
-    def post_nacm_api_closure(prot: "H2Protocol", headers: OrderedDict, data: bytes, stream_id: int):
-        info(("nacm_api_post: " + headers[":path"]))
-
-        username = CertHelpers.get_field(prot.client_cert, "emailAddress")
-        if username not in NACM_ADMINS:
-            warn(username + " not allowed to access NACM data")
-            http_send_empty(prot, stream_id, "403", "Forbidden")
-        else:
-            api_pth = headers[":path"][len(NACM_API_ROOT_data):]
-            _post(prot, data, stream_id, ds.nacm.nacm_ds, api_pth)
-            ds.nacm.update()
-
-    return post_nacm_api_closure
-
-
 def create_post_api(ds: BaseDatastore):
-    def post_api_closure(prot: "H2Protocol", headers: OrderedDict, data: bytes, stream_id: int):
+    def post_api_closure(prot: "H2Protocol", stream_id: int, headers: OrderedDict, data: bytes):
         info(("api_post: " + headers[":path"]))
+
         api_pth = headers[":path"][len(API_ROOT_data):]
-        _post(prot, data, stream_id, ds, api_pth)
+        ns = DataHelpers.path_first_ns(api_pth)
+
+        if ns == "ietf-netconf-acm":
+            username = CertHelpers.get_field(prot.client_cert, "emailAddress")
+            if username not in NACM_ADMINS:
+                warn(username + " not allowed to access NACM data")
+                prot.send_empty(stream_id, "403", "Forbidden")
+            else:
+                _post(prot, data, stream_id, ds.nacm.nacm_ds, api_pth)
+                ds.nacm.update()
+        else:
+            _post(prot, data, stream_id, ds, api_pth)
 
     return post_api_closure
 
@@ -283,44 +263,40 @@ def _put(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth
     try:
         ds.lock_data(username)
         ds.put_node_rpc(rpc1, json_data)
-        http_send_empty(prot, stream_id, "204", "No Content", False)
+        prot.send_empty(stream_id, "204", "No Content", False)
     except DataLockError as e:
         warn(epretty(e))
-        http_send_empty(prot, stream_id, "500", "Internal Server Error")
+        prot.send_empty(stream_id, "500", "Internal Server Error")
     except NacmForbiddenError as e:
         warn(epretty(e))
-        http_send_empty(prot, stream_id, "403", "Forbidden")
+        prot.send_empty(stream_id, "403", "Forbidden")
     except NonexistentSchemaNode as e:
         warn(epretty(e))
-        http_send_empty(prot, stream_id, "404", "Not Found")
+        prot.send_empty(stream_id, "404", "Not Found")
     except NonexistentInstance as e:
         warn(epretty(e))
-        http_send_empty(prot, stream_id, "404", "Not Found")
+        prot.send_empty(stream_id, "404", "Not Found")
     finally:
         ds.unlock_data()
 
 
-def create_put_nacm_api(ds: BaseDatastore):
-    def put_nacm_api_closure(prot: "H2Protocol", headers: OrderedDict, data: bytes, stream_id: int):
-        info(("nacm_api_put: " + headers[":path"]))
-
-        username = CertHelpers.get_field(prot.client_cert, "emailAddress")
-        if username not in NACM_ADMINS:
-            warn(username + " not allowed to access NACM data")
-            http_send_empty(prot, stream_id, "403", "Forbidden")
-        else:
-            api_pth = headers[":path"][len(NACM_API_ROOT_data):]
-            _put(prot, data, stream_id, ds.nacm.nacm_ds, api_pth)
-            ds.nacm.update()
-
-    return put_nacm_api_closure
-
-
 def create_put_api(ds: BaseDatastore):
-    def put_api_closure(prot: "H2Protocol", headers: OrderedDict, data: bytes, stream_id: int):
+    def put_api_closure(prot: "H2Protocol", stream_id: int, headers: OrderedDict, data: bytes):
         info(("api_put: " + headers[":path"]))
+
         api_pth = headers[":path"][len(API_ROOT_data):]
-        _put(prot, data, stream_id, ds, api_pth)
+        ns = DataHelpers.path_first_ns(api_pth)
+
+        if ns == "ietf-netconf-acm":
+            username = CertHelpers.get_field(prot.client_cert, "emailAddress")
+            if username not in NACM_ADMINS:
+                warn(username + " not allowed to access NACM data")
+                prot.send_empty(stream_id, "403", "Forbidden")
+            else:
+                _put(prot, data, stream_id, ds.nacm.nacm_ds, api_pth)
+                ds.nacm.update()
+        else:
+            _put(prot, data, stream_id, ds, api_pth)
 
     return put_api_closure
 
@@ -342,43 +318,39 @@ def _delete(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str):
         try:
             ds.lock_data(username)
             ds.delete_node_rpc(rpc1)
-            http_send_empty(prot, stream_id, "204", "No Content", False)
+            prot.send_empty(stream_id, "204", "No Content", False)
         except DataLockError as e:
             warn(epretty(e))
-            http_send_empty(prot, stream_id, "500", "Internal Server Error")
+            prot.send_empty(stream_id, "500", "Internal Server Error")
         except NacmForbiddenError as e:
             warn(epretty(e))
-            http_send_empty(prot, stream_id, "403", "Forbidden")
+            prot.send_empty(stream_id, "403", "Forbidden")
         except NonexistentSchemaNode as e:
             warn(epretty(e))
-            http_send_empty(prot, stream_id, "404", "Not Found")
+            prot.send_empty(stream_id, "404", "Not Found")
         except NonexistentInstance as e:
             warn(epretty(e))
-            http_send_empty(prot, stream_id, "404", "Not Found")
+            prot.send_empty(stream_id, "404", "Not Found")
         finally:
             ds.unlock_data()
 
 
-def create_nacm_api_delete(ds: BaseDatastore):
-    def nacm_api_delete_closure(prot: "H2Protocol", headers: OrderedDict, stream_id: int):
-        info(("nacm_api_delete: " + headers[":path"]))
-
-        username = CertHelpers.get_field(prot.client_cert, "emailAddress")
-        if username not in NACM_ADMINS:
-            warn(username + " not allowed to access NACM data")
-            http_send_empty(prot, stream_id, "403", "Forbidden")
-        else:
-            api_pth = headers[":path"][len(NACM_API_ROOT_data):]
-            _delete(prot, stream_id, ds.nacm.nacm_ds, api_pth)
-            ds.nacm.update()
-
-    return nacm_api_delete_closure
-
-
 def create_api_delete(ds: BaseDatastore):
-    def api_delete_closure(prot: "H2Protocol", headers: OrderedDict, stream_id: int):
+    def api_delete_closure(prot: "H2Protocol", stream_id: int, headers: OrderedDict):
         info(("api_delete: " + headers[":path"]))
+
         api_pth = headers[":path"][len(API_ROOT_data):]
-        _delete(prot, stream_id, ds, api_pth)
+        ns = DataHelpers.path_first_ns(api_pth)
+
+        if ns == "ietf-netconf-acm":
+            username = CertHelpers.get_field(prot.client_cert, "emailAddress")
+            if username not in NACM_ADMINS:
+                warn(username + " not allowed to access NACM data")
+                prot.send_empty(stream_id, "403", "Forbidden")
+            else:
+                _delete(prot, stream_id, ds.nacm.nacm_ds, api_pth)
+                ds.nacm.update()
+        else:
+            _delete(prot, stream_id, ds, api_pth)
 
     return api_delete_closure

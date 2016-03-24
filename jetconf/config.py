@@ -10,7 +10,6 @@ CONFIG_HTTP = {
     "DOC_ROOT": "doc-root",
     "DOC_DEFAULT_NAME": "index.html",
     "API_ROOT": "/restconf",
-    "NACM_API_ROOT": "/restconf_nacm",
     "SERVER_NAME": "hyper-h2",
     "PORT": 8443,
 
@@ -30,13 +29,11 @@ CONFIG = {
 }
 
 NACM_ADMINS = CONFIG["NACM"]["ALLOWED_USERS"]
-NACM_API_ROOT_data = os.path.join(CONFIG_HTTP["NACM_API_ROOT"], "data")
 API_ROOT_data = os.path.join(CONFIG_HTTP["API_ROOT"], "data")
 
 
 def load_config(filename: str):
     global NACM_ADMINS
-    global NACM_API_ROOT_data
     global API_ROOT_data
 
     try:
@@ -53,7 +50,6 @@ def load_config(filename: str):
 
     # Shortcuts
     NACM_ADMINS = CONFIG["NACM"]["ALLOWED_USERS"]
-    NACM_API_ROOT_data = os.path.join(CONFIG_HTTP["NACM_API_ROOT"], "data")
     API_ROOT_data = os.path.join(CONFIG_HTTP["API_ROOT"], "data")
 
 

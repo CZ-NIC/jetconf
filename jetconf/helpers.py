@@ -28,6 +28,10 @@ class DataHelpers:
                 n = new_node
         return n
 
+    @staticmethod
+    def path_first_ns(api_pth: str) -> str:
+        return api_pth[1:].split("/", maxsplit=1)[0].split(":", maxsplit=1)[0]
+
 
 class DateTimeHelpers:
     @staticmethod
