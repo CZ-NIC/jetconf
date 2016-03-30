@@ -9,9 +9,10 @@ from typing import Dict, List
 from yangson.schema import NonexistentSchemaNode
 from yangson.instance import NonexistentInstance, InstanceTypeError, DuplicateMember
 
-from .config import CONFIG_GLOBAL, CONFIG_HTTP, NACM_ADMINS, API_ROOT_data
+from .config import CONFIG_GLOBAL, CONFIG_HTTP, NACM_ADMINS, API_ROOT_data, API_ROOT_ops
 from .helpers import CertHelpers, DataHelpers, DateTimeHelpers, ErrorHelpers
 from .data import BaseDatastore, Rpc, DataLockError, NacmForbiddenError
+from .handler_list import OP_HANDLERS
 
 QueryStrT = Dict[str, List[str]]
 epretty = ErrorHelpers.epretty
@@ -354,3 +355,70 @@ def create_api_delete(ds: BaseDatastore):
             _delete(prot, stream_id, ds, api_pth)
 
     return api_delete_closure
+
+
+def create_api_op(ds: BaseDatastore):
+    def api_op_closure(prot: "H2Protocol", stream_id: int, headers: OrderedDict, data: bytes):
+        info("invoke_op: " + headers[":path"])
+        data_str = data.decode("utf-8")
+
+        op_name_fq = headers[":path"][len(API_ROOT_ops) + 1:]
+        op_name_splitted = op_name_fq.split(":", maxsplit=1)
+
+        if len(op_name_splitted) < 2:
+            warn("Operation name must be in fully-qualified format")
+            prot.send_empty(stream_id, "400", "Bad Request")
+            return
+
+        ns = op_name_splitted[0]
+        op_name = op_name_splitted[1]
+
+        username = CertHelpers.get_field(prot.client_cert, "emailAddress")
+
+        try:
+            json_data = json.loads(data_str)
+        except ValueError as e:
+            error("Invalid HTTP data: " + str(e))
+            prot.send_empty(stream_id, "400", "Bad Request")
+            return
+
+        input_args = json_data.get(ns + ":input")
+
+        op_handler = OP_HANDLERS.get_handler(op_name)
+        if op_handler:
+            try:
+                # Skip NACM check for privileged users
+                if username not in NACM_ADMINS:
+                    rpc1 = Rpc()
+                    rpc1.username = username
+                    rpc1.path = "/" + op_name_fq
+                    ds.check_operation_rpc(rpc1)
+
+                ret_data = op_handler(input_args)
+                if ret_data is None:
+                    prot.send_empty(stream_id, "204", "No Content", False)
+                else:
+                    response = json.dumps(ret_data, indent=4) + "\n"
+                    response_bytes = response.encode()
+
+                    response_headers = (
+                        (':status', '200'),
+                        ('content-type', 'application/yang.api+json'),
+                        ('content-length', len(response_bytes)),
+                        ('server', CONFIG_HTTP["SERVER_NAME"]),
+                    )
+
+                    prot.conn.send_headers(stream_id, response_headers)
+                    prot.conn.send_data(stream_id, response_bytes, end_stream=True)
+
+            except NacmForbiddenError as e:
+                warn(epretty(e))
+                prot.send_empty(stream_id, "403", "Forbidden")
+            except NonexistentSchemaNode as e:
+                warn(epretty(e))
+                prot.send_empty(stream_id, "404", "Not Found")
+        else:
+            warn("Nonexistent handler for operation \"{}\"".format(op_name))
+            prot.send_empty(stream_id, "400", "Bad Request")
+
+    return api_op_closure

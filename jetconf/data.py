@@ -194,6 +194,14 @@ class BaseDatastore:
 
         self._data = new_n.top()
 
+    def check_operation_rpc(self, rpc: Rpc):
+        ii = self.parse_ii(rpc.path, rpc.path_format)
+
+        if self.nacm:
+            nrpc = NacmRpc(self.nacm, self, rpc.username)
+            if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_EXEC) == Action.DENY:
+                raise NacmForbiddenError("Op \"{}\" invocation denied for user \"{}\"".format(rpc.path, rpc.username))
+
     # Locks datastore data
     def lock_data(self, username: str = None, blocking: bool=True):
         ret = self._data_lock.acquire(blocking=blocking, timeout=1)

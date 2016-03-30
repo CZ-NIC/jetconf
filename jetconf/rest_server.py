@@ -8,9 +8,8 @@ from h2.connection import H2Connection
 from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged
 
 import jetconf.http_handlers as handlers
-from .config import CONFIG_HTTP, API_ROOT_data, load_config, print_config
-from .nacm import NacmConfig
-from .data import JsonDatastore
+from .config import CONFIG_HTTP, API_ROOT_data, API_ROOT_ops
+from .data import BaseDatastore
 
 
 # Function(method, path) -> bool
@@ -112,66 +111,63 @@ class H2Protocol(asyncio.Protocol):
             self.send_empty(stream_id, "400", "Bad Request")
 
 
-def run():
-    global h2_handlers
+class RestServer:
+    def __init__(self):
+        # HTTP server init
+        self.http_handlers = HandlerList()
+        ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        ssl_context.options |= (ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1 | ssl.OP_NO_COMPRESSION)
+        ssl_context.load_cert_chain(certfile=CONFIG_HTTP["SERVER_SSL_CERT"], keyfile=CONFIG_HTTP["SERVER_SSL_PRIVKEY"])
+        try:
+            ssl_context.set_alpn_protocols(["h2"])
+        except AttributeError:
+            info("Python not compiled with ALPN support, using NPN instead.")
+            ssl_context.set_npn_protocols(["h2"])
+        ssl_context.verify_mode = ssl.CERT_REQUIRED
+        ssl_context.load_verify_locations(cafile=CONFIG_HTTP["CA_CERT"])
 
-    # Load configuration
-    load_config("jetconf/config.yaml")
-    print_config()
+        self.loop = asyncio.get_event_loop()
 
-    # NACM init
-    nacm_data = JsonDatastore("./data", "./data/yang-library-data.json", "NACM data")
-    nacm_data.load("jetconf/example-data-nacm.json")
+        # Each client connection will create a new protocol instance
+        listener = self.loop.create_server(H2Protocol, "127.0.0.1", CONFIG_HTTP["PORT"], ssl=ssl_context)
+        self.server = self.loop.run_until_complete(listener)
 
-    nacmc = NacmConfig(nacm_data)
+    def register_api_handlers(self, datastore: BaseDatastore):
+        global h2_handlers
 
-    # Datastore init
-    ex_datastore = JsonDatastore("./data", "./data/yang-library-data.json", "DNS data")
-    ex_datastore.load("jetconf/example-data.json")
-    ex_datastore.register_nacm(nacmc)
+        # Register HTTP handlers
+        api_get_root = handlers.api_root_handler
+        api_get = handlers.create_get_api(datastore)
+        api_post = handlers.create_post_api(datastore)
+        api_put = handlers.create_put_api(datastore)
+        api_delete = handlers.create_api_delete(datastore)
+        api_op = handlers.create_api_op(datastore)
 
-    # Register HTTP handlers
-    api_get_root = handlers.api_root_handler
-    api_get = handlers.create_get_api(ex_datastore)
-    api_post = handlers.create_post_api(ex_datastore)
-    api_put = handlers.create_put_api(ex_datastore)
-    api_delete = handlers.create_api_delete(ex_datastore)
+        self.http_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["API_ROOT"]), api_get_root)
+        self.http_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_data)), api_get)
+        self.http_handlers.register_handler(lambda m, p: (m == "POST") and (p.startswith(API_ROOT_data)), api_post)
+        self.http_handlers.register_handler(lambda m, p: (m == "PUT") and (p.startswith(API_ROOT_data)), api_put)
+        self.http_handlers.register_handler(lambda m, p: (m == "DELETE") and (p.startswith(API_ROOT_data)), api_delete)
+        self.http_handlers.register_handler(lambda m, p: (m == "POST") and (p.startswith(API_ROOT_ops)), api_op)
 
-    h2_handlers = HandlerList()
-    h2_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["API_ROOT"]), api_get_root)
-    h2_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_data)), api_get)
-    h2_handlers.register_handler(lambda m, p: (m == "POST") and (p.startswith(API_ROOT_data)), api_post)
-    h2_handlers.register_handler(lambda m, p: (m == "PUT") and (p.startswith(API_ROOT_data)), api_put)
-    h2_handlers.register_handler(lambda m, p: (m == "DELETE") and (p.startswith(API_ROOT_data)), api_delete)
+        h2_handlers = self.http_handlers
 
-    h2_handlers.register_handler(lambda m, p: m == "GET", handlers.get_file)
-    h2_handlers.register_default_handler(handlers.unknown_req_handler)
+    def register_static_handlers(self):
+        global h2_handlers
 
-    # HTTP server init
-    ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-    ssl_context.options |= (ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1 | ssl.OP_NO_COMPRESSION)
-    ssl_context.load_cert_chain(certfile=CONFIG_HTTP["SERVER_SSL_CERT"], keyfile=CONFIG_HTTP["SERVER_SSL_PRIVKEY"])
-    try:
-        ssl_context.set_alpn_protocols(["h2"])
-    except AttributeError:
-        info("Python not compiled with ALPN support, using NPN instead.")
-        ssl_context.set_npn_protocols(["h2"])
-    ssl_context.verify_mode = ssl.CERT_REQUIRED
-    ssl_context.load_verify_locations(cafile=CONFIG_HTTP["CA_CERT"])
+        self.http_handlers.register_handler(lambda m, p: m == "GET", handlers.get_file)
+        self.http_handlers.register_default_handler(handlers.unknown_req_handler)
 
-    loop = asyncio.get_event_loop()
+        h2_handlers = self.http_handlers
 
-    # Each client connection will create a new protocol instance
-    listener = loop.create_server(H2Protocol, "127.0.0.1", CONFIG_HTTP["PORT"], ssl=ssl_context)
-    server = loop.run_until_complete(listener)
+    def run(self):
+        info("Server started on {}".format(self.server.sockets[0].getsockname()))
 
-    info("Server started on {}".format(server.sockets[0].getsockname()))
+        try:
+            self.loop.run_forever()
+        except KeyboardInterrupt:
+            pass
 
-    try:
-        loop.run_forever()
-    except KeyboardInterrupt:
-        pass
-
-    server.close()
-    loop.run_until_complete(server.wait_closed())
-    loop.close()
+        self.server.close()
+        self.loop.run_until_complete(self.server.wait_closed())
+        self.loop.close()

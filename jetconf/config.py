@@ -30,11 +30,13 @@ CONFIG = {
 
 NACM_ADMINS = CONFIG["NACM"]["ALLOWED_USERS"]
 API_ROOT_data = os.path.join(CONFIG_HTTP["API_ROOT"], "data")
+API_ROOT_ops = os.path.join(CONFIG_HTTP["API_ROOT"], "operations")
 
 
 def load_config(filename: str):
     global NACM_ADMINS
     global API_ROOT_data
+    global API_ROOT_ops
 
     try:
         with open(filename) as conf_fd:
@@ -51,6 +53,7 @@ def load_config(filename: str):
     # Shortcuts
     NACM_ADMINS = CONFIG["NACM"]["ALLOWED_USERS"]
     API_ROOT_data = os.path.join(CONFIG_HTTP["API_ROOT"], "data")
+    API_ROOT_ops = os.path.join(CONFIG_HTTP["API_ROOT"], "operations")
 
 
 def print_config():
