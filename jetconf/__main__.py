@@ -27,9 +27,10 @@ def main():
     ex_datastore = JsonDatastore("./data", "./data/yang-library-data.json", "DNS data")
     ex_datastore.load("jetconf/example-data.json")
     ex_datastore.register_nacm(nacmc)
+    nacmc.set_ds(ex_datastore)
 
     # Register op handlers
-    OP_HANDLERS.register_handler("play", op_handlers.play_op_handler)
+    OP_HANDLERS.register_handler("generate-key", op_handlers.sign_op_handler)
 
     # Create HTTP server
     rest_srv = RestServer()

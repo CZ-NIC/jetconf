@@ -8,6 +8,7 @@ from enum import Enum
 from colorlog import error, warning as warn, info, debug
 from typing import List, Any, Dict, TypeVar, Tuple, Set
 
+from yangson.context import Context
 from yangson.datamodel import InstanceIdentifier, DataModel
 from yangson.instance import \
     Instance, \
@@ -21,6 +22,7 @@ from yangson.instance import \
     EntryIndex
 
 from .helpers import DataHelpers
+from .handler_list import OP_HANDLERS
 
 
 class PathFormat(Enum):
@@ -33,8 +35,19 @@ class NacmForbiddenError(Exception):
         self.msg = msg
         self.rulename = rule
 
+    def __str__(self):
+        return self.msg
+
 
 class DataLockError(Exception):
+    def __init__(self, msg=""):
+        self.msg = msg
+
+    def __str__(self):
+        return self.msg
+
+
+class NoHandlerForOpError(Exception):
     def __init__(self, msg=""):
         self.msg = msg
 
@@ -47,7 +60,10 @@ class Rpc:
         self.username = None    # type: str
         self.path = None        # type: str
         self.qs = None          # type: Dict[str, List[str]]
-        self.path_format = PathFormat.URL  # type: PathFormat
+        self.path_format = PathFormat.URL   # type: PathFormat
+        self.skip_nacm_check = False        # type: bool
+        self.op_name = None                 # type: str
+        self.op_input_args = None           # type: ObjectValue
 
 
 class BaseDatastore:
@@ -97,7 +113,7 @@ class BaseDatastore:
         n = self._data.goto(ii)
 
         if self.nacm:
-            nrpc = NacmRpc(self.nacm, self, rpc.username)
+            nrpc = self.nacm.get_user_nacm(rpc.username)
             if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_READ) == Action.DENY:
                 raise NacmForbiddenError()
             else:
@@ -111,7 +127,7 @@ class BaseDatastore:
         n = self._data.goto(ii)
 
         if self.nacm:
-            nrpc = NacmRpc(self.nacm, self, rpc.username)
+            nrpc = self.nacm.get_user_nacm(rpc.username)
             if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_CREATE) == Action.DENY:
                 raise NacmForbiddenError()
 
@@ -157,13 +173,12 @@ class BaseDatastore:
         else:
             raise InstanceTypeError(n, "Child node can only be appended to Object or Array")
 
-
     def put_node_rpc(self, rpc: Rpc, value: Any):
         ii = self.parse_ii(rpc.path, rpc.path_format)
         n = self._data.goto(ii)
 
         if self.nacm:
-            nrpc = NacmRpc(self.nacm, self, rpc.username)
+            nrpc = self.nacm.get_user_nacm(rpc.username)
             if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_UPDATE) == Action.DENY:
                 raise NacmForbiddenError()
 
@@ -181,7 +196,7 @@ class BaseDatastore:
         last_isel = ii[-1]
 
         if self.nacm:
-            nrpc = NacmRpc(self.nacm, self, rpc.username)
+            nrpc = self.nacm.get_user_nacm(rpc.username)
             if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_DELETE) == Action.DENY:
                 raise NacmForbiddenError()
 
@@ -194,13 +209,27 @@ class BaseDatastore:
 
         self._data = new_n.top()
 
-    def check_operation_rpc(self, rpc: Rpc):
-        ii = self.parse_ii(rpc.path, rpc.path_format)
+    def invoke_op_rpc(self, rpc: Rpc) -> ObjectValue:
+        if self.nacm and (not rpc.skip_nacm_check):
+            nrpc = self.nacm.get_user_nacm(rpc.username)
+            if nrpc.check_rpc_name(rpc.op_name) == Action.DENY:
+                raise NacmForbiddenError("Op \"{}\" invocation denied for user \"{}\"".format(rpc.op_name, rpc.username))
 
-        if self.nacm:
-            nrpc = NacmRpc(self.nacm, self, rpc.username)
-            if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_EXEC) == Action.DENY:
-                raise NacmForbiddenError("Op \"{}\" invocation denied for user \"{}\"".format(rpc.path, rpc.username))
+        op_handler = OP_HANDLERS.get_handler(rpc.op_name)
+        if op_handler is None:
+            raise NoHandlerForOpError()
+
+        schema_addr = Context.path2address(rpc.path)
+        sn = self._dm.schema.get_schema_descendant(schema_addr)
+        sn_input = sn.get_child("input")
+        if sn_input is not None:
+            print(sn_input)
+            print(sn_input.ascii_tree(""))
+
+        ret_data = op_handler(rpc.op_input_args)
+        return ret_data
+
+
 
     # Locks datastore data
     def lock_data(self, username: str = None, blocking: bool=True):
@@ -269,4 +298,4 @@ def test():
     else:
         warn("FAILED")
 
-from .nacm import NacmConfig, NacmRpc, Permission, Action
+from .nacm import NacmConfig, Permission, Action

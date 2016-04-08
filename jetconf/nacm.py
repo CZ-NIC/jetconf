@@ -6,6 +6,7 @@ from enum import Enum
 from colorlog import error, warning as warn, info, debug
 from typing import List, Set
 
+from yangson.schema import SchemaAddress
 from yangson.instance import \
     Instance, \
     NonexistentInstance, \
@@ -36,6 +37,14 @@ class NacmRuleType(Enum):
     NACM_RULE_OPERATION = 1
     NACM_RULE_NOTIF = 2
     NACM_RULE_DATA = 3
+
+
+class NonexistentUserError(Exception):
+    def __init__(self, msg=""):
+        self.msg = msg
+
+    def __str__(self):
+        return self.msg
 
 
 class NacmGroup:
@@ -87,11 +96,40 @@ class NacmRuleList:
         self.name = ""          # type: str
         self.groups = []        # type: List[NacmGroup]
         self.rules = []         # type: List[NacmRule]
-        self.rule_tree = []     # type: List[RuleTreeNode]
+
+
+class DataRuleTree:
+    def __init__(self):
+        self.root = []  # type: List[RuleTreeNode]
+
+    # Access to datastore needed for parsing IIs
+    def create_rule_tree(self, ds, rule_lists: List[NacmRuleList]):
+        for rl in rule_lists:
+            for rule in filter(lambda r: r.type == NacmRuleType.NACM_RULE_DATA, rl.rules):
+                ii = ds.parse_ii(rule.type_data.path, PathFormat.XPATH)
+                nl = self.root
+                node_match_prev = None
+                for isel in ii:
+                    node_match = (list(filter(lambda x: x.isel == isel, nl)) or [None])[0]
+                    if node_match is None:
+                        new_elem = RuleTreeNode()
+                        new_elem.isel = isel
+                        new_elem.up = node_match_prev
+
+                        if isel is ii[-1]:
+                            new_elem.rule = rule
+                        nl.append(new_elem)
+                        node_match_prev = new_elem
+                        nl = new_elem.children
+                    else:
+                        if isel is ii[-1]:
+                            node_match.rule = rule
+                        node_match_prev = node_match
+                        nl = node_match.children
 
     def _print_rule_tree(self, rule_node_list: List[RuleTreeNode], depth: int = 0, vbars=[]):
         if depth == 0:
-            print("----- Rule tree of rule list \"{}\": -----".format(self.name))
+            print("----- NACM Data Rule tree -----")
 
         ind_str = ""
         d = depth
@@ -117,12 +155,13 @@ class NacmRuleList:
                 self._print_rule_tree(rule_node.children, depth + 1, vbars + [depth])
 
     def print_rule_tree(self):
-        self._print_rule_tree(self.rule_tree)
+        self._print_rule_tree(self.root)
 
 
 class NacmConfig:
     def __init__(self, nacm_ds: "BaseDatastore"):
         self.nacm_ds = nacm_ds
+        self.ds = None
         self.enabled = False
         self.default_read = Action.PERMIT
         self.default_write = Action.PERMIT
@@ -131,12 +170,15 @@ class NacmConfig:
         self.rule_lists = []
         self.internal_data_lock = Lock()
         self._lock_username = None
+        self._user_nacm_rpc = {}
 
         try:
             self.nacm_ds.get_data_root().member("ietf-netconf-acm:nacm")
         except NonexistentInstance:
             raise ValueError("Data does not contain \"ietf-netconf-acm:nacm\" root element")
 
+    def set_ds(self, ds: "BaseDatastore"):
+        self.ds = ds
         self.update()
 
     # Fills internal read-only data structures
@@ -148,6 +190,7 @@ class NacmConfig:
 
         self.nacm_groups = []
         self.rule_lists = []
+        self._user_nacm_rpc = {}
 
         nacm_json = self.nacm_ds.get_data_root().member("ietf-netconf-acm:nacm").value
         self.enabled = nacm_json["enable-nacm"]
@@ -221,63 +264,56 @@ class NacmConfig:
 
         self.internal_data_lock.release()
 
+    def create_user_nacm(self, username: str):
+        # all_users = set()
+        # for gr in self.nacm_groups:
+        #     for user in gr.users:
+        #         all_users.add(user)
 
-# Rules for particular session (logged-in user)
-class NacmRpc:
-    # "username" only for testing, will be part of "session"
-    def __init__(self, config: NacmConfig, data: "BaseDatastore", username: str):
+        # for user in all_users:
+        #     info("Creating personalized rule list for user \"{}\"".format(user))
+        #     self._user_nacm_rpc[user] = UserNacm(self, user)
+        # if username not in all_users:
+        #     raise NonexistentUserError
+
+        info("Creating personalized rule list for user \"{}\"".format(username))
+        self._user_nacm_rpc[username] = UserNacm(self, username)
+
+    def get_user_nacm(self, username: str) -> "UserNacm":
+        user_nacm = self._user_nacm_rpc.get(username)
+        if user_nacm is None:
+            self.create_user_nacm(username)
+            user_nacm = self._user_nacm_rpc.get(username)
+
+        return user_nacm
+
+
+# Rules for particular user
+class UserNacm:
+    def __init__(self, config: NacmConfig, username: str):
         self.nacm_enabled = config.enabled
-        # self.config = config
-        self.data = data
-        self.default_read = Action.DENY
-        self.default_write = Action.DENY
-        self.default_exec = Action.DENY
+        self.data = config.ds
+        self.default_read = config.default_read
+        self.default_write = config.default_write
+        self.default_exec = config.default_exec
         self.rule_lists = []
-
-        if not self.nacm_enabled:
-            return
+        self.rule_tree = DataRuleTree()
 
         lock_res = config.internal_data_lock.acquire(blocking=True, timeout=1)
         if not lock_res:
             error("NacmRpc: cannot acquire config lock ")
             return
 
-        self.default_read = config.default_read
-        self.default_write = config.default_write
-        self.default_exec = config.default_exec
         user_groups = list(filter(lambda x: username in x.users, config.nacm_groups))
         user_groups_names = list(map(lambda x: x.name, user_groups))
         self.rule_lists = list(filter(lambda x: (set(user_groups_names) & set(x.groups)), config.rule_lists))
 
+        self.rule_tree.create_rule_tree(self.data, self.rule_lists)
+        # self.rule_tree.print_rule_tree()
+
         # No need to hold lock anymore
         # config.update() always creates new structures instead of modifying ones
         config.internal_data_lock.release()
-
-        for rl in self.rule_lists:
-            for rule in rl.rules:
-                if not rule.type_data.path:
-                    continue
-
-                ii = self.data.parse_ii(rule.type_data.path, PathFormat.XPATH)
-                nl = rl.rule_tree
-                node_match_prev = None
-                for isel in ii:
-                    node_match = (list(filter(lambda x: x.isel == isel, nl)) or [None])[0]
-                    if node_match is None:
-                        new_elem = RuleTreeNode()
-                        new_elem.isel = isel
-                        new_elem.up = node_match_prev
-
-                        if isel is ii[-1]:
-                            new_elem.rule = rule
-                        nl.append(new_elem)
-                        node_match_prev = new_elem
-                        nl = new_elem.children
-                    else:
-                        if isel is ii[-1]:
-                            node_match.rule = rule
-                        node_match_prev = node_match
-                        nl = node_match.children
 
     def check_data_node_path(self, ii: InstanceIdentifier, access: Permission, out_matching_rule: List[NacmRule]=None) -> Action:
         if not self.nacm_enabled:
@@ -286,34 +322,34 @@ class NacmRpc:
         retval = None
         data_node = self.data.get_data_root()   # type: Instance
 
-        for nl in map(lambda rl: rl.rule_tree, self.rule_lists):
-            for isel in ii:
-                # node_match = (list(filter(lambda x: x.isel == isel, nl)) or [None])[0]
+        nl = self.rule_tree.root
+        for isel in ii:
+            # node_match = (list(filter(lambda x: x.isel == isel, nl)) or [None])[0]
 
-                # print("j {}".format(isel))
-                node_match = None
-                for rule_node in nl:
-                    if (type(rule_node.isel) == type(isel)) and (rule_node.isel == isel):
+            # print("j {}".format(isel))
+            node_match = None
+            for rule_node in nl:
+                if (type(rule_node.isel) == type(isel)) and (rule_node.isel == isel):
+                    node_match = rule_node
+                    break
+
+                # print("{} {}".format(type(isel), type(rule_node.isel)))
+                if isinstance(isel, EntryIndex) and isinstance(rule_node.isel, EntryKeys):
+                    # print("k")
+                    if isel.peek_step(data_node.value) is rule_node.isel.peek_step(data_node.value):
                         node_match = rule_node
                         break
 
-                    # print("{} {}".format(type(isel), type(rule_node.isel)))
-                    if isinstance(isel, EntryIndex) and isinstance(rule_node.isel, EntryKeys):
-                        # print("k")
-                        if isel.peek_step(data_node.value) is rule_node.isel.peek_step(data_node.value):
-                            node_match = rule_node
-                            break
+            data_node = isel.goto_step(data_node)
 
-                data_node = isel.goto_step(data_node)
-
-                if node_match:
-                    matching_rule = node_match.get_rule(access)
-                    retval = matching_rule.action if matching_rule else None
-                    if (matching_rule is not None) and (out_matching_rule is not None):
-                        out_matching_rule.insert(0, matching_rule)
-                    nl = node_match.children
-                else:
-                    break
+            if node_match:
+                matching_rule = node_match.get_rule(access)
+                retval = matching_rule.action if matching_rule else None
+                if (matching_rule is not None) and (out_matching_rule is not None):
+                    out_matching_rule.insert(0, matching_rule)
+                nl = node_match.children
+            else:
+                break
 
         if retval is None:
             # No matching rule
@@ -331,10 +367,6 @@ class NacmRpc:
             # print("obj: {}".format(node.value))
             # print(str(ii))
             for child_key in sorted(node.value.keys()):
-                # Do not check leaves
-                # if not (isinstance(node.value[child_key], ObjectValue) or isinstance(node.value[child_key], ArrayValue)):
-                #     continue
-
                 nsel = MemberName(child_key)
                 m = nsel.goto_step(node)
                 mii = copy.copy(ii)
@@ -352,11 +384,6 @@ class NacmRpc:
             i = 0
             arr_len = len(node.value)
             while i < arr_len:
-                # Do not check leaves
-                # if not (isinstance(node.value[i], ObjectValue) or isinstance(node.value[i], ArrayValue)):
-                #     i += 1
-                #     continue
-
                 nsel = EntryIndex(i)
                 e = nsel.goto_step(node)
                 eii = copy.copy(ii)
@@ -380,6 +407,20 @@ class NacmRpc:
         else:
             return self._check_data_read_path(n, ii)
 
+    def check_rpc_name(self, rpc_name: str, out_matching_rule: List[NacmRule] = None) -> Action:
+        if not self.nacm_enabled:
+            return Action.PERMIT
+
+        for rl in self.rule_lists:
+            for rpc_rule in filter(lambda r: r.type == NacmRuleType.NACM_RULE_OPERATION, rl.rules):
+                if rpc_name in rpc_rule.type_data.rpc_names:
+                    if out_matching_rule is not None:
+                        out_matching_rule.append(rpc_rule)
+                    return rpc_rule.action
+
+        return self.default_exec
+        # raise NacmForbiddenError("Op \"{}\" invocation denied for user \"{}\"".format(rpc.path, rpc.username))
+
 
 def test():
     nacm_data = JsonDatastore("./data", "./data/yang-library-data.json")
@@ -391,7 +432,9 @@ def test():
     data.load("jetconf/example-data.json")
     data.register_nacm(nacm)
 
-    nrpc = NacmRpc(nacm, data, "dominik")
+    nacm.set_ds(data)
+
+    test_user = "dominik"
 
     test_paths = (
         (
@@ -420,7 +463,7 @@ def test():
             debug("Node contents: {}".format(datanode.value))
             test_ii = data.parse_ii(test_path[0], PathFormat.XPATH)
             rule = []
-            action = nrpc.check_data_node_path(test_ii, test_path[1], out_matching_rule=rule)
+            action = nacm.get_user_nacm(test_user).check_data_node_path(test_ii, test_path[1], out_matching_rule=rule)
             if action == test_path[2]:
                 info("Action = {}, OK ({})\n".format(action.name, rule[0].name if len(rule) > 0 else "default"))
             else:
@@ -431,7 +474,7 @@ def test():
     test_ii2 = data.parse_ii("/dns-server:dns-server/zones/zone[domain='example.com']", PathFormat.XPATH)
 
     info("Reading: " + str(test_ii2))
-    res = nrpc.check_data_read_path(test_ii2)
+    res = nacm.get_user_nacm(test_user).check_data_read_path(test_ii2)
     res = json.dumps(res.value, indent=4, sort_keys=True)
     print("Result =")
     print(res)

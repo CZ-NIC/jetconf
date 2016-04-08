@@ -11,8 +11,7 @@ from yangson.instance import NonexistentInstance, InstanceTypeError, DuplicateMe
 
 from .config import CONFIG_GLOBAL, CONFIG_HTTP, NACM_ADMINS, API_ROOT_data, API_ROOT_ops
 from .helpers import CertHelpers, DataHelpers, DateTimeHelpers, ErrorHelpers
-from .data import BaseDatastore, Rpc, DataLockError, NacmForbiddenError
-from .handler_list import OP_HANDLERS
+from .data import BaseDatastore, Rpc, DataLockError, NacmForbiddenError, NoHandlerForOpError
 
 QueryStrT = Dict[str, List[str]]
 epretty = ErrorHelpers.epretty
@@ -362,7 +361,8 @@ def create_api_op(ds: BaseDatastore):
         info("invoke_op: " + headers[":path"])
         data_str = data.decode("utf-8")
 
-        op_name_fq = headers[":path"][len(API_ROOT_ops) + 1:]
+        api_pth = headers[":path"][len(API_ROOT_ops):]
+        op_name_fq = api_pth[1:]
         op_name_splitted = op_name_fq.split(":", maxsplit=1)
 
         if len(op_name_splitted) < 2:
@@ -384,40 +384,41 @@ def create_api_op(ds: BaseDatastore):
 
         input_args = json_data.get(ns + ":input")
 
-        op_handler = OP_HANDLERS.get_handler(op_name)
-        if op_handler:
-            try:
-                # Skip NACM check for privileged users
-                if username not in NACM_ADMINS:
-                    rpc1 = Rpc()
-                    rpc1.username = username
-                    rpc1.path = "/" + op_name_fq
-                    ds.check_operation_rpc(rpc1)
+        rpc1 = Rpc()
+        rpc1.username = username
+        rpc1.path = api_pth
+        rpc1.op_name = op_name
+        rpc1.op_input_args = input_args
 
-                ret_data = op_handler(input_args)
-                if ret_data is None:
-                    prot.send_empty(stream_id, "204", "No Content", False)
-                else:
-                    response = json.dumps(ret_data, indent=4) + "\n"
-                    response_bytes = response.encode()
+        # Skip NACM check for privileged users
+        if username in NACM_ADMINS:
+            rpc1.skip_nacm_check = True
 
-                    response_headers = (
-                        (':status', '200'),
-                        ('content-type', 'application/yang.api+json'),
-                        ('content-length', len(response_bytes)),
-                        ('server', CONFIG_HTTP["SERVER_NAME"]),
-                    )
+        try:
+            ret_data = ds.invoke_op_rpc(rpc1)
+            if ret_data is None:
+                prot.send_empty(stream_id, "204", "No Content", False)
+            else:
+                response = json.dumps(ret_data, indent=4) + "\n"
+                response_bytes = response.encode()
 
-                    prot.conn.send_headers(stream_id, response_headers)
-                    prot.conn.send_data(stream_id, response_bytes, end_stream=True)
+                response_headers = (
+                    (':status', '200'),
+                    ('content-type', 'application/yang.api+json'),
+                    ('content-length', len(response_bytes)),
+                    ('server', CONFIG_HTTP["SERVER_NAME"]),
+                )
 
-            except NacmForbiddenError as e:
-                warn(epretty(e))
-                prot.send_empty(stream_id, "403", "Forbidden")
-            except NonexistentSchemaNode as e:
-                warn(epretty(e))
-                prot.send_empty(stream_id, "404", "Not Found")
-        else:
+                prot.conn.send_headers(stream_id, response_headers)
+                prot.conn.send_data(stream_id, response_bytes, end_stream=True)
+
+        except NacmForbiddenError as e:
+            warn(epretty(e))
+            prot.send_empty(stream_id, "403", "Forbidden")
+        except NonexistentSchemaNode as e:
+            warn(epretty(e))
+            prot.send_empty(stream_id, "404", "Not Found")
+        except NoHandlerForOpError:
             warn("Nonexistent handler for operation \"{}\"".format(op_name))
             prot.send_empty(stream_id, "400", "Bad Request")
 

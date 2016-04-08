@@ -16,6 +16,12 @@
           ]
         },
         {
+          "name": "gr-pavel",
+          "user-name": [
+            "pavel"
+          ]
+        },
+        {
           "name": "users",
           "user-name": [
             "lada",
@@ -39,6 +45,21 @@
             "access-operations": "*",
             "comment": "The 'admin' group has unlimited access.",
             "action": "permit"
+          }
+        ]
+      },
+      {
+        "name": "pavel-acl",
+        "group": [
+          "gr-pavel"
+        ],
+        "rule": [
+          {
+            "name": "deny-template",
+            "path": "/dns-server:dns-server/zones/zone[domain='example.com']/template",
+            "access-operations": "*",
+            "comment": "... but no template",
+            "action": "deny"
           }
         ]
       },
