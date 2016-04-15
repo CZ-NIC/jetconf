@@ -7,7 +7,9 @@ from threading import Lock
 from enum import Enum
 from colorlog import error, warning as warn, info, debug
 from typing import List, Any, Dict, TypeVar, Tuple, Set
+from pydispatch import dispatcher
 
+from yangson.schema import SchemaRoute, SchemaNode, NonexistentSchemaNode
 from yangson.context import Context
 from yangson.datamodel import InstanceIdentifier, DataModel
 from yangson.instance import \
@@ -55,6 +57,23 @@ class NoHandlerForOpError(Exception):
         return self.msg
 
 
+class BaseDataListener:
+    def __init__(self, ds: "BaseDatastore"):
+        self._ds = ds
+        self.schema_paths = []
+
+    def add_schema_node(self, sch_pth: str):
+        sn = self._ds.get_schema_node(sch_pth)
+        self.schema_paths.append(sch_pth)
+        dispatcher.connect(self.process, str(id(sn)))
+
+    def process(self, sn: SchemaNode, ii: InstanceIdentifier):
+        raise NotImplementedError("Not implemented in base class")
+
+    def __str__(self):
+        return self.__class__.__name__ + ": listening at " + str(self.schema_paths)
+
+
 class Rpc:
     def __init__(self):
         self.username = None    # type: str
@@ -67,17 +86,13 @@ class Rpc:
 
 
 class BaseDatastore:
-    def __init__(self, module_dir: str, yang_library_file: str, name: str=""):
+    def __init__(self, dm: DataModel, name: str=""):
         self.name = name
         self.nacm = None    # type: NacmConfig
         self._data = None   # type: Instance
-        self._dm = None     # type: DataModel
+        self._dm = dm       # type: DataModel
         self._data_lock = Lock()
         self._lock_username = None  # type: str
-
-        with open(yang_library_file) as ylfile:
-            yl = ylfile.read()
-        self._dm = DataModel.from_yang_library(yl, module_dir)
 
     # Register NACM module to datastore
     def register_nacm(self, nacm_config: "NacmConfig"):
@@ -87,6 +102,19 @@ class BaseDatastore:
     def get_data_root(self) -> Instance:
         return self._data
 
+    # Get schema node with particular schema address
+    def get_schema_node(self, sch_pth: str) -> SchemaNode:
+        schema_addr = Context.path2route(sch_pth)
+        sn = self._dm.schema.get_schema_descendant(schema_addr)
+        if sn is None:
+            raise NonexistentSchemaNode(sch_pth)
+        return sn
+
+    # Get schema node for particular data node
+    def get_schema_node_ii(self, ii: InstanceIdentifier) -> SchemaNode:
+        sn = self._dm.schema.get_data_descendant(ii)
+        return sn
+
     # Parse Instance Identifier from string
     def parse_ii(self, path: str, path_format: PathFormat) -> InstanceIdentifier:
         if path_format == PathFormat.URL:
@@ -95,6 +123,13 @@ class BaseDatastore:
             ii = self._dm.parse_instance_id(path)
 
         return ii
+
+    # Notify data observers about change in datastore
+    def notify_edit(self, ii: InstanceIdentifier):
+        sn = self.get_schema_node_ii(ii)
+        while sn is not None:
+            dispatcher.send(str(id(sn)), **{'sn': sn, 'ii': ii})
+            sn = sn.parent
 
     # Just get the node, do not evaluate NACM (for testing purposes)
     def get_node(self, ii: InstanceIdentifier) -> Instance:
@@ -173,6 +208,8 @@ class BaseDatastore:
         else:
             raise InstanceTypeError(n, "Child node can only be appended to Object or Array")
 
+        self.notify_edit(ii)
+
     def put_node_rpc(self, rpc: Rpc, value: Any):
         ii = self.parse_ii(rpc.path, rpc.path_format)
         n = self._data.goto(ii)
@@ -188,6 +225,8 @@ class BaseDatastore:
 
         new_n = n.update(new_value)
         self._data = new_n.top()
+
+        self.notify_edit(ii)
 
     def delete_node_rpc(self, rpc: Rpc, insert=None, point=None):
         ii = self.parse_ii(rpc.path, rpc.path_format)
@@ -219,7 +258,7 @@ class BaseDatastore:
         if op_handler is None:
             raise NoHandlerForOpError()
 
-        schema_addr = Context.path2address(rpc.path)
+        schema_addr = Context.path2route(rpc.path)
         sn = self._dm.schema.get_schema_descendant(schema_addr)
         sn_input = sn.get_child("input")
         if sn_input is not None:
@@ -229,8 +268,6 @@ class BaseDatastore:
         ret_data = op_handler(rpc.op_input_args)
         return ret_data
 
-
-
     # Locks datastore data
     def lock_data(self, username: str = None, blocking: bool=True):
         ret = self._data_lock.acquire(blocking=blocking, timeout=1)
@@ -239,11 +276,11 @@ class BaseDatastore:
             debug("Acquired lock in datastore \"{}\" for user \"{}\"".format(self.name, username))
         else:
             raise DataLockError(
-                    "Failed to acquire lock in datastore \"{}\" for user \"{}\", already locked by \"{}\"".format(
-                            self.name,
-                            username,
-                            self._lock_username
-                    )
+                "Failed to acquire lock in datastore \"{}\" for user \"{}\", already locked by \"{}\"".format(
+                    self.name,
+                    username,
+                    self._lock_username
+                )
             )
 
     # Unlocks datastore data
@@ -275,7 +312,8 @@ class JsonDatastore(BaseDatastore):
 
 
 def test():
-    data = JsonDatastore("./data", "./data/yang-library-data.json")
+    datamodel = DataHelpers.load_data_model("./data", "./data/yang-library-data.json")
+    data = JsonDatastore(datamodel)
     data.load("jetconf/example-data.json")
 
     rpc = Rpc()

@@ -2,6 +2,7 @@ from typing import Dict, Any
 from datetime import datetime
 from pytz import timezone
 from yangson.instance import InstanceIdentifier, MemberName, EntryKeys
+from yangson.datamodel import DataModel
 
 
 class CertHelpers:
@@ -31,6 +32,13 @@ class DataHelpers:
     @staticmethod
     def path_first_ns(api_pth: str) -> str:
         return api_pth[1:].split("/", maxsplit=1)[0].split(":", maxsplit=1)[0]
+
+    @staticmethod
+    def load_data_model(module_dir: str, yang_library_file: str) -> DataModel:
+        with open(yang_library_file) as ylfile:
+            yl = ylfile.read()
+        dm = DataModel.from_yang_library(yl, module_dir)
+        return dm
 
 
 class DateTimeHelpers:

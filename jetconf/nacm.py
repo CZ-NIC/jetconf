@@ -6,7 +6,6 @@ from enum import Enum
 from colorlog import error, warning as warn, info, debug
 from typing import List, Set
 
-from yangson.schema import SchemaAddress
 from yangson.instance import \
     Instance, \
     NonexistentInstance, \
@@ -17,6 +16,8 @@ from yangson.instance import \
     MemberName, \
     EntryIndex, \
     EntryKeys
+
+from .helpers import DataHelpers
 
 
 class Action(Enum):
@@ -423,12 +424,13 @@ class UserNacm:
 
 
 def test():
-    nacm_data = JsonDatastore("./data", "./data/yang-library-data.json")
+    datamodel = DataHelpers.load_data_model("./data", "./data/yang-library-data.json")
+    nacm_data = JsonDatastore(datamodel)
     nacm_data.load("jetconf/example-data-nacm.json")
 
     nacm = NacmConfig(nacm_data)
 
-    data = JsonDatastore("./data", "./data/yang-library-data.json")
+    data = JsonDatastore(datamodel)
     data.load("jetconf/example-data.json")
     data.register_nacm(nacm)
 

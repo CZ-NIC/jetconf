@@ -74,7 +74,7 @@
             "path": "/dns-server:dns-server/zones/zone[domain='example.com']",
             "access-operations": "create update delete",
             "comment": "Users cannot write example.com.",
-            "action": "deny"
+            "action": "permit"
           },
           {
             "name": "no-writes-on-example.com",
