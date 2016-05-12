@@ -1,7 +1,7 @@
 {
   "ietf-netconf-acm:nacm": {
     "enable-nacm": true,
-    "read-default": "deny",
+    "read-default": "permit",
     "write-default": "deny",
     "exec-default": "deny",
     "denied-operations": 123,
@@ -85,7 +85,7 @@
           },
           {
             "name": "permit-zone-access",
-            "path": "/dns-server:dns-server/zones/zone",
+            "path": "/dns-server:dns-server/zones",
             "access-operations": "*",
             "comment": "Users can write other zones.",
             "action": "permit"

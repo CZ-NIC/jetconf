@@ -11,7 +11,7 @@ from yangson.instance import NonexistentInstance, InstanceTypeError, DuplicateMe
 
 from .config import CONFIG_GLOBAL, CONFIG_HTTP, NACM_ADMINS, API_ROOT_data, API_ROOT_ops
 from .helpers import CertHelpers, DataHelpers, DateTimeHelpers, ErrorHelpers
-from .data import BaseDatastore, Rpc, DataLockError, NacmForbiddenError, NoHandlerForOpError
+from .data import BaseDatastore, Rpc, DataLockError, NacmForbiddenError, NoHandlerForOpError, InstanceAlreadyPresent
 
 QueryStrT = Dict[str, List[str]]
 epretty = ErrorHelpers.epretty
@@ -196,7 +196,8 @@ def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pt
     try:
         ds.lock_data(username)
         ins_pos = (query_string.get("insert") or [None])[0]
-        ds.create_node_rpc(rpc1, json_data, insert=ins_pos)
+        point = (query_string.get("point") or [None])[0]
+        ds.create_node_rpc(rpc1, json_data, insert=ins_pos, point=point)
         prot.send_empty(stream_id, "201", "Created")
     except DataLockError as e:
         warn(epretty(e))
@@ -214,6 +215,9 @@ def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pt
         warn(epretty(e))
         prot.send_empty(stream_id, "409", "Conflict")
     except InstanceTypeError as e:
+        warn(epretty(e))
+        prot.send_empty(stream_id, "400", "Bad Request")
+    except InstanceAlreadyPresent as e:
         warn(epretty(e))
         prot.send_empty(stream_id, "400", "Bad Request")
     finally:
@@ -247,10 +251,6 @@ def _put(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth
 
     url_split = pth.split("?")
     url_path = url_split[0]
-    if len(url_split) > 1:
-        query_string = parse_qs(url_split[1])
-    else:
-        query_string = {}
 
     username = CertHelpers.get_field(prot.client_cert, "emailAddress")
 
@@ -262,7 +262,7 @@ def _put(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth
 
     try:
         ds.lock_data(username)
-        ds.put_node_rpc(rpc1, json_data)
+        ds.update_node_rpc(rpc1, json_data)
         prot.send_empty(stream_id, "204", "No Content", False)
     except DataLockError as e:
         warn(epretty(e))
@@ -304,10 +304,6 @@ def create_put_api(ds: BaseDatastore):
 def _delete(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str):
         url_split = pth.split("?")
         url_path = url_split[0]
-        if len(url_split) > 1:
-            query_string = parse_qs(url_split[1])
-        else:
-            query_string = {}
 
         username = CertHelpers.get_field(prot.client_cert, "emailAddress")
 

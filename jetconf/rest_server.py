@@ -81,7 +81,7 @@ class H2Protocol(asyncio.Protocol):
             elif isinstance(event, DataReceived):
                 self.http_handle_upload(event.data, event.stream_id)
             elif isinstance(event, RemoteSettingsChanged):
-                self.conn.acknowledge_settings(event)
+                self.conn.update_settings(event.changed_settings)
 
     def http_handle_upload(self, data: bytes, stream_id: int):
         try:

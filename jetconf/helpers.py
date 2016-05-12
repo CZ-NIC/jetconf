@@ -37,7 +37,7 @@ class DataHelpers:
     def load_data_model(module_dir: str, yang_library_file: str) -> DataModel:
         with open(yang_library_file) as ylfile:
             yl = ylfile.read()
-        dm = DataModel.from_yang_library(yl, module_dir)
+        dm = DataModel(yl, [module_dir])
         return dm
 
 

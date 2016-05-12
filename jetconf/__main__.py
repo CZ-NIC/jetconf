@@ -4,13 +4,13 @@ import logging
 import sys
 
 from importlib import import_module
-from . import op_handlers
+from . import usr_op_handlers, usr_state_data_handlers
 from .rest_server import RestServer
 from .config import load_config, print_config
 from .nacm import NacmConfig
 from .data import JsonDatastore, BaseDataListener, SchemaNode, InstanceIdentifier
 from .helpers import DataHelpers
-from .handler_list import OP_HANDLERS
+from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES
 
 
 class MyInfoDataListener(BaseDataListener):
@@ -44,7 +44,10 @@ def main():
     zone_listener1.add_schema_node("/ietf-netconf-acm:nacm/rule-list/rule")
 
     # Register op handlers
-    OP_HANDLERS.register_handler("generate-key", op_handlers.sign_op_handler)
+    OP_HANDLERS.register_handler("generate-key", usr_op_handlers.sign_op_handler)
+
+    # Create and register state data handlers
+    usr_state_data_handlers.create_zone_state_handlers(STATE_DATA_HANDLES, datamodel)
 
     # Create HTTP server
     rest_srv = RestServer()
