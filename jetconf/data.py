@@ -27,6 +27,12 @@ class PathFormat(Enum):
     XPATH = 1
 
 
+class ChangeType(Enum):
+    CREATE = 0,
+    REPLACE = 1,
+    DELETE = 2
+
+
 class NacmForbiddenError(Exception):
     def __init__(self, msg="Access to data node rejected by NACM", rule=None):
         self.msg = msg
@@ -85,7 +91,7 @@ class BaseDataListener:
         return self.__class__.__name__ + ": listening at " + str(self.schema_paths)
 
 
-class Rpc:
+class RpcInfo:
     def __init__(self):
         self.username = None    # type: str
         self.path = None        # type: str
@@ -96,6 +102,22 @@ class Rpc:
         self.op_input_args = None           # type: ObjectValue
 
 
+class DataChange:
+    def __init__(self, change_type: ChangeType, rpc_info: RpcInfo, data: Any):
+        self.change_type = change_type
+        self.rpc_info = rpc_info
+        self.data = data
+
+
+class ChangeList:
+    def __init__(self, changelist_name: str):
+        self.changelist_name = changelist_name
+        self.journal = []   # type: List[DataChange]
+
+    def add(self, change: DataChange):
+        self.journal.append(change)
+
+
 class BaseDatastore:
     def __init__(self, dm: DataModel, name: str=""):
         self.name = name
@@ -104,6 +126,7 @@ class BaseDatastore:
         self._dm = dm       # type: DataModel
         self._data_lock = Lock()
         self._lock_username = None  # type: str
+        self._usr_changelist = {}   # type: Dict[str, List[ChangeList]]
 
     # Register NACM module to datastore
     def register_nacm(self, nacm_config: "NacmConfig"):
@@ -153,7 +176,7 @@ class BaseDatastore:
         return n
 
     # Get data node, evaluate NACM if required
-    def get_node_rpc(self, rpc: Rpc) -> Instance:
+    def get_node_rpc(self, rpc: RpcInfo) -> Instance:
         ii = self.parse_ii(rpc.path, rpc.path_format)
         root = self._data
 
@@ -182,7 +205,7 @@ class BaseDatastore:
         return n
 
     # Create new data node
-    def create_node_rpc(self, rpc: Rpc, value: Any, insert=None, point=None):
+    def create_node_rpc(self, root: Instance, rpc: RpcInfo, value: Any, insert=None, point=None) -> Instance:
         # Rest-like version
         # ii = self.parse_ii(rpc.path, rpc.path_format)
         # n = self._data.goto(ii)
@@ -238,7 +261,7 @@ class BaseDatastore:
 
         # Restconf draft compliant version
         ii = self.parse_ii(rpc.path, rpc.path_format)
-        n = self._data.goto(ii)
+        n = root.goto(ii)
         new_n = n
 
         if self.nacm:
@@ -311,13 +334,13 @@ class BaseDatastore:
         else:
             raise InstanceAlreadyPresent()
 
-        self._data = new_n.top()
         self.notify_edit(ii)
+        return new_n.top()
 
     # Update already existing data node
-    def update_node_rpc(self, rpc: Rpc, value: Any):
+    def update_node_rpc(self, root: Instance, rpc: RpcInfo, value: Any) -> Instance:
         ii = self.parse_ii(rpc.path, rpc.path_format)
-        n = self._data.goto(ii)
+        n = root.goto(ii)
 
         if self.nacm:
             nrpc = self.nacm.get_user_nacm(rpc.username)
@@ -329,14 +352,14 @@ class BaseDatastore:
         new_value = data_doc_inst.goto(ii).value
 
         new_n = n.update(new_value)
-        self._data = new_n.top()
 
         self.notify_edit(ii)
+        return new_n.top()
 
     # Delete data node
-    def delete_node_rpc(self, rpc: Rpc, insert=None, point=None):
+    def delete_node_rpc(self, root: Instance, rpc: RpcInfo) -> Instance:
         ii = self.parse_ii(rpc.path, rpc.path_format)
-        n = self._data.goto(ii)
+        n = root.goto(ii)
         n_parent = n.up()
         new_n = n_parent
         last_isel = ii[-1]
@@ -357,28 +380,73 @@ class BaseDatastore:
         else:
             raise InstanceTypeError(n, "Invalid target node type")
 
-        self._data = new_n.top()
+        return new_n.top()
 
     # Invoke an operation
-    def invoke_op_rpc(self, rpc: Rpc) -> ObjectValue:
+    def invoke_op_rpc(self, rpc: RpcInfo) -> ObjectValue:
         if self.nacm and (not rpc.skip_nacm_check):
             nrpc = self.nacm.get_user_nacm(rpc.username)
             if nrpc.check_rpc_name(rpc.op_name) == Action.DENY:
                 raise NacmForbiddenError("Op \"{}\" invocation denied for user \"{}\"".format(rpc.op_name, rpc.username))
 
-        op_handler = OP_HANDLERS.get_handler(rpc.op_name)
-        if op_handler is None:
-            raise NoHandlerForOpError()
+        ret_data = {}
 
-        # Print operation input schema
-        # sn = self.get_schema_node(rpc.path)
-        # sn_input = sn.get_child("input")
-        # if sn_input is not None:
-        #     print("RPC input schema:")
-        #     print(sn_input._ascii_tree(""))
+        if rpc.op_name == "conf-start":
+            chl = ChangeList(rpc.op_input_args["name"])
+            if self._usr_changelist.get(rpc.username) is None:
+                self._usr_changelist[rpc.username] = []
+            self._usr_changelist[rpc.username].append(chl)
+            ret_data = {"status": "OK"}
+        elif rpc.op_name == "conf-list":
+            chls = self._usr_changelist.get(rpc.username)
+            chl_json = {}
+            for chl in chls:
+                changes = []
+                for ch in chl.journal:
+                    changes.append(
+                        [ch.change_type.name, ch.rpc_info.path]
+                    )
 
-        ret_data = op_handler(rpc.op_input_args)
+                chl_json[chl.changelist_name] = changes
+            ret_data = \
+                {
+                    "status": "OK",
+                    "changelists": chl_json
+                }
+        elif rpc.op_name == "conf-drop":
+            chls = self._usr_changelist.get(rpc.username)
+            if chls is not None:
+                chls.pop()
+                if len(chls) == 0:
+                    del self._usr_changelist[rpc.username]
+
+            ret_data = {"status": "OK"}
+        elif rpc.op_name == "conf-commit":
+            pass
+        else:
+            op_handler = OP_HANDLERS.get_handler(rpc.op_name)
+            if op_handler is None:
+                raise NoHandlerForOpError()
+
+            # Print operation input schema
+            # sn = self.get_schema_node(rpc.path)
+            # sn_input = sn.get_child("input")
+            # if sn_input is not None:
+            #     print("RPC input schema:")
+            #     print(sn_input._ascii_tree(""))
+
+            ret_data = op_handler(rpc.op_input_args)
+
         return ret_data
+
+    def add_to_journal_rpc(self, type: ChangeType, rpc: RpcInfo, value: Any):
+        usr_chss = self._usr_changelist.get(rpc.username)
+        if usr_chss is not None:
+            usr_chs = usr_chss[-1]
+            usr_chs.add(DataChange(type, rpc, value))
+        else:
+            raise NoHandlerError("No active changelist for user \"{}\"".format(rpc.username))
+
 
     # Locks datastore data
     def lock_data(self, username: str = None, blocking: bool=True):
@@ -428,7 +496,7 @@ def test():
     data = JsonDatastore(datamodel)
     data.load("jetconf/example-data.json")
 
-    rpc = Rpc()
+    rpc = RpcInfo()
     rpc.username = "dominik"
     rpc.path = "/dns-server:dns-server/zones/zone[domain='example.com']/query-module"
     rpc.path_format = PathFormat.XPATH

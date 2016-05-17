@@ -11,7 +11,7 @@ from yangson.instance import NonexistentInstance, InstanceTypeError, DuplicateMe
 
 from .config import CONFIG_GLOBAL, CONFIG_HTTP, NACM_ADMINS, API_ROOT_data, API_ROOT_ops
 from .helpers import CertHelpers, DataHelpers, DateTimeHelpers, ErrorHelpers
-from .data import BaseDatastore, Rpc, DataLockError, NacmForbiddenError, NoHandlerForOpError, InstanceAlreadyPresent
+from .data import BaseDatastore, RpcInfo, DataLockError, NacmForbiddenError, NoHandlerForOpError, InstanceAlreadyPresent, ChangeType
 
 QueryStrT = Dict[str, List[str]]
 epretty = ErrorHelpers.epretty
@@ -53,7 +53,7 @@ def _get(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str):
     else:
         query_string = {}
 
-    rpc1 = Rpc()
+    rpc1 = RpcInfo()
     rpc1.username = username
     rpc1.path = url_path
     rpc1.qs = query_string
@@ -182,7 +182,7 @@ def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pt
 
     username = CertHelpers.get_field(prot.client_cert, "emailAddress")
 
-    rpc1 = Rpc()
+    rpc1 = RpcInfo()
     rpc1.username = username
     rpc1.path = url_path
 
@@ -197,7 +197,8 @@ def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pt
         ds.lock_data(username)
         ins_pos = (query_string.get("insert") or [None])[0]
         point = (query_string.get("point") or [None])[0]
-        ds.create_node_rpc(rpc1, json_data, insert=ins_pos, point=point)
+        # ds.create_node_rpc(rpc1, json_data, insert=ins_pos, point=point)
+        ds.add_to_journal_rpc(ChangeType.CREATE, rpc1, json_data)
         prot.send_empty(stream_id, "201", "Created")
     except DataLockError as e:
         warn(epretty(e))
@@ -254,7 +255,7 @@ def _put(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth
 
     username = CertHelpers.get_field(prot.client_cert, "emailAddress")
 
-    rpc1 = Rpc()
+    rpc1 = RpcInfo()
     rpc1.username = username
     rpc1.path = url_path
 
@@ -262,7 +263,8 @@ def _put(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth
 
     try:
         ds.lock_data(username)
-        ds.update_node_rpc(rpc1, json_data)
+        # ds.update_node_rpc(rpc1, json_data)
+        ds.add_to_journal_rpc(ChangeType.REPLACE, rpc1, json_data)
         prot.send_empty(stream_id, "204", "No Content", False)
     except DataLockError as e:
         warn(epretty(e))
@@ -307,13 +309,14 @@ def _delete(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str):
 
         username = CertHelpers.get_field(prot.client_cert, "emailAddress")
 
-        rpc1 = Rpc()
+        rpc1 = RpcInfo()
         rpc1.username = username
         rpc1.path = url_path
 
         try:
             ds.lock_data(username)
-            ds.delete_node_rpc(rpc1)
+            # ds.delete_node_rpc(rpc1)
+            ds.add_to_journal_rpc(ChangeType.DELETE, rpc1, None)
             prot.send_empty(stream_id, "204", "No Content", False)
         except DataLockError as e:
             warn(epretty(e))
@@ -380,7 +383,7 @@ def create_api_op(ds: BaseDatastore):
 
         input_args = json_data.get(ns + ":input")
 
-        rpc1 = Rpc()
+        rpc1 = RpcInfo()
         rpc1.username = username
         rpc1.path = api_pth
         rpc1.op_name = op_name
