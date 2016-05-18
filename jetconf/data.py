@@ -9,10 +9,9 @@ from yangson.schema import SchemaRoute, SchemaNode, NonexistentSchemaNode, ListN
 from yangson.context import Context
 from yangson.datamodel import InstanceIdentifier, DataModel
 from yangson.instance import \
-    Instance, \
+    InstanceNode, \
     NonexistentInstance, \
     InstanceTypeError, \
-    DuplicateMember, \
     ArrayValue, \
     ObjectValue, \
     MemberName, \
@@ -122,7 +121,7 @@ class BaseDatastore:
     def __init__(self, dm: DataModel, name: str=""):
         self.name = name
         self.nacm = None    # type: NacmConfig
-        self._data = None   # type: Instance
+        self._data = None   # type: InstanceNode
         self._dm = dm       # type: DataModel
         self._data_lock = Lock()
         self._lock_username = None  # type: str
@@ -133,7 +132,7 @@ class BaseDatastore:
         self.nacm = nacm_config
 
     # Returns the root node of data tree
-    def get_data_root(self) -> Instance:
+    def get_data_root(self) -> InstanceNode:
         return self._data
 
     # Get schema node with particular schema address
@@ -165,18 +164,18 @@ class BaseDatastore:
             sn = sn.parent
 
     # Just get the node, do not evaluate NACM (for testing purposes)
-    def get_node(self, ii: InstanceIdentifier) -> Instance:
+    def get_node(self, ii: InstanceIdentifier) -> InstanceNode:
         n = self._data.goto(ii)
         return n
 
     # Just get the node, do not evaluate NACM (for testing purposes)
-    def get_node_path(self, path: str, path_format: PathFormat) -> Instance:
+    def get_node_path(self, path: str, path_format: PathFormat) -> InstanceNode:
         ii = self.parse_ii(path, path_format)
         n = self._data.goto(ii)
         return n
 
     # Get data node, evaluate NACM if required
-    def get_node_rpc(self, rpc: RpcInfo) -> Instance:
+    def get_node_rpc(self, rpc: RpcInfo) -> InstanceNode:
         ii = self.parse_ii(rpc.path, rpc.path_format)
         root = self._data
 
@@ -204,62 +203,8 @@ class BaseDatastore:
 
         return n
 
-    # Create new data node
-    def create_node_rpc(self, root: Instance, rpc: RpcInfo, value: Any, insert=None, point=None) -> Instance:
-        # Rest-like version
-        # ii = self.parse_ii(rpc.path, rpc.path_format)
-        # n = self._data.goto(ii)
-        #
-        # if self.nacm:
-        #     nrpc = self.nacm.get_user_nacm(rpc.username)
-        #     if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_CREATE) == Action.DENY:
-        #         raise NacmForbiddenError()
-        #
-        # if isinstance(n.value, ObjectValue):
-        #     # Only one member can be appended at time
-        #     value_keys = value.keys()
-        #     if len(value_keys) > 1:
-        #         raise ValueError("Received data contains more than one object")
-        #
-        #     recv_object_key = tuple(value_keys)[0]
-        #     recv_object_value = value[recv_object_key]
-        #
-        #     # Check if member is not already present in data
-        #     existing_member = None
-        #     try:
-        #         existing_member = n.member(recv_object_key)
-        #     except NonexistentInstance:
-        #         pass
-        #
-        #     if existing_member is not None:
-        #         raise DuplicateMember(n, recv_object_key)
-        #
-        #     # Create new member
-        #     new_member_ii = ii + [MemberName(recv_object_key)]
-        #     data_doc = DataHelpers.node2doc(new_member_ii, recv_object_value)
-        #     data_doc_inst = self._dm.from_raw(data_doc)
-        #     new_value = data_doc_inst.goto(new_member_ii).value
-        #
-        #     new_n = n.new_member(recv_object_key, new_value)
-        #     self._data = new_n.top()
-        # elif isinstance(n.value, ArrayValue):
-        #     # Append received node to list
-        #     data_doc = DataHelpers.node2doc(ii, [value])
-        #     print(data_doc)
-        #     data_doc_inst = self._dm.from_raw(data_doc)
-        #     new_value = data_doc_inst.goto(ii).value
-        #
-        #     if insert == "first":
-        #         new_n = n.update(ArrayValue(val=new_value + n.value))
-        #     else:
-        #         new_n = n.update(ArrayValue(val=n.value + new_value))
-        #     self._data = new_n.top()
-        # else:
-        #     raise InstanceTypeError(n, "Child node can only be appended to Object or Array")
-        #
-        # self.notify_edit(ii)
-
-        # Restconf draft compliant version
+    # Create new data node (Restconf draft compliant version)
+    def create_node_rpc(self, root: InstanceNode, rpc: RpcInfo, value: Any, insert=None, point=None) -> InstanceNode:
         ii = self.parse_ii(rpc.path, rpc.path_format)
         n = root.goto(ii)
         new_n = n
@@ -269,6 +214,7 @@ class BaseDatastore:
             if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_CREATE) == Action.DENY:
                 raise NacmForbiddenError()
 
+        # Get target member name
         input_member_name = tuple(value.keys())
         if len(input_member_name) != 1:
             raise ValueError("Received json object must contain exactly one member")
@@ -277,68 +223,73 @@ class BaseDatastore:
 
         input_member_value = value[input_member_name]
 
-        existing_member = None
+        # Check if target member already exists
         try:
             existing_member = n.member(input_member_name)
         except NonexistentInstance:
-            pass
+            existing_member = None
 
-        if existing_member is None:
-            # Create new data node
+        # Get target schema node
+        member_sn = self.get_schema_node_ii(ii + [MemberName(input_member_name)])
 
-            # Convert input data from List/Dict to ArrayValue/ObjectValue
-            data_doc = DataHelpers.node2doc(ii + [MemberName(input_member_name)], input_member_value)
-            data_doc_inst = self._dm.from_raw(data_doc)
-            new_value = data_doc_inst.goto(ii).value
-            new_value_data = new_value[input_member_name]
-
-            # Create new node (object member)
-            new_n = n.new_member(input_member_name, new_value_data)
-        elif isinstance(existing_member.value, ArrayValue):
+        if isinstance(member_sn, ListNode):
             # Append received node to list
 
+            # Create list if necessary
+            if existing_member is None:
+                existing_member = n.new_member(input_member_name, ArrayValue([]))
+
             # Convert input data from List/Dict to ArrayValue/ObjectValue
-            data_doc = DataHelpers.node2doc(ii + [MemberName(input_member_name)], [input_member_value])
-            data_doc_inst = self._dm.from_raw(data_doc)
-            new_value = data_doc_inst.goto(ii).value
-            new_value_data = new_value[input_member_name][0]
+            new_value_data = member_sn.from_raw([input_member_value])[0]
 
-            # Get schema node
-            sn = self.get_schema_node_ii(ii + [MemberName(input_member_name)])
+            list_node_key = member_sn.keys[0][0]
+            if new_value_data[list_node_key] in map(lambda x: x[list_node_key], existing_member.value):
+                raise InstanceAlreadyPresent("Duplicate key")
 
-            if isinstance(sn, ListNode):
-                list_node_key = sn.keys[0][0]
-                if new_value_data[list_node_key] in map(lambda x: x[list_node_key], existing_member.value):
-                    raise InstanceAlreadyPresent("Duplicate key")
+            if insert == "first":
+                new_n = existing_member.update(ArrayValue([new_value_data] + existing_member.value))
+            elif (insert == "last") or insert is None:
+                new_n = existing_member.update(ArrayValue(existing_member.value + [new_value_data]))
+            elif insert == "before":
+                entry_sel = EntryKeys({list_node_key: point})
+                list_entry = entry_sel.goto_step(existing_member)
+                new_n = list_entry.insert_before(new_value_data).up()
+            elif insert == "after":
+                entry_sel = EntryKeys({list_node_key: point})
+                list_entry = entry_sel.goto_step(existing_member)
+                new_n = list_entry.insert_after(new_value_data).up()
+        elif isinstance(member_sn, LeafListNode):
+            # Append received node to leaf list
 
-                if insert == "first":
-                    new_n = existing_member.update(ArrayValue(val=[new_value_data] + existing_member.value))
-                elif (insert == "last") or insert is None:
-                    new_n = existing_member.update(ArrayValue(val=existing_member.value + [new_value_data]))
-                elif insert == "before":
-                    entry_sel = EntryKeys({list_node_key: point})
-                    list_entry = entry_sel.goto_step(existing_member)
-                    new_n = list_entry.insert_before(new_value_data).up()
-                elif insert == "after":
-                    entry_sel = EntryKeys({list_node_key: point})
-                    list_entry = entry_sel.goto_step(existing_member)
-                    new_n = list_entry.insert_after(new_value_data).up()
-            elif isinstance(sn, LeafListNode):
-                if insert == "first":
-                    new_n = existing_member.update(ArrayValue(val=[new_value_data] + existing_member.value))
-                elif (insert == "last") or insert is None:
-                    new_n = existing_member.update(ArrayValue(val=existing_member.value + [new_value_data]))
-            else:
-                raise InstanceTypeError(n, "Target node must be List or LeafList")
+            # Create leaf list if necessary
+            if existing_member is None:
+                existing_member = n.new_member(input_member_name, ArrayValue([]))
 
+            # Convert input data from List/Dict to ArrayValue/ObjectValue
+            new_value_data = member_sn.from_raw([input_member_value])[0]
+
+            if insert == "first":
+                new_n = existing_member.update(ArrayValue([new_value_data] + existing_member.value))
+            elif (insert == "last") or insert is None:
+                new_n = existing_member.update(ArrayValue(existing_member.value + [new_value_data]))
         else:
-            raise InstanceAlreadyPresent()
+            if existing_member is None:
+                # Create new data node
+
+                # Convert input data from List/Dict to ArrayValue/ObjectValue
+                new_value_data = member_sn.from_raw(input_member_value)
+
+                # Create new node (object member)
+                new_n = n.new_member(input_member_name, new_value_data)
+            else:
+                # Data node already exists
+                raise InstanceAlreadyPresent("Member \"{}\" already present in \"{}\"".format(input_member_name, ii))
 
         self.notify_edit(ii)
         return new_n.top()
 
     # Update already existing data node
-    def update_node_rpc(self, root: Instance, rpc: RpcInfo, value: Any) -> Instance:
+    def update_node_rpc(self, root: InstanceNode, rpc: RpcInfo, value: Any) -> InstanceNode:
         ii = self.parse_ii(rpc.path, rpc.path_format)
         n = root.goto(ii)
 
@@ -347,17 +298,15 @@ class BaseDatastore:
             if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_UPDATE) == Action.DENY:
                 raise NacmForbiddenError()
 
-        data_doc = DataHelpers.node2doc(ii, value)
-        data_doc_inst = self._dm.from_raw(data_doc)
-        new_value = data_doc_inst.goto(ii).value
-
+        sn = self.get_schema_node_ii(ii)
+        new_value = sn.from_raw(value)
         new_n = n.update(new_value)
 
         self.notify_edit(ii)
         return new_n.top()
 
     # Delete data node
-    def delete_node_rpc(self, root: Instance, rpc: RpcInfo) -> Instance:
+    def delete_node_rpc(self, root: InstanceNode, rpc: RpcInfo) -> InstanceNode:
         ii = self.parse_ii(rpc.path, rpc.path_format)
         n = root.goto(ii)
         n_parent = n.up()
@@ -501,7 +450,7 @@ def test():
     rpc.path = "/dns-server:dns-server/zones/zone[domain='example.com']/query-module"
     rpc.path_format = PathFormat.XPATH
 
-    info("Reading: " + rpc.path)
+    info("Testing read of " + rpc.path)
     n = data.get_node_rpc(rpc)
     info("Result =")
     print(n.value)
@@ -515,6 +464,37 @@ def test():
         info("OK")
     else:
         warn("FAILED")
+
+    rpc.path = "/dns-server:dns-server/zones"
+    rpc.path_format = PathFormat.URL
+    info("Testing creation of new list item (zone myzone.com) in " + rpc.path)
+
+    new_root = data.create_node_rpc(data.get_data_root(), rpc, {"zone": {"domain": "myzone.com"}})
+    new_node_ii = data.parse_ii("/dns-server:dns-server/zones/zone", PathFormat.URL)
+    new_node = new_root.goto(new_node_ii)
+    info("Result =")
+    print(json.dumps(new_node.value, indent=4))
+
+    if "myzone.com" in map(lambda x: x.get("domain"), new_node.value):
+        info("OK")
+    else:
+        warn("FAILED")
+
+    rpc.path = "/dns-server:dns-server/zones/zone=myzone.com"
+    rpc.path_format = PathFormat.URL
+    info("Testing creation of new leaf-list inside object " + rpc.path)
+
+    new_root2 = data.create_node_rpc(new_root, rpc, {"access-control-list": "acl-notify-pokus"})
+    new_node_ii = data.parse_ii("/dns-server:dns-server/zones/zone=myzone.com", PathFormat.URL)
+    new_node2 = new_root2.goto(new_node_ii)
+    info("Result =")
+    print(json.dumps(new_node2.value, indent=4))
+
+    if "acl-notify-pokus" in new_node2.member("access-control-list").value:
+        info("OK")
+    else:
+        warn("FAILED")
+
 
 from .nacm import NacmConfig, Permission, Action
 from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES

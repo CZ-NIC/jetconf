@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Dict, Any
 
 from yangson.datamodel import DataModel
-from yangson.instance import InstanceIdentifier, Instance
+from yangson.instance import InstanceIdentifier, InstanceNode
 
 from .libknot.control import KnotCtl
 
@@ -18,7 +18,7 @@ class StateNodeHandlerBase:
     def add_member_handler(self, member: str, handler: "StateNodeHandlerBase"):
         self.member_handlers[member] = handler
 
-    def update_node(self, node_ii: InstanceIdentifier, data_root: Instance) -> Instance:
+    def update_node(self, node_ii: InstanceIdentifier, data_root: InstanceNode) -> InstanceNode:
         pass
 
 
@@ -28,7 +28,7 @@ class ZoneSigningStateHandler(StateNodeHandlerBase):
         self.sch_pth = "/dns-server:dns-server-state/zone/dnssec-signing:dnssec-signing"
         self.schema_node = data_model.get_data_node(self.sch_pth)
 
-    def update_node(self, node_ii: InstanceIdentifier, data_root: Instance) -> Instance:
+    def update_node(self, node_ii: InstanceIdentifier, data_root: InstanceNode) -> InstanceNode:
         print("zone_state_signing_handler, ii = {}".format(node_ii))
         zone_name = node_ii[2].keys.get("domain")
 
@@ -61,7 +61,7 @@ class ZoneStateHandler(StateNodeHandlerBase):
         self.sch_pth = "/dns-server:dns-server-state/zone"
         self.schema_node = data_model.get_data_node(self.sch_pth)
 
-    def update_node(self, node_ii: InstanceIdentifier, data_root: Instance) -> Instance:
+    def update_node(self, node_ii: InstanceIdentifier, data_root: InstanceNode) -> InstanceNode:
         print("zone_state_handler, ii = {}".format(node_ii))
 
         # Request status of specific zone

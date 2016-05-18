@@ -197,8 +197,8 @@ def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pt
         ds.lock_data(username)
         ins_pos = (query_string.get("insert") or [None])[0]
         point = (query_string.get("point") or [None])[0]
-        # ds.create_node_rpc(rpc1, json_data, insert=ins_pos, point=point)
-        ds.add_to_journal_rpc(ChangeType.CREATE, rpc1, json_data)
+        ds.create_node_rpc(ds.get_data_root(), rpc1, json_data, insert=ins_pos, point=point)
+        #ds.add_to_journal_rpc(ChangeType.CREATE, rpc1, json_data)
         prot.send_empty(stream_id, "201", "Created")
     except DataLockError as e:
         warn(epretty(e))
@@ -263,8 +263,9 @@ def _put(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth
 
     try:
         ds.lock_data(username)
-        # ds.update_node_rpc(rpc1, json_data)
-        ds.add_to_journal_rpc(ChangeType.REPLACE, rpc1, json_data)
+        nr = ds.update_node_rpc(ds.get_data_root(), rpc1, json_data)
+        ds._data = nr
+        #ds.add_to_journal_rpc(ChangeType.REPLACE, rpc1, json_data)
         prot.send_empty(stream_id, "204", "No Content", False)
     except DataLockError as e:
         warn(epretty(e))

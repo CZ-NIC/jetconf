@@ -47,7 +47,7 @@ def main():
     OP_HANDLERS.register_handler("generate-key", usr_op_handlers.sign_op_handler)
 
     # Create and register state data handlers
-    usr_state_data_handlers.create_zone_state_handlers(STATE_DATA_HANDLES, datamodel)
+    # usr_state_data_handlers.create_zone_state_handlers(STATE_DATA_HANDLES, datamodel)
 
     # Create HTTP server
     rest_srv = RestServer()

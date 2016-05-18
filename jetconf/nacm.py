@@ -7,7 +7,7 @@ from colorlog import error, warning as warn, info, debug
 from typing import List, Set
 
 from yangson.instance import \
-    Instance, \
+    InstanceNode, \
     NonexistentInstance, \
     ArrayValue, \
     ObjectValue, \
@@ -321,7 +321,7 @@ class UserNacm:
             return Action.PERMIT
 
         retval = None
-        data_node = self.data.get_data_root()   # type: Instance
+        data_node = self.data.get_data_root()   # type: InstanceNode
 
         nl = self.rule_tree.root
         for isel in ii:
@@ -361,7 +361,7 @@ class UserNacm:
 
         return retval
 
-    def _check_data_read_path(self, node: Instance, ii: InstanceIdentifier) -> Instance:
+    def _check_data_read_path(self, node: InstanceNode, ii: InstanceIdentifier) -> InstanceNode:
         # node = self.data.get_node(ii)
 
         if isinstance(node.value, ObjectValue):
@@ -401,7 +401,7 @@ class UserNacm:
 
         return node
 
-    def check_data_read_path(self, ii: InstanceIdentifier) -> Instance:
+    def check_data_read_path(self, ii: InstanceIdentifier) -> InstanceNode:
         n = self.data.get_node(ii)
         if not self.nacm_enabled:
             return n
