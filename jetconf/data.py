@@ -109,12 +109,81 @@ class DataChange:
 
 
 class ChangeList:
-    def __init__(self, changelist_name: str):
+    def __init__(self, root_origin_cl: InstanceNode, changelist_name: str):
+        self.root_list = [root_origin_cl]
         self.changelist_name = changelist_name
         self.journal = []   # type: List[DataChange]
 
-    def add(self, change: DataChange):
+    def add(self, change: DataChange, root_after_change: InstanceNode):
         self.journal.append(change)
+        self.root_list.append(root_after_change)
+
+
+class UsrChangeJournal:
+    def __init__(self, root_origin: InstanceNode):
+        self.root_origin = root_origin
+        self.clists = []    # type: List[ChangeList]
+
+    def cl_new(self, cl_name: str):
+        self.clists.append(ChangeList(self.get_root_head(), cl_name))
+
+    def cl_drop(self) -> bool:
+        try:
+            self.clists.pop()
+            return True
+        except IndexError:
+            return False
+
+    def get_root_head(self) -> InstanceNode:
+        if len(self.clists) > 0:
+            return self.clists[-1].root_list[-1]
+        else:
+            return self.root_origin
+
+    def list(self) -> str:
+        chl_json = {}
+        for chl in self.clists:
+            changes = []
+            for ch in chl.journal:
+                changes.append(
+                    [ch.change_type.name, ch.rpc_info.path]
+                )
+
+            chl_json[chl.changelist_name] = changes
+
+        return chl_json
+
+    def commit(self, ds: "BaseDatastore"):
+        # ds.lock_data()
+        try:
+            # Set new data root
+            if hash(ds.get_data_root()) == hash(self.root_origin):
+                info("Commiting new configuration (swapping roots)")
+                # Set new root
+                ds.set_data_root(self.get_root_head())
+            else:
+                info("Commiting new configuration (re-applying changes)")
+                nr = ds.get_data_root()
+                for cl in self.clists:
+                    for change in cl.journal:
+                        if change.change_type == ChangeType.CREATE:
+                            nr = ds.create_node_rpc(nr, change.rpc_info, change.data)
+                        elif change.change_type == ChangeType.REPLACE:
+                            nr = ds.update_node_rpc(nr, change.rpc_info, change.data)
+                        elif change.change_type == ChangeType.DELETE:
+                            nr = ds.delete_node_rpc(nr, change.rpc_info)
+
+            # Notify schema node observers
+            for cl in self.clists:
+                for change in cl.journal:
+                    ii = ds.parse_ii(change.rpc_info.path, change.rpc_info.path_format)
+                    ds.notify_edit(ii)
+
+            # Clear user changelists
+            self.clists.clear()
+        finally:
+            # ds.unlock_data()
+            pass
 
 
 class BaseDatastore:
@@ -125,7 +194,7 @@ class BaseDatastore:
         self._dm = dm       # type: DataModel
         self._data_lock = Lock()
         self._lock_username = None  # type: str
-        self._usr_changelist = {}   # type: Dict[str, List[ChangeList]]
+        self._usr_journals = {}   # type: Dict[str, UsrChangeJournal]
 
     # Register NACM module to datastore
     def register_nacm(self, nacm_config: "NacmConfig"):
@@ -134,6 +203,10 @@ class BaseDatastore:
     # Returns the root node of data tree
     def get_data_root(self) -> InstanceNode:
         return self._data
+
+    # Set a new Instance node as data root
+    def set_data_root(self, new_root: InstanceNode):
+        self._data = new_root
 
     # Get schema node with particular schema address
     def get_schema_node(self, sch_pth: str) -> SchemaNode:
@@ -163,15 +236,9 @@ class BaseDatastore:
             dispatcher.send(str(id(sn)), **{'sn': sn, 'ii': ii})
             sn = sn.parent
 
-    # Just get the node, do not evaluate NACM (for testing purposes)
-    def get_node(self, ii: InstanceIdentifier) -> InstanceNode:
-        n = self._data.goto(ii)
-        return n
-
-    # Just get the node, do not evaluate NACM (for testing purposes)
-    def get_node_path(self, path: str, path_format: PathFormat) -> InstanceNode:
-        ii = self.parse_ii(path, path_format)
-        n = self._data.goto(ii)
+    # Just get the node, do not evaluate NACM (needed for NACM)
+    def get_node(self, root: InstanceNode, ii: InstanceIdentifier) -> InstanceNode:
+        n = root.goto(ii)
         return n
 
     # Get data node, evaluate NACM if required
@@ -195,11 +262,40 @@ class BaseDatastore:
 
         if self.nacm:
             nrpc = self.nacm.get_user_nacm(rpc.username)
-            if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_READ) == Action.DENY:
+            if nrpc.check_data_node_path(self._data, ii, Permission.NACM_ACCESS_READ) == Action.DENY:
                 raise NacmForbiddenError()
             else:
                 # Prun subtree data
-                n = nrpc.check_data_read_path(ii)
+                n = nrpc.check_data_read_path(self._data, ii)
+
+        return n
+
+    # Get staging data node, evaluate NACM if required
+    def get_node_staging_rpc(self, rpc: RpcInfo) -> InstanceNode:
+        ii = self.parse_ii(rpc.path, rpc.path_format)
+        root = self._data
+
+        sn = self.get_schema_node_ii(ii)
+        for state_node_pth in sn.state_roots():
+            sn_pth_str = "".join(["/" + pth_seg for pth_seg in state_node_pth])
+            # print(sn_pth_str)
+            sdh = STATE_DATA_HANDLES.get_handler(sn_pth_str)
+            if sdh is not None:
+                root = sdh.update_node(ii, root).top()
+                self._data = root
+            else:
+                raise NoHandlerForStateDataError()
+
+        self._data = root
+        n = self._data.goto(ii)
+
+        if self.nacm:
+            nrpc = self.nacm.get_user_nacm(rpc.username)
+            if nrpc.check_data_node_path(self._data, ii, Permission.NACM_ACCESS_READ) == Action.DENY:
+                raise NacmForbiddenError()
+            else:
+                # Prun subtree data
+                n = nrpc.check_data_read_path(self._data, ii)
 
         return n
 
@@ -211,7 +307,7 @@ class BaseDatastore:
 
         if self.nacm:
             nrpc = self.nacm.get_user_nacm(rpc.username)
-            if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_CREATE) == Action.DENY:
+            if nrpc.check_data_node_path(root, ii, Permission.NACM_ACCESS_CREATE) == Action.DENY:
                 raise NacmForbiddenError()
 
         # Get target member name
@@ -285,7 +381,6 @@ class BaseDatastore:
                 # Data node already exists
                 raise InstanceAlreadyPresent("Member \"{}\" already present in \"{}\"".format(input_member_name, ii))
 
-        self.notify_edit(ii)
         return new_n.top()
 
     # Update already existing data node
@@ -295,14 +390,13 @@ class BaseDatastore:
 
         if self.nacm:
             nrpc = self.nacm.get_user_nacm(rpc.username)
-            if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_UPDATE) == Action.DENY:
+            if nrpc.check_data_node_path(root, ii, Permission.NACM_ACCESS_UPDATE) == Action.DENY:
                 raise NacmForbiddenError()
 
         sn = self.get_schema_node_ii(ii)
         new_value = sn.from_raw(value)
         new_n = n.update(new_value)
 
-        self.notify_edit(ii)
         return new_n.top()
 
     # Delete data node
@@ -315,7 +409,7 @@ class BaseDatastore:
 
         if self.nacm:
             nrpc = self.nacm.get_user_nacm(rpc.username)
-            if nrpc.check_data_node_path(ii, Permission.NACM_ACCESS_DELETE) == Action.DENY:
+            if nrpc.check_data_node_path(root, ii, Permission.NACM_ACCESS_DELETE) == Action.DENY:
                 raise NacmForbiddenError()
 
         if isinstance(n_parent.value, ArrayValue):
@@ -341,37 +435,43 @@ class BaseDatastore:
         ret_data = {}
 
         if rpc.op_name == "conf-start":
-            chl = ChangeList(rpc.op_input_args["name"])
-            if self._usr_changelist.get(rpc.username) is None:
-                self._usr_changelist[rpc.username] = []
-            self._usr_changelist[rpc.username].append(chl)
+            if self._usr_journals.get(rpc.username) is None:
+                self._usr_journals[rpc.username] = UsrChangeJournal(self._data)
+
+            self._usr_journals[rpc.username].cl_new(rpc.op_input_args["name"])
             ret_data = {"status": "OK"}
         elif rpc.op_name == "conf-list":
-            chls = self._usr_changelist.get(rpc.username)
-            chl_json = {}
-            for chl in chls:
-                changes = []
-                for ch in chl.journal:
-                    changes.append(
-                        [ch.change_type.name, ch.rpc_info.path]
-                    )
+            usr_journal = self._usr_journals.get(rpc.username)
+            if usr_journal is not None:
+                chl_json = usr_journal.list()
+            else:
+                chl_json = str(None)
 
-                chl_json[chl.changelist_name] = changes
             ret_data = \
                 {
                     "status": "OK",
                     "changelists": chl_json
                 }
         elif rpc.op_name == "conf-drop":
-            chls = self._usr_changelist.get(rpc.username)
-            if chls is not None:
-                chls.pop()
-                if len(chls) == 0:
-                    del self._usr_changelist[rpc.username]
+            usr_journal = self._usr_journals.get(rpc.username)
+            if usr_journal is not None:
+                if not usr_journal.cl_drop():
+                    del self._usr_journals[rpc.username]
 
             ret_data = {"status": "OK"}
         elif rpc.op_name == "conf-commit":
-            pass
+            usr_journal = self._usr_journals.get(rpc.username)
+            if usr_journal is not None:
+                usr_journal.commit(self)
+                del self._usr_journals[rpc.username]
+            else:
+                warn("Nothing to commit")
+
+            ret_data = \
+                {
+                    "status": "OK",
+                    "conf-changed": True
+                }
         else:
             op_handler = OP_HANDLERS.get_handler(rpc.op_name)
             if op_handler is None:
@@ -388,14 +488,13 @@ class BaseDatastore:
 
         return ret_data
 
-    def add_to_journal_rpc(self, type: ChangeType, rpc: RpcInfo, value: Any):
-        usr_chss = self._usr_changelist.get(rpc.username)
-        if usr_chss is not None:
-            usr_chs = usr_chss[-1]
-            usr_chs.add(DataChange(type, rpc, value))
+    def add_to_journal_rpc(self, ch_type: ChangeType, rpc: RpcInfo, value: Any, new_root: InstanceNode):
+        usr_journal = self._usr_journals.get(rpc.username)
+        if usr_journal is not None:
+            usr_chs = usr_journal.clists[-1]
+            usr_chs.add(DataChange(ch_type, rpc, value), new_root)
         else:
             raise NoHandlerError("No active changelist for user \"{}\"".format(rpc.username))
-
 
     # Locks datastore data
     def lock_data(self, username: str = None, blocking: bool=True):

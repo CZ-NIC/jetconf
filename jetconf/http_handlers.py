@@ -124,6 +124,7 @@ def create_get_api(ds: BaseDatastore):
 def get_file(prot: "H2Protocol", stream_id: int, headers: OrderedDict):
     # Ordinary file on filesystem
 
+    error("ordfile")
     url_split = headers[":path"].split("?")
     url_path = url_split[0]
 
@@ -169,6 +170,84 @@ def get_file(prot: "H2Protocol", stream_id: int, headers: OrderedDict):
     prot.conn.send_data(stream_id, bytes(), end_stream=True)
 
 
+def _get_staging(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str):
+    username = CertHelpers.get_field(prot.client_cert, "emailAddress")
+
+    url_split = pth.split("?")
+    url_path = url_split[0]
+    if len(url_split) > 1:
+        query_string = parse_qs(url_split[1])
+    else:
+        query_string = {}
+
+    rpc1 = RpcInfo()
+    rpc1.username = username
+    rpc1.path = url_path
+    rpc1.qs = query_string
+
+    try:
+        ds.lock_data(username)
+        n = ds.get_node_rpc(rpc1)
+
+        response = json.dumps(n.value, indent=4) + "\n"
+        response_bytes = response.encode()
+
+        response_headers = [
+            (":status", "200"),
+            ("server", CONFIG_HTTP["SERVER_NAME"])
+        ]
+        try:
+            lm_time = DateTimeHelpers.to_httpdate_str(n.value.last_modified, CONFIG_GLOBAL["TIMEZONE"])
+            response_headers.append(("Last-Modified", lm_time))
+        except AttributeError:
+            # Only arrays and objects have last_modified attribute
+            pass
+        response_headers.append(("ETag", hash(n.value)))
+        response_headers.append(("Content-Type", "application/yang.api+json"))
+        response_headers.append(("content-length", len(response_bytes)))
+
+        prot.conn.send_headers(stream_id, response_headers)
+        prot.conn.send_data(stream_id, response_bytes, end_stream=True)
+    except DataLockError as e:
+        warn(epretty(e))
+        prot.send_empty(stream_id, "500", "Internal Server Error")
+    except NacmForbiddenError as e:
+        warn(epretty(e))
+        prot.send_empty(stream_id, "403", "Forbidden")
+    except NonexistentSchemaNode as e:
+        warn(epretty(e))
+        prot.send_empty(stream_id, "404", "Not Found")
+    except NonexistentInstance as e:
+        warn(epretty(e))
+        prot.send_empty(stream_id, "404", "Not Found")
+    except InstanceTypeError as e:
+        warn(epretty(e))
+        prot.send_empty(stream_id, "400", "Bad Request")
+    finally:
+        ds.unlock_data()
+
+
+def create_get_staging_api(ds: BaseDatastore):
+    def get_staging_api_closure(prot: "H2Protocol", stream_id: int, headers: OrderedDict):
+        # api request
+        info(("api_get: " + headers[":path"]))
+
+        api_pth = headers[":path"][len(API_ROOT_data):]
+        ns = DataHelpers.path_first_ns(api_pth)
+
+        if ns == "ietf-netconf-acm":
+            username = CertHelpers.get_field(prot.client_cert, "emailAddress")
+            if username not in NACM_ADMINS:
+                warn(username + " not allowed to access NACM data")
+                prot.send_empty(stream_id, "403", "Forbidden")
+            else:
+                _get_staging(prot, stream_id, ds.nacm.nacm_ds, api_pth)
+        else:
+            _get_staging(prot, stream_id, ds, api_pth)
+
+    return get_staging_api_closure
+
+
 def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth: str):
     data_str = data.decode("utf-8")
     debug("HTTP data received: " + data_str)
@@ -187,9 +266,9 @@ def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pt
     rpc1.path = url_path
 
     try:
-        json_data = json.loads(data_str)
+        json_data = json.loads(data_str) if len(data_str) > 0 else {}
     except ValueError as e:
-        error("Invalid HTTP data: " + str(e))
+        error("Failed to parse POST data: " + epretty(e))
         prot.send_empty(stream_id, "400", "Bad Request")
         return
 
@@ -197,8 +276,8 @@ def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pt
         ds.lock_data(username)
         ins_pos = (query_string.get("insert") or [None])[0]
         point = (query_string.get("point") or [None])[0]
-        ds.create_node_rpc(ds.get_data_root(), rpc1, json_data, insert=ins_pos, point=point)
-        #ds.add_to_journal_rpc(ChangeType.CREATE, rpc1, json_data)
+        new_root = ds.create_node_rpc(ds.get_data_root(), rpc1, json_data, insert=ins_pos, point=point)
+        ds.add_to_journal_rpc(ChangeType.CREATE, rpc1, json_data, new_root)
         prot.send_empty(stream_id, "201", "Created")
     except DataLockError as e:
         warn(epretty(e))
@@ -259,13 +338,17 @@ def _put(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth
     rpc1.username = username
     rpc1.path = url_path
 
-    json_data = json.loads(data_str)
+    try:
+        json_data = json.loads(data_str) if len(data_str) > 0 else {}
+    except ValueError as e:
+        error("Failed to parse PUT data: " + epretty(e))
+        prot.send_empty(stream_id, "400", "Bad Request")
+        return
 
     try:
         ds.lock_data(username)
-        nr = ds.update_node_rpc(ds.get_data_root(), rpc1, json_data)
-        ds._data = nr
-        #ds.add_to_journal_rpc(ChangeType.REPLACE, rpc1, json_data)
+        new_root = ds.update_node_rpc(ds.get_data_root(), rpc1, json_data)
+        ds.add_to_journal_rpc(ChangeType.REPLACE, rpc1, json_data, new_root)
         prot.send_empty(stream_id, "204", "No Content", False)
     except DataLockError as e:
         warn(epretty(e))
@@ -316,8 +399,8 @@ def _delete(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str):
 
         try:
             ds.lock_data(username)
-            # ds.delete_node_rpc(rpc1)
-            ds.add_to_journal_rpc(ChangeType.DELETE, rpc1, None)
+            new_root = ds.delete_node_rpc(ds.get_data_root(), rpc1)
+            ds.add_to_journal_rpc(ChangeType.DELETE, rpc1, None, new_root)
             prot.send_empty(stream_id, "204", "No Content", False)
         except DataLockError as e:
             warn(epretty(e))
@@ -376,9 +459,9 @@ def create_api_op(ds: BaseDatastore):
         username = CertHelpers.get_field(prot.client_cert, "emailAddress")
 
         try:
-            json_data = json.loads(data_str)
+            json_data = json.loads(data_str) if len(data_str) > 0 else {}
         except ValueError as e:
-            error("Invalid HTTP data: " + str(e))
+            error("Failed to parse POST data: " + epretty(e))
             prot.send_empty(stream_id, "400", "Bad Request")
             return
 

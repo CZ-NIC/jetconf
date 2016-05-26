@@ -8,7 +8,7 @@ from h2.connection import H2Connection
 from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged
 
 import jetconf.http_handlers as handlers
-from .config import CONFIG_HTTP, API_ROOT_data, API_ROOT_ops
+from .config import CONFIG_HTTP, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops
 from .data import BaseDatastore
 
 
@@ -74,8 +74,12 @@ class H2Protocol(asyncio.Protocol):
                     # Handle immediately, no need to wait for incoming data
                     self.handle_get_delete(headers, event.stream_id)
                 elif http_method in ("PUT", "POST"):
-                    # Store headers and wait for data upload
-                    self.reqs_waiting_upload[event.stream_id] = headers
+                    if headers.get("content-length"):
+                        # Store headers and wait for data upload
+                        self.reqs_waiting_upload[event.stream_id] = headers
+                    else:
+                        # Handle immediately, incoming data empty
+                        self.handle_put_post(headers, event.stream_id, bytes())
                 else:
                     warn("Unknown http method \"{}\"".format(headers[":method"]))
             elif isinstance(event, DataReceived):
@@ -89,6 +93,9 @@ class H2Protocol(asyncio.Protocol):
         except KeyError:
             return
 
+        self.handle_put_post(headers, stream_id, data)
+
+    def handle_put_post(self, headers: OrderedDict, stream_id: int, data: bytes):
         # Handle PUT, POST
         url_split = headers[":path"].split("?")
         url_path = url_split[0]
@@ -138,6 +145,7 @@ class RestServer:
         # Register HTTP handlers
         api_get_root = handlers.api_root_handler
         api_get = handlers.create_get_api(datastore)
+        api_get_staging = handlers.create_get_staging_api(datastore)
         api_post = handlers.create_post_api(datastore)
         api_put = handlers.create_put_api(datastore)
         api_delete = handlers.create_api_delete(datastore)
@@ -145,6 +153,7 @@ class RestServer:
 
         self.http_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["API_ROOT"]), api_get_root)
         self.http_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_data)), api_get)
+        self.http_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_STAGING_data)), api_get_staging)
         self.http_handlers.register_handler(lambda m, p: (m == "POST") and (p.startswith(API_ROOT_data)), api_post)
         self.http_handlers.register_handler(lambda m, p: (m == "PUT") and (p.startswith(API_ROOT_data)), api_put)
         self.http_handlers.register_handler(lambda m, p: (m == "DELETE") and (p.startswith(API_ROOT_data)), api_delete)

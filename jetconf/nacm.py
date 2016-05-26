@@ -140,7 +140,6 @@ class DataRuleTree:
 
         ind_str += "+--"
 
-        # :o) :o) :o)
         for vb in vbars:
             isl = list(ind_str)
             isl[vb * 3] = "|"
@@ -316,12 +315,12 @@ class UserNacm:
         # config.update() always creates new structures instead of modifying ones
         config.internal_data_lock.release()
 
-    def check_data_node_path(self, ii: InstanceIdentifier, access: Permission, out_matching_rule: List[NacmRule]=None) -> Action:
+    def check_data_node_path(self, root: InstanceNode, ii: InstanceIdentifier, access: Permission, out_matching_rule: List[NacmRule]=None) -> Action:
         if not self.nacm_enabled:
             return Action.PERMIT
 
         retval = None
-        data_node = self.data.get_data_root()   # type: InstanceNode
+        data_node = root   # type: InstanceNode
 
         nl = self.rule_tree.root
         for isel in ii:
@@ -361,7 +360,7 @@ class UserNacm:
 
         return retval
 
-    def _check_data_read_path(self, node: InstanceNode, ii: InstanceIdentifier) -> InstanceNode:
+    def _check_data_read_path(self, node: InstanceNode, root: InstanceNode, ii: InstanceIdentifier) -> InstanceNode:
         # node = self.data.get_node(ii)
 
         if isinstance(node.value, ObjectValue):
@@ -374,12 +373,12 @@ class UserNacm:
                 mii.append(nsel)
 
                 debug("checking mii {}".format(mii))
-                if self.check_data_node_path(mii, Permission.NACM_ACCESS_READ) == Action.DENY:
+                if self.check_data_node_path(root, mii, Permission.NACM_ACCESS_READ) == Action.DENY:
                     # info("Pruning node {} {}".format(id(node.value[child_key]), node.value[child_key]))
                     debug("Pruning node {}".format(mii))
                     node = node.remove_member(child_key)
                 else:
-                    node = self._check_data_read_path(m, mii).up()
+                    node = self._check_data_read_path(m, root, mii).up()
         elif isinstance(node.value, ArrayValue):
             # print("array: {}".format(node.value))
             i = 0
@@ -391,22 +390,22 @@ class UserNacm:
                 eii.append(nsel)
 
                 debug("checking eii {}".format(eii))
-                if self.check_data_node_path(eii, Permission.NACM_ACCESS_READ) == Action.DENY:
+                if self.check_data_node_path(root, eii, Permission.NACM_ACCESS_READ) == Action.DENY:
                     debug("Pruning node {} {}".format(id(node.value[i]), node.value[i]))
                     node = node.remove_entry(i)
                     arr_len -= 1
                 else:
                     i += 1
-                    node = self._check_data_read_path(e, eii).up()
+                    node = self._check_data_read_path(e, root, eii).up()
 
         return node
 
-    def check_data_read_path(self, ii: InstanceIdentifier) -> InstanceNode:
-        n = self.data.get_node(ii)
+    def check_data_read_path(self, root: InstanceNode, ii: InstanceIdentifier) -> InstanceNode:
+        n = self.data.get_node(root, ii)
         if not self.nacm_enabled:
             return n
         else:
-            return self._check_data_read_path(n, ii)
+            return self._check_data_read_path(n, root, ii)
 
     def check_rpc_name(self, rpc_name: str, out_matching_rule: List[NacmRule] = None) -> Action:
         if not self.nacm_enabled:
@@ -459,13 +458,14 @@ def test():
     for test_path in test_paths:
         info("Testing path \"{}\"".format(test_path[0]))
 
-        datanode = data.get_node_path(test_path[0], PathFormat.XPATH)
+        ii = data.parse_ii(test_path[0], PathFormat.XPATH)
+        datanode = data.get_node(data.get_data_root(), ii)
         if datanode:
             info("Node found")
             debug("Node contents: {}".format(datanode.value))
             test_ii = data.parse_ii(test_path[0], PathFormat.XPATH)
             rule = []
-            action = nacm.get_user_nacm(test_user).check_data_node_path(test_ii, test_path[1], out_matching_rule=rule)
+            action = nacm.get_user_nacm(test_user).check_data_node_path(data.get_data_root(), test_ii, test_path[1], out_matching_rule=rule)
             if action == test_path[2]:
                 info("Action = {}, OK ({})\n".format(action.name, rule[0].name if len(rule) > 0 else "default"))
             else:
@@ -476,7 +476,7 @@ def test():
     test_ii2 = data.parse_ii("/dns-server:dns-server/zones/zone[domain='example.com']", PathFormat.XPATH)
 
     info("Reading: " + str(test_ii2))
-    res = nacm.get_user_nacm(test_user).check_data_read_path(test_ii2)
+    res = nacm.get_user_nacm(test_user).check_data_read_path(data.get_data_root(), test_ii2)
     res = json.dumps(res.value, indent=4, sort_keys=True)
     print("Result =")
     print(res)

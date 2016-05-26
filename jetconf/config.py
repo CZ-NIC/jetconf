@@ -10,6 +10,7 @@ CONFIG_HTTP = {
     "DOC_ROOT": "doc-root",
     "DOC_DEFAULT_NAME": "index.html",
     "API_ROOT": "/restconf",
+    "API_ROOT_STAGING": "/restconf_staging",
     "SERVER_NAME": "hyper-h2",
     "PORT": 8443,
 
@@ -30,12 +31,14 @@ CONFIG = {
 
 NACM_ADMINS = CONFIG["NACM"]["ALLOWED_USERS"]
 API_ROOT_data = os.path.join(CONFIG_HTTP["API_ROOT"], "data")
+API_ROOT_STAGING_data = os.path.join(CONFIG_HTTP["API_ROOT_STAGING"], "data")
 API_ROOT_ops = os.path.join(CONFIG_HTTP["API_ROOT"], "operations")
 
 
 def load_config(filename: str):
     global NACM_ADMINS
     global API_ROOT_data
+    global API_ROOT_STAGING_data
     global API_ROOT_ops
 
     try:
@@ -53,6 +56,7 @@ def load_config(filename: str):
     # Shortcuts
     NACM_ADMINS = CONFIG["NACM"]["ALLOWED_USERS"]
     API_ROOT_data = os.path.join(CONFIG_HTTP["API_ROOT"], "data")
+    API_ROOT_STAGING_data = os.path.join(CONFIG_HTTP["API_ROOT_STAGING"], "data")
     API_ROOT_ops = os.path.join(CONFIG_HTTP["API_ROOT"], "operations")
 
 
