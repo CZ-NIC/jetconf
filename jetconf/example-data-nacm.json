@@ -3,7 +3,7 @@
     "enable-nacm": true,
     "read-default": "permit",
     "write-default": "deny",
-    "exec-default": "deny",
+    "exec-default": "permit",
     "denied-operations": 123,
     "denied-data-writes": 456,
     "denied-notifications": 0,

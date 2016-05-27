@@ -172,6 +172,7 @@ class UsrChangeJournal:
                             nr = ds.update_node_rpc(nr, change.rpc_info, change.data)
                         elif change.change_type == ChangeType.DELETE:
                             nr = ds.delete_node_rpc(nr, change.rpc_info)
+                ds.set_data_root(nr)
 
             # Notify schema node observers
             for cl in self.clists:
