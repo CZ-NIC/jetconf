@@ -9,7 +9,7 @@ from typing import Dict, List
 from yangson.schema import NonexistentSchemaNode
 from yangson.instance import NonexistentInstance, InstanceTypeError, DuplicateMember
 
-from .config import CONFIG_GLOBAL, CONFIG_HTTP, NACM_ADMINS, API_ROOT_data, API_ROOT_ops
+from .config import CONFIG_GLOBAL, CONFIG_HTTP, NACM_ADMINS, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops
 from .helpers import CertHelpers, DataHelpers, DateTimeHelpers, ErrorHelpers
 from .data import \
     BaseDatastore, \
@@ -194,7 +194,7 @@ def _get_staging(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str
 
     try:
         ds.lock_data(username)
-        n = ds.get_node_rpc(rpc1)
+        n = ds.get_node_staging_rpc(rpc1)
 
         response = json.dumps(n.value, indent=4) + "\n"
         response_bytes = response.encode()
@@ -230,6 +230,9 @@ def _get_staging(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str
     except InstanceTypeError as e:
         warn(epretty(e))
         prot.send_empty(stream_id, "400", "Bad Request")
+    except NoHandlerError as e:
+        warn(epretty(e))
+        prot.send_empty(stream_id, "400", "Bad Request")
     finally:
         ds.unlock_data()
 
@@ -237,13 +240,13 @@ def _get_staging(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str
 def create_get_staging_api(ds: BaseDatastore):
     def get_staging_api_closure(prot: "H2Protocol", stream_id: int, headers: OrderedDict):
         # api request
-        info(("api_get: " + headers[":path"]))
+        username = CertHelpers.get_field(prot.client_cert, "emailAddress")
+        info("[{}] api_get_staging: {}".format(username, headers[":path"]))
 
-        api_pth = headers[":path"][len(API_ROOT_data):]
+        api_pth = headers[":path"][len(API_ROOT_STAGING_data):]
         ns = DataHelpers.path_first_ns(api_pth)
 
         if ns == "ietf-netconf-acm":
-            username = CertHelpers.get_field(prot.client_cert, "emailAddress")
             if username not in NACM_ADMINS:
                 warn(username + " not allowed to access NACM data")
                 prot.send_empty(stream_id, "403", "Forbidden")

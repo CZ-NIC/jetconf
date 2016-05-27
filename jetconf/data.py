@@ -274,29 +274,22 @@ class BaseDatastore:
     # Get staging data node, evaluate NACM if required
     def get_node_staging_rpc(self, rpc: RpcInfo) -> InstanceNode:
         ii = self.parse_ii(rpc.path, rpc.path_format)
-        root = self._data
 
-        sn = self.get_schema_node_ii(ii)
-        for state_node_pth in sn.state_roots():
-            sn_pth_str = "".join(["/" + pth_seg for pth_seg in state_node_pth])
-            # print(sn_pth_str)
-            sdh = STATE_DATA_HANDLES.get_handler(sn_pth_str)
-            if sdh is not None:
-                root = sdh.update_node(ii, root).top()
-                self._data = root
-            else:
-                raise NoHandlerForStateDataError()
+        usr_journal = self._usr_journals.get(rpc.username)
+        if usr_journal is not None:
+            root = usr_journal.get_root_head()
+            n = root.goto(ii)
 
-        self._data = root
-        n = self._data.goto(ii)
+        else:
+            raise NoHandlerError("No active changelist for user \"{}\"".format(rpc.username))
 
-        if self.nacm:
-            nrpc = self.nacm.get_user_nacm(rpc.username)
-            if nrpc.check_data_node_path(self._data, ii, Permission.NACM_ACCESS_READ) == Action.DENY:
-                raise NacmForbiddenError()
-            else:
-                # Prun subtree data
-                n = nrpc.check_data_read_path(self._data, ii)
+        # if self.nacm:
+        #     nrpc = self.nacm.get_user_nacm(rpc.username)
+        #     if nrpc.check_data_node_path(self._data, ii, Permission.NACM_ACCESS_READ) == Action.DENY:
+        #         raise NacmForbiddenError()
+        #     else:
+        #         # Prun subtree data
+        #         n = nrpc.check_data_read_path(self._data, ii)
 
         return n
 

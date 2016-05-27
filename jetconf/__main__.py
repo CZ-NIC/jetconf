@@ -40,7 +40,7 @@ def main():
 
     # Register schema listeners
     zone_listener1 = MyInfoDataListener(ex_datastore)
-    zone_listener1.add_schema_node("/dns-server:dns-server/zones/zone")
+    zone_listener1.add_schema_node("/dns-server:dns-server/zones")
     zone_listener1.add_schema_node("/ietf-netconf-acm:nacm/rule-list/rule")
 
     # Register op handlers
