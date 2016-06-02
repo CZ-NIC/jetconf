@@ -13,6 +13,7 @@ from yangson.instance import \
     ObjectValue, \
     InstanceSelector, \
     InstanceIdentifier, \
+    InstancePath, \
     MemberName, \
     EntryIndex, \
     EntryKeys
@@ -219,21 +220,19 @@ class NacmConfig:
                 rule.module = rule_json.get("module-name")
 
                 if rule_json.get("access-operations") is not None:
-                    access_perm_list = rule_json["access-operations"].split()
-                    for access_perm_str in access_perm_list:
-                        access_perm = {
-                            "read": Permission.NACM_ACCESS_READ,
-                            "create": Permission.NACM_ACCESS_CREATE,
-                            "update": Permission.NACM_ACCESS_UPDATE,
-                            "delete": Permission.NACM_ACCESS_DELETE,
-                            "exec": Permission.NACM_ACCESS_EXEC,
-                            "*": set(Permission),
-                        }.get(access_perm_str)
-                        if access_perm is not None:
-                            if isinstance(access_perm, collections.Iterable):
-                                rule.access.update(access_perm)
-                            else:
-                                rule.access.add(access_perm)
+                    access_perm_list = rule_json["access-operations"]
+                    if isinstance(access_perm_list, str) and (access_perm_list == "*"):
+                        rule.access = set(Permission)
+                    elif isinstance(access_perm_list, collections.Iterable):
+                        def perm_str2enum(perm_str: str):
+                            return {
+                                "read": Permission.NACM_ACCESS_READ,
+                                "create": Permission.NACM_ACCESS_CREATE,
+                                "update": Permission.NACM_ACCESS_UPDATE,
+                                "delete": Permission.NACM_ACCESS_DELETE,
+                                "exec": Permission.NACM_ACCESS_EXEC,
+                            }.get(perm_str)
+                        rule.access.update(map(perm_str2enum, access_perm_list))
 
                 if rule_json.get("rpc-name") is not None:
                     if rule.type != NacmRuleType.NACM_RULE_NOTSET:
@@ -315,7 +314,7 @@ class UserNacm:
         # config.update() always creates new structures instead of modifying ones
         config.internal_data_lock.release()
 
-    def check_data_node_path(self, root: InstanceNode, ii: InstanceIdentifier, access: Permission, out_matching_rule: List[NacmRule]=None) -> Action:
+    def check_data_node_path(self, root: InstanceNode, ii: InstancePath, access: Permission, out_matching_rule: List[NacmRule]=None) -> Action:
         if not self.nacm_enabled:
             return Action.PERMIT
 
@@ -360,7 +359,7 @@ class UserNacm:
 
         return retval
 
-    def _check_data_read_path(self, node: InstanceNode, root: InstanceNode, ii: InstanceIdentifier) -> InstanceNode:
+    def _check_data_read_path(self, node: InstanceNode, root: InstanceNode, ii: InstancePath) -> InstanceNode:
         # node = self.data.get_node(ii)
 
         if isinstance(node.value, ObjectValue):
@@ -376,7 +375,7 @@ class UserNacm:
                 if self.check_data_node_path(root, mii, Permission.NACM_ACCESS_READ) == Action.DENY:
                     # info("Pruning node {} {}".format(id(node.value[child_key]), node.value[child_key]))
                     debug("Pruning node {}".format(mii))
-                    node = node.remove_member(child_key)
+                    node = node.delete_member(child_key, validate=False)
                 else:
                     node = self._check_data_read_path(m, root, mii).up()
         elif isinstance(node.value, ArrayValue):
@@ -400,7 +399,7 @@ class UserNacm:
 
         return node
 
-    def check_data_read_path(self, root: InstanceNode, ii: InstanceIdentifier) -> InstanceNode:
+    def check_data_read_path(self, root: InstanceNode, ii: InstancePath) -> InstanceNode:
         n = self.data.get_node(root, ii)
         if not self.nacm_enabled:
             return n

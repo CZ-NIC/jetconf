@@ -4,17 +4,18 @@ import logging
 import sys
 
 from importlib import import_module
+from yangson.instance import InstancePath
 from . import usr_op_handlers, usr_state_data_handlers
 from .rest_server import RestServer
 from .config import load_config, print_config
 from .nacm import NacmConfig
-from .data import JsonDatastore, BaseDataListener, SchemaNode, InstanceIdentifier
+from .data import JsonDatastore, BaseDataListener, SchemaNode
 from .helpers import DataHelpers
 from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES
 
 
 class MyInfoDataListener(BaseDataListener):
-    def process(self, sn: SchemaNode, ii: InstanceIdentifier):
+    def process(self, sn: SchemaNode, ii: InstancePath):
         print("Change at sn \"{}\", dn \"{}\"".format(sn.name, ii))
 
 

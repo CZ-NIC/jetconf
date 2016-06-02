@@ -313,6 +313,9 @@ def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pt
     except NoHandlerError as e:
         warn(epretty(e))
         prot.send_empty(stream_id, "400", "Bad Request")
+    except ValueError as e:
+        warn(epretty(e))
+        prot.send_empty(stream_id, "400", "Bad Request")
     finally:
         ds.unlock_data()
 

@@ -6,8 +6,7 @@ from typing import List, Any, Dict, TypeVar, Tuple, Set
 from pydispatch import dispatcher
 
 from yangson.schema import SchemaRoute, SchemaNode, NonexistentSchemaNode, ListNode, LeafListNode
-from yangson.context import Context
-from yangson.datamodel import InstanceIdentifier, DataModel
+from yangson.datamodel import DataModel, InstancePath
 from yangson.instance import \
     InstanceNode, \
     NonexistentInstance, \
@@ -83,7 +82,7 @@ class BaseDataListener:
         self.schema_paths.append(sch_pth)
         dispatcher.connect(self.process, str(id(sn)))
 
-    def process(self, sn: SchemaNode, ii: InstanceIdentifier):
+    def process(self, sn: SchemaNode, ii: InstancePath):
         raise NotImplementedError("Not implemented in base class")
 
     def __str__(self):
@@ -216,13 +215,8 @@ class BaseDatastore:
             raise NonexistentSchemaNode(sch_pth)
         return sn
 
-    # Get schema node for particular data node
-    def get_schema_node_ii(self, ii: InstanceIdentifier) -> SchemaNode:
-        sn = Context.schema.get_data_descendant(ii)
-        return sn
-
     # Parse Instance Identifier from string
-    def parse_ii(self, path: str, path_format: PathFormat) -> InstanceIdentifier:
+    def parse_ii(self, path: str, path_format: PathFormat) -> InstancePath:
         if path_format == PathFormat.URL:
             ii = self._dm.parse_resource_id(path)
         else:
@@ -231,14 +225,15 @@ class BaseDatastore:
         return ii
 
     # Notify data observers about change in datastore
-    def notify_edit(self, ii: InstanceIdentifier):
-        sn = self.get_schema_node_ii(ii)
+    def notify_edit(self, ii: InstancePath):
+        n = self._data.goto(ii)
+        sn = n.schema_node
         while sn is not None:
             dispatcher.send(str(id(sn)), **{'sn': sn, 'ii': ii})
             sn = sn.parent
 
     # Just get the node, do not evaluate NACM (needed for NACM)
-    def get_node(self, root: InstanceNode, ii: InstanceIdentifier) -> InstanceNode:
+    def get_node(self, root: InstanceNode, ii: InstancePath) -> InstanceNode:
         n = root.goto(ii)
         return n
 
@@ -246,8 +241,9 @@ class BaseDatastore:
     def get_node_rpc(self, rpc: RpcInfo) -> InstanceNode:
         ii = self.parse_ii(rpc.path, rpc.path_format)
         root = self._data
+        n = root.goto(ii)
+        sn = n.schema_node
 
-        sn = self.get_schema_node_ii(ii)
         for state_node_pth in sn.state_roots():
             sn_pth_str = "".join(["/" + pth_seg for pth_seg in state_node_pth])
             # print(sn_pth_str)
@@ -283,13 +279,13 @@ class BaseDatastore:
         else:
             raise NoHandlerError("No active changelist for user \"{}\"".format(rpc.username))
 
-        # if self.nacm:
-        #     nrpc = self.nacm.get_user_nacm(rpc.username)
-        #     if nrpc.check_data_node_path(self._data, ii, Permission.NACM_ACCESS_READ) == Action.DENY:
-        #         raise NacmForbiddenError()
-        #     else:
-        #         # Prun subtree data
-        #         n = nrpc.check_data_read_path(self._data, ii)
+        if self.nacm:
+            nrpc = self.nacm.get_user_nacm(rpc.username)
+            if nrpc.check_data_node_path(root, ii, Permission.NACM_ACCESS_READ) == Action.DENY:
+                raise NacmForbiddenError()
+            else:
+                # Prun subtree data
+                n = nrpc.check_data_read_path(root, ii)
 
         return n
 
@@ -297,7 +293,6 @@ class BaseDatastore:
     def create_node_rpc(self, root: InstanceNode, rpc: RpcInfo, value: Any, insert=None, point=None) -> InstanceNode:
         ii = self.parse_ii(rpc.path, rpc.path_format)
         n = root.goto(ii)
-        new_n = n
 
         if self.nacm:
             nrpc = self.nacm.get_user_nacm(rpc.username)
@@ -320,14 +315,19 @@ class BaseDatastore:
             existing_member = None
 
         # Get target schema node
-        member_sn = self.get_schema_node_ii(ii + [MemberName(input_member_name)])
+        n = root.goto(ii)
+
+        sn = n.schema_node
+        sch_member_name = sn.iname2qname(input_member_name)
+        member_sn = sn.get_data_child(*sch_member_name)
 
         if isinstance(member_sn, ListNode):
             # Append received node to list
 
             # Create list if necessary
             if existing_member is None:
-                existing_member = n.new_member(input_member_name, ArrayValue([]))
+                new_n = n.put_member(input_member_name, ArrayValue([]))
+                existing_member = new_n.member(input_member_name)
 
             # Convert input data from List/Dict to ArrayValue/ObjectValue
             new_value_data = member_sn.from_raw([input_member_value])[0]
@@ -337,31 +337,36 @@ class BaseDatastore:
                 raise InstanceAlreadyPresent("Duplicate key")
 
             if insert == "first":
-                new_n = existing_member.update(ArrayValue([new_value_data] + existing_member.value))
+                new_member = existing_member.update(ArrayValue([new_value_data] + existing_member.value))
             elif (insert == "last") or insert is None:
-                new_n = existing_member.update(ArrayValue(existing_member.value + [new_value_data]))
+                new_member = existing_member.update(ArrayValue(existing_member.value + [new_value_data]))
             elif insert == "before":
                 entry_sel = EntryKeys({list_node_key: point})
                 list_entry = entry_sel.goto_step(existing_member)
-                new_n = list_entry.insert_before(new_value_data).up()
+                new_member = list_entry.insert_before(new_value_data).up()
             elif insert == "after":
                 entry_sel = EntryKeys({list_node_key: point})
                 list_entry = entry_sel.goto_step(existing_member)
-                new_n = list_entry.insert_after(new_value_data).up()
+                new_member = list_entry.insert_after(new_value_data).up()
+            else:
+                raise ValueError("Invalid 'insert' value")
         elif isinstance(member_sn, LeafListNode):
             # Append received node to leaf list
 
             # Create leaf list if necessary
             if existing_member is None:
-                existing_member = n.new_member(input_member_name, ArrayValue([]))
+                new_n = n.put_member(input_member_name, ArrayValue([]))
+                existing_member = new_n.member(input_member_name)
 
             # Convert input data from List/Dict to ArrayValue/ObjectValue
             new_value_data = member_sn.from_raw([input_member_value])[0]
 
             if insert == "first":
-                new_n = existing_member.update(ArrayValue([new_value_data] + existing_member.value))
+                new_member = existing_member.update(ArrayValue([new_value_data] + existing_member.value))
             elif (insert == "last") or insert is None:
-                new_n = existing_member.update(ArrayValue(existing_member.value + [new_value_data]))
+                new_member = existing_member.update(ArrayValue(existing_member.value + [new_value_data]))
+            else:
+                raise ValueError("Invalid 'insert' value")
         else:
             if existing_member is None:
                 # Create new data node
@@ -370,14 +375,14 @@ class BaseDatastore:
                 new_value_data = member_sn.from_raw(input_member_value)
 
                 # Create new node (object member)
-                new_n = n.new_member(input_member_name, new_value_data)
+                new_member = n.put_member(input_member_name, new_value_data)
             else:
                 # Data node already exists
                 raise InstanceAlreadyPresent("Member \"{}\" already present in \"{}\"".format(input_member_name, ii))
 
-        return new_n.top()
+        return new_member.top()
 
-    # Update already existing data node
+    # PUT data node
     def update_node_rpc(self, root: InstanceNode, rpc: RpcInfo, value: Any) -> InstanceNode:
         ii = self.parse_ii(rpc.path, rpc.path_format)
         n = root.goto(ii)
@@ -387,9 +392,7 @@ class BaseDatastore:
             if nrpc.check_data_node_path(root, ii, Permission.NACM_ACCESS_UPDATE) == Action.DENY:
                 raise NacmForbiddenError()
 
-        sn = self.get_schema_node_ii(ii)
-        new_value = sn.from_raw(value)
-        new_n = n.update(new_value)
+        new_n = n.update_from_raw(value)
 
         return new_n.top()
 
@@ -408,12 +411,12 @@ class BaseDatastore:
 
         if isinstance(n_parent.value, ArrayValue):
             if isinstance(last_isel, EntryIndex):
-                new_n = n_parent.remove_entry(last_isel.index)
+                new_n = n_parent.delete_entry(last_isel.index)
             elif isinstance(last_isel, EntryKeys):
-                new_n = n_parent.remove_entry(n.crumb.pointer_fragment())
+                new_n = n_parent.delete_entry(n.index)
         elif isinstance(n_parent.value, ObjectValue):
             if isinstance(last_isel, MemberName):
-                new_n = n_parent.remove_member(last_isel.name)
+                new_n = n_parent.delete_member(last_isel.name)
         else:
             raise InstanceTypeError(n, "Invalid target node type")
 
