@@ -40,13 +40,11 @@
     },
     "knot-dns:log": [
       {
-        "name": "01",
-        "syslog": [null],
+        "target": "syslog",
         "any": "warning"
       },
       {
-        "name": "02",
-        "file": "/tmp/knot.log",
+        "target": "/tmp/knot.log",
         "server": "info",
         "zone": "info"
       }

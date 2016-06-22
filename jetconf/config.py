@@ -23,10 +23,15 @@ CONFIG_NACM = {
     "ALLOWED_USERS": "lojza@mail.cz"
 }
 
+CONFIG_KNOT = {
+    "SOCKET": "/tmp/knot.sock"
+}
+
 CONFIG = {
     "GLOBAL": CONFIG_GLOBAL,
     "HTTP_SERVER": CONFIG_HTTP,
-    "NACM": CONFIG_NACM
+    "NACM": CONFIG_NACM,
+    "KNOT": CONFIG_KNOT
 }
 
 NACM_ADMINS = CONFIG["NACM"]["ALLOWED_USERS"]

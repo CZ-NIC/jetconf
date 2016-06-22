@@ -177,7 +177,10 @@ class UsrChangeJournal:
             for cl in self.clists:
                 for change in cl.journal:
                     ii = ds.parse_ii(change.rpc_info.path, change.rpc_info.path_format)
-                    ds.notify_edit(ii)
+                    if change.change_type != ChangeType.DELETE:
+                        ds.notify_edit(ii)
+                    else:
+                        ds.notify_edit(ii[0:-1])
 
             # Clear user changelists
             self.clists.clear()
@@ -537,59 +540,7 @@ class JsonDatastore(BaseDatastore):
 
 
 def test():
-    datamodel = DataHelpers.load_data_model("./data", "./data/yang-library-data.json")
-    data = JsonDatastore(datamodel)
-    data.load("jetconf/example-data.json")
-
-    rpc = RpcInfo()
-    rpc.username = "dominik"
-    rpc.path = "/dns-server:dns-server/zones/zone[domain='example.com']/query-module"
-    rpc.path_format = PathFormat.XPATH
-
-    info("Testing read of " + rpc.path)
-    n = data.get_node_rpc(rpc)
-    info("Result =")
-    print(n.value)
-    expected_value = \
-        [
-            {'name': 'test1', 'type': 'knot-dns:synth-record'},
-            {'name': 'test2', 'type': 'knot-dns:synth-record'}
-        ]
-
-    if json.loads(json.dumps(n.value)) == expected_value:
-        info("OK")
-    else:
-        warn("FAILED")
-
-    rpc.path = "/dns-server:dns-server/zones"
-    rpc.path_format = PathFormat.URL
-    info("Testing creation of new list item (zone myzone.com) in " + rpc.path)
-
-    new_root = data.create_node_rpc(data.get_data_root(), rpc, {"zone": {"domain": "myzone.com"}})
-    new_node_ii = data.parse_ii("/dns-server:dns-server/zones/zone", PathFormat.URL)
-    new_node = new_root.goto(new_node_ii)
-    info("Result =")
-    print(json.dumps(new_node.value, indent=4))
-
-    if "myzone.com" in map(lambda x: x.get("domain"), new_node.value):
-        info("OK")
-    else:
-        warn("FAILED")
-
-    rpc.path = "/dns-server:dns-server/zones/zone=myzone.com"
-    rpc.path_format = PathFormat.URL
-    info("Testing creation of new leaf-list inside object " + rpc.path)
-
-    new_root2 = data.create_node_rpc(new_root, rpc, {"access-control-list": "acl-notify-pokus"})
-    new_node_ii = data.parse_ii("/dns-server:dns-server/zones/zone=myzone.com", PathFormat.URL)
-    new_node2 = new_root2.goto(new_node_ii)
-    info("Result =")
-    print(json.dumps(new_node2.value, indent=4))
-
-    if "acl-notify-pokus" in new_node2.member("access-control-list").value:
-        info("OK")
-    else:
-        warn("FAILED")
+    error("Tests moved to tests/tests_jetconf.py")
 
 
 from .nacm import NacmConfig, Permission, Action

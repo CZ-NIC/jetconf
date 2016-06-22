@@ -2,7 +2,7 @@
   "ietf-netconf-acm:nacm": {
     "enable-nacm": true,
     "read-default": "permit",
-    "write-default": "deny",
+    "write-default": "permit",
     "exec-default": "permit",
     "denied-operations": 123,
     "denied-data-writes": 456,
@@ -69,6 +69,13 @@
           "users"
         ],
         "rule": [
+          {
+            "name": "permit-server-config",
+            "path": "/dns-server:dns-server/server-options",
+            "access-operations": "*",
+            "comment": "Permit server config",
+            "action": "permit"
+          },
           {
             "name": "no-writes-on-example.com",
             "path": "/dns-server:dns-server/zones/zone[domain='example.com']",
