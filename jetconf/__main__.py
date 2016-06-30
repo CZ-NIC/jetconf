@@ -3,73 +3,34 @@ import getopt
 import logging
 import sys
 
+from colorlog import info, warning as warn
 from importlib import import_module
-from typing import List
-from threading import Lock
 from yangson.instance import InstancePath, NonexistentInstance, ObjectValue, EntryKeys
 from . import usr_op_handlers, usr_state_data_handlers
 from .rest_server import RestServer
 from .config import CONFIG, load_config, print_config
 from .nacm import NacmConfig
-from .data import JsonDatastore, BaseDataListener, SchemaNode, PathFormat
+from .data import JsonDatastore, BaseDataListener, SchemaNode, PathFormat, ChangeType, DataChange
 from .helpers import DataHelpers
 from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES
-from .libknot.control import *
-
-KNOT = None     # type: KnotConfig
+from .knot_api import KNOT, KnotConfig, SOARecord
 
 
-class KnotConfig(KnotCtl):
-    def __init__(self, sock_path: str):
-        super().__init__()
-        self.sock_path = sock_path
-        self.connected = False
-        self.socket_lock = Lock()
+def knot_connect():
+    info("Connecting to KNOT socket")
+    KNOT.knot_connect()
 
-    def begin(self):
-        if self.connected:
-            raise Exception("Knot socket already opened")
 
-        if not self.socket_lock.acquire(blocking=True, timeout=5):
-            raise Exception("Cannot acquire Knot socket lock")
-
-        self.connect(self.sock_path)
-        self.connected = True
-        self.send_block("conf-begin")
-
-    def commit(self):
-        self.send_block("conf-commit")
-        self.send(KnotCtlType.END)
-        self.close()
-        self.connected = False
-        self.socket_lock.release()
-
-    def set_item(self, item=None, section=None, identifier=None, zone=None, data: str=None):
-        if not self.connected:
-            raise Exception("Knot socket is closed")
-
-        if data is not None:
-            self.send_block("conf-set", section=section, identifier=identifier, item=item, zone=zone, data=data)
-        else:
-            self.send_block("conf-unset", section=section, identifier=identifier, item=item, zone=zone)
-
-    def set_item_list(self, item=None, section=None, identifier=None, zone=None, data: List[str]=None):
-        if not self.connected:
-            raise Exception("Knot socket is closed")
-
-        self.send_block("conf-unset", section=section, identifier=identifier, item=item, zone=zone)
-        if data is None:
-            return
-
-        for data_item in data:
-            self.send_block("conf-set", section=section, identifier=identifier, item=item, zone=zone, data=data_item)
+def knot_disconnect():
+    info("Disonnecting from KNOT socket")
+    KNOT.knot_disconnect()
 
 
 class KnotConfServerListener(BaseDataListener):
-    def process(self, sn: SchemaNode, ii: InstancePath):
+    def process(self, sn: SchemaNode, ii: InstancePath, ch: DataChange):
         print("Change at sn \"{}\", dn \"{}\"".format(sn.name, ii))
 
-        base_ii_str = self.schema_paths[0]
+        base_ii_str = self.schema_path
         base_ii = self._ds.parse_ii(base_ii_str, PathFormat.URL)
         base_nv = self._ds.get_node(self._ds.get_data_root(), base_ii).value
 
@@ -99,9 +60,9 @@ class KnotConfServerListener(BaseDataListener):
 
 
 class KnotConfLogListener(BaseDataListener):
-    def process(self, sn: SchemaNode, ii: InstancePath):
+    def process(self, sn: SchemaNode, ii: InstancePath, ch: DataChange):
         print("lChange at sn \"{}\", dn \"{}\"".format(sn.name, ii))
-        base_ii_str = self.schema_paths[0]
+        base_ii_str = self.schema_path
         base_ii = self._ds.parse_ii(base_ii_str, PathFormat.URL)
         base_nv = self._ds.get_node(self._ds.get_data_root(), base_ii).value
 
@@ -123,9 +84,9 @@ class KnotConfLogListener(BaseDataListener):
 
 
 class KnotConfZoneListener(BaseDataListener):
-    def process(self, sn: SchemaNode, ii: InstancePath):
+    def process(self, sn: SchemaNode, ii: InstancePath, ch: DataChange):
         print("zChange at sn \"{}\", dn \"{}\"".format(sn.name, ii))
-        base_ii_str = self.schema_paths[0]
+        base_ii_str = self.schema_path
         base_ii = self._ds.parse_ii(base_ii_str, PathFormat.URL)
         base_nv = self._ds.get_node(self._ds.get_data_root(), base_ii).value
 
@@ -173,10 +134,10 @@ class KnotConfZoneListener(BaseDataListener):
 
 
 class KnotConfControlListener(BaseDataListener):
-    def process(self, sn: SchemaNode, ii: InstancePath):
+    def process(self, sn: SchemaNode, ii: InstancePath, ch: DataChange):
         print("cChange at sn \"{}\", dn \"{}\"".format(sn.name, ii))
 
-        base_ii_str = self.schema_paths[0]
+        base_ii_str = self.schema_path
         base_ii = self._ds.parse_ii(base_ii_str, PathFormat.URL)
         base_nv = self._ds.get_node(self._ds.get_data_root(), base_ii).value
 
@@ -204,16 +165,14 @@ class KnotConfAclListener(BaseDataListener):
         deny = "true" if action == "deny" else "false"
         KNOT.set_item(section="acl", identifier=name, item="deny", data=deny)
 
-    def process(self, sn: SchemaNode, ii: InstancePath):
-        base_ii_str = self.schema_paths[0]
+    def process(self, sn: SchemaNode, ii: InstancePath, ch: DataChange):
+        base_ii_str = self.schema_path
         print("aChange at sn \"{}\", dn \"{}\"".format(sn.name, ii))
         base_ii = self._ds.parse_ii(base_ii_str, PathFormat.URL)
         base_nv = self._ds.get_node(self._ds.get_data_root(), base_ii).value
 
         KNOT.begin()
         KNOT.set_item(section="acl", data=None)
-        KNOT.commit()
-        return
 
         if (len(ii) > len(base_ii)) and isinstance(ii[len(base_ii)], EntryKeys):
             # Write only changed list item
@@ -231,6 +190,45 @@ class KnotConfAclListener(BaseDataListener):
         KNOT.commit()
 
 
+class KnotZoneDataListener(BaseDataListener):
+    def process(self, sn: SchemaNode, ii: InstancePath, ch: DataChange):
+        base_ii_str = self.schema_path
+        print("zdChange at sn \"{}\", dn \"{}\"".format(sn.name, ii))
+        base_ii = self._ds.parse_ii(base_ii_str, PathFormat.URL)
+        base_nv = self._ds.get_node(self._ds.get_data_root(), base_ii).value
+
+        if (ii == base_ii) and (ch.change_type == ChangeType.CREATE):
+            name = ch.data["zone"]["name"]
+            print("--- Creating new zone \"{}\"".format(name))
+            KNOT.begin()
+            KNOT.set_item(section="zone", item="domain", data=name)
+            KNOT.commit()
+        elif (len(ii) == (len(base_ii) + 2)) and isinstance(ii[len(base_ii) + 1], EntryKeys) and (ch.change_type == ChangeType.DELETE):
+            name = ii[len(base_ii) + 1].keys["name"]
+            print("--- Deleting zone \"{}\"".format(name))
+            KNOT.begin()
+            KNOT.zone_new(name)
+            KNOT.commit()
+        elif (len(ii) > len(base_ii)) and isinstance(ii[len(base_ii) + 1], EntryKeys):
+            zone_name = ii[len(base_ii) + 1].keys["name"]
+            print("--- Zone \"{}\" resource {}".format(zone_name, ch.change_type.name.lower()))
+            if ch.change_type == ChangeType.CREATE:
+                soa = ch.data.get("SOA")
+                if soa is not None:
+                    print("writing soa {}".format(soa))
+                    KNOT.begin_zone()
+                    soarr = SOARecord(zone_name)
+                    soarr.mname = soa["mname"]
+                    soarr.rname = soa["rname"]
+                    soarr.serial = soa["serial"]
+                    soarr.refresh = soa["refresh"]
+                    soarr.retry = soa["retry"]
+                    soarr.expire = soa["expire"]
+                    soarr.minimum = soa["minimum"]
+                    KNOT.zone_add_record(zone_name, soarr)
+                    KNOT.commit_zone()
+
+
 def main():
     # Load configuration
     load_config("jetconf/config.yaml")
@@ -240,28 +238,26 @@ def main():
     datamodel = DataHelpers.load_data_model("data/", "data/yang-library-data.json")
 
     # NACM init
-    nacm_data = JsonDatastore(datamodel, "NACM data")
-    nacm_data.load("jetconf/example-data-nacm.json")
+    nacm_datastore = JsonDatastore(datamodel, "NACM data")
+    nacm_datastore.load("jetconf/example-data-nacm.json")
 
-    nacmc = NacmConfig(nacm_data)
+    nacmc = NacmConfig(nacm_datastore)
 
     # Datastore init
-    ex_datastore = JsonDatastore(datamodel, "DNS data")
-    ex_datastore.load("jetconf/example-data.json")
-    ex_datastore.register_nacm(nacmc)
-    nacmc.set_ds(ex_datastore)
+    datastore = JsonDatastore(datamodel, "DNS data")
+    datastore.load("jetconf/example-data.json")
+    datastore.register_nacm(nacmc)
+    nacmc.set_ds(datastore)
 
     # Register schema listeners
-    knot_conf_srv_l = KnotConfServerListener(ex_datastore)
-    knot_conf_srv_l.add_schema_node("/dns-server:dns-server/server-options")
-    knot_conf_log_l = KnotConfLogListener(ex_datastore)
-    knot_conf_log_l.add_schema_node("/dns-server:dns-server/knot-dns:log")
-    knot_conf_zone_l = KnotConfZoneListener(ex_datastore)
-    knot_conf_zone_l.add_schema_node("/dns-server:dns-server/zones/zone")
-    knot_conf_ctl_l = KnotConfControlListener(ex_datastore)
-    knot_conf_ctl_l.add_schema_node("/dns-server:dns-server/knot-dns:control-socket")
-    knot_conf_acl_l = KnotConfAclListener(ex_datastore)
-    knot_conf_acl_l.add_schema_node("/dns-server:dns-server/access-control-list")
+    # We need to hold references somewhere
+    sch_lo = []
+    sch_lo.append(KnotConfServerListener(datastore, "/dns-server:dns-server/server-options"))
+    sch_lo.append(KnotConfLogListener(datastore, "/dns-server:dns-server/knot-dns:log"))
+    sch_lo.append(KnotConfZoneListener(datastore, "/dns-server:dns-server/zones/zone"))
+    sch_lo.append(KnotConfControlListener(datastore, "/dns-server:dns-server/knot-dns:control-socket"))
+    sch_lo.append(KnotConfAclListener(datastore, "/dns-server:dns-server/access-control-list"))
+    sch_lo.append(KnotZoneDataListener(datastore, "/dns-zones:zones"))
 
     # Register op handlers
     OP_HANDLERS.register_handler("generate-key", usr_op_handlers.sign_op_handler)
@@ -272,10 +268,12 @@ def main():
     # Initialize Knot control interface
     global KNOT
     KNOT = KnotConfig(CONFIG["KNOT"]["SOCKET"])
+    datastore.commit_begin_callback = knot_connect
+    datastore.commit_end_callback = knot_disconnect
 
     # Create HTTP server
     rest_srv = RestServer()
-    rest_srv.register_api_handlers(ex_datastore)
+    rest_srv.register_api_handlers(datastore)
     rest_srv.register_static_handlers()
 
     # Run HTTP server

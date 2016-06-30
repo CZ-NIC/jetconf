@@ -286,7 +286,7 @@ def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pt
         ds.lock_data(username)
         ins_pos = (query_string.get("insert") or [None])[0]
         point = (query_string.get("point") or [None])[0]
-        new_root = ds.create_node_rpc(ds.get_data_root(), rpc1, json_data, insert=ins_pos, point=point)
+        new_root = ds.create_node_rpc(ds.get_data_root_staging(rpc1.username), rpc1, json_data, insert=ins_pos, point=point)
         ds.add_to_journal_rpc(ChangeType.CREATE, rpc1, json_data, new_root)
         prot.send_empty(stream_id, "201", "Created")
     except DataLockError as e:
@@ -363,7 +363,7 @@ def _put(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth
 
     try:
         ds.lock_data(username)
-        new_root = ds.update_node_rpc(ds.get_data_root(), rpc1, json_data)
+        new_root = ds.update_node_rpc(ds.get_data_root_staging(rpc1.username), rpc1, json_data)
         ds.add_to_journal_rpc(ChangeType.REPLACE, rpc1, json_data, new_root)
         prot.send_empty(stream_id, "204", "No Content", False)
     except DataLockError as e:
@@ -418,7 +418,7 @@ def _delete(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str):
 
         try:
             ds.lock_data(username)
-            new_root = ds.delete_node_rpc(ds.get_data_root(), rpc1)
+            new_root = ds.delete_node_rpc(ds.get_data_root_staging(rpc1.username), rpc1)
             ds.add_to_journal_rpc(ChangeType.DELETE, rpc1, None, new_root)
             prot.send_empty(stream_id, "204", "No Content", False)
         except DataLockError as e:

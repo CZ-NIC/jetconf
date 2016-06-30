@@ -2,7 +2,7 @@ import json
 from threading import Lock
 from enum import Enum
 from colorlog import error, warning as warn, info, debug
-from typing import List, Any, Dict, TypeVar, Tuple, Set
+from typing import List, Any, Dict, TypeVar, Tuple, Set, Callable
 from pydispatch import dispatcher
 
 from yangson.schema import SchemaRoute, SchemaNode, NonexistentSchemaNode, ListNode, LeafListNode
@@ -73,16 +73,13 @@ class NoHandlerForStateDataError(NoHandlerError):
 
 
 class BaseDataListener:
-    def __init__(self, ds: "BaseDatastore"):
+    def __init__(self, ds: "BaseDatastore", sch_pth: str):
         self._ds = ds
-        self.schema_paths = []
+        self.schema_path = sch_pth                          # type: str
+        self.schema_node = ds.get_schema_node(sch_pth)      # type: SchemaNode
+        dispatcher.connect(self.process, str(id(self.schema_node)))
 
-    def add_schema_node(self, sch_pth: str):
-        sn = self._ds.get_schema_node(sch_pth)
-        self.schema_paths.append(sch_pth)
-        dispatcher.connect(self.process, str(id(sn)))
-
-    def process(self, sn: SchemaNode, ii: InstancePath):
+    def process(self, sn: SchemaNode, ii: InstancePath, ch: "DataChange"):
         raise NotImplementedError("Not implemented in base class")
 
     def __str__(self):
@@ -177,10 +174,11 @@ class UsrChangeJournal:
             for cl in self.clists:
                 for change in cl.journal:
                     ii = ds.parse_ii(change.rpc_info.path, change.rpc_info.path_format)
-                    if change.change_type != ChangeType.DELETE:
-                        ds.notify_edit(ii)
-                    else:
-                        ds.notify_edit(ii[0:-1])
+                    ds.notify_edit(ii, change)
+                    # if change.change_type != ChangeType.DELETE:
+                    #     ds.notify_edit(ii)
+                    # else:
+                    #     ds.notify_edit(ii[0:-1])
 
             # Clear user changelists
             self.clists.clear()
@@ -198,6 +196,8 @@ class BaseDatastore:
         self._data_lock = Lock()
         self._lock_username = None  # type: str
         self._usr_journals = {}   # type: Dict[str, UsrChangeJournal]
+        self.commit_begin_callback = None   # type: Callable
+        self.commit_end_callback = None     # type: Callable
 
     # Register NACM module to datastore
     def register_nacm(self, nacm_config: "NacmConfig"):
@@ -206,6 +206,15 @@ class BaseDatastore:
     # Returns the root node of data tree
     def get_data_root(self) -> InstanceNode:
         return self._data
+
+    # Returns the root node of data tree
+    def get_data_root_staging(self, username: str) -> InstanceNode:
+        usr_journal = self._usr_journals.get(username)
+        if usr_journal is not None:
+            root = usr_journal.get_root_head()
+            return root
+        else:
+            raise NoHandlerError("No active changelist for user \"{}\"".format(username))
 
     # Set a new Instance node as data root
     def set_data_root(self, new_root: InstanceNode):
@@ -228,12 +237,18 @@ class BaseDatastore:
         return ii
 
     # Notify data observers about change in datastore
-    def notify_edit(self, ii: InstancePath):
-        n = self._data.goto(ii)
-        sn = n.schema_node
-        while sn is not None:
-            dispatcher.send(str(id(sn)), **{'sn': sn, 'ii': ii})
-            sn = sn.parent
+    def notify_edit(self, ii: InstancePath, ch: DataChange):
+        try:
+            # n = self._data.goto(ii)
+            # sn = n.schema_node
+            sch_pth = str(InstancePath(filter(lambda n: isinstance(n, MemberName), ii)))
+            sn = self.get_schema_node(sch_pth)
+
+            while sn is not None:
+                dispatcher.send(str(id(sn)), **{'sn': sn, 'ii': ii, 'ch': ch})
+                sn = sn.parent
+        except NonexistentInstance:
+            warn("Cannnot notify {}, parent container removed".format(ii))
 
     # Just get the node, do not evaluate NACM (needed for NACM)
     def get_node(self, root: InstanceNode, ii: InstancePath) -> InstanceNode:
@@ -274,13 +289,8 @@ class BaseDatastore:
     def get_node_staging_rpc(self, rpc: RpcInfo) -> InstanceNode:
         ii = self.parse_ii(rpc.path, rpc.path_format)
 
-        usr_journal = self._usr_journals.get(rpc.username)
-        if usr_journal is not None:
-            root = usr_journal.get_root_head()
-            n = root.goto(ii)
-
-        else:
-            raise NoHandlerError("No active changelist for user \"{}\"".format(rpc.username))
+        root = self.get_data_root_staging(rpc.username)
+        n = root.goto(ii)
 
         if self.nacm:
             nrpc = self.nacm.get_user_nacm(rpc.username)
@@ -462,7 +472,11 @@ class BaseDatastore:
         elif rpc.op_name == "conf-commit":
             usr_journal = self._usr_journals.get(rpc.username)
             if usr_journal is not None:
+                if self.commit_begin_callback is not None:
+                    self.commit_begin_callback()
                 usr_journal.commit(self)
+                if self.commit_end_callback is not None:
+                    self.commit_end_callback()
                 del self._usr_journals[rpc.username]
             else:
                 warn("Nothing to commit")

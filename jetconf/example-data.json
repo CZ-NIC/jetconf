@@ -332,5 +332,53 @@
         }
       }
     ]
+  },
+  "dns-zones:zones": {
+      "zone": [
+          {
+              "name": "pokus.cz",
+              "class": "IN",
+              "default-ttl": 100,
+              "SOA": {
+                  "mname": "dns1.pokus.cz",
+                  "rname": "hostmaster.pokus.cz",
+                  "serial": 20160621,
+                  "refresh": 200,
+                  "retry": 300,
+                  "expire": 400,
+                  "minimum": 500
+              },
+              "rrset": [
+                  {
+                      "owner": "sub1.pokus.cz",
+                      "type": "A",
+                      "rdata": [
+                          {
+                              "A": {
+                                  "address": "192.168.100.100"
+                              }
+                          }
+                      ]
+                  },
+                  {
+                      "owner": "pokus.cz",
+                      "type": "MX",
+                      "rdata": [
+                          {
+                              "MX": {
+                                  "preference": 0,
+                                  "exchange": "sub1.pokus.cz"
+                              }
+                          }
+                      ]
+                  }
+              ]
+          },
+          {
+              "name": "example.com",
+              "class": "IN",
+              "default-ttl": 100
+          }
+      ]
   }
 }

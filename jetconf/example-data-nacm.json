@@ -117,6 +117,7 @@
             "rpc-name": "zone-sign",
             "comment": "Users can sign zones",
             "action": "permit"
+
           }
         ]
       }

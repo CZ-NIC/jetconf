@@ -10,6 +10,13 @@
         "schema": "https://gitlab.labs.nic.cz/labs/dns-server-yang/raw/master/dns-parameters.yang"
       },
       {
+        "name": "iana-dns-parameters",
+        "revision": "2015-08-11",
+        "namespace": "http://www.nic.cz/ns/yang/dns-parameters",
+        "conformance-type": "import",
+        "schema": "https://gitlab.labs.nic.cz/llhotka/zone-data-yang/blob/master/iana-dns-parameters.yang"
+      },
+      {
         "name": "dns-server",
         "revision": "2016-01-14",
         "namespace": "http://www.nic.cz/ns/yang/dns-server",
@@ -20,6 +27,13 @@
         ],
         "conformance-type": "implement",
         "schema": "https://gitlab.labs.nic.cz/labs/dns-server-yang/raw/master/dns-server.yang"
+      },
+      {
+        "name": "dns-zones",
+        "revision": "2015-08-11",
+        "namespace": "http://www.nic.cz/ns/yang/dns-zones",
+        "conformance-type": "implement",
+        "schema": "https://gitlab.labs.nic.cz/llhotka/zone-data-yang/blob/master/dns-zones.yang"
       },
       {
         "name": "dnssec-algorithms",

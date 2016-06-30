@@ -5,6 +5,7 @@ from yangson.datamodel import DataModel
 from yangson.instance import InstanceIdentifier, InstanceNode
 
 from .libknot.control import KnotCtl
+from .knot_api import KNOT, KnotConfig
 
 JsonNodeT = Dict[str, Any]
 
@@ -114,12 +115,9 @@ class ZoneStateHandler(StateNodeHandlerBase):
 
 # Create handler hierarchy
 def create_zone_state_handlers(handler_list: "StateDataHandlerList", dm: DataModel):
-    ctl = KnotCtl()
-    ctl.connect("/tmp/knottest-1462525244-b67pmzm_/ddns/ttl/knot1/knot.sock")
-
-    zssh = ZoneSigningStateHandler(dm, ctl)
+    zssh = ZoneSigningStateHandler(dm, KNOT)
     handler_list.register_handler(zssh)
 
-    zsh = ZoneStateHandler(dm, ctl)
+    zsh = ZoneStateHandler(dm, KNOT)
     # zsh.add_member_handler("dnssec-signing:dnssec-signing", zssh)
     handler_list.register_handler(zsh)
