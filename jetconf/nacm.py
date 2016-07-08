@@ -391,7 +391,7 @@ class UserNacm:
                 debug("checking eii {}".format(eii))
                 if self.check_data_node_path(root, eii, Permission.NACM_ACCESS_READ) == Action.DENY:
                     debug("Pruning node {} {}".format(id(node.value[i]), node.value[i]))
-                    node = node.remove_entry(i)
+                    node = node.delete_entry(i)
                     arr_len -= 1
                 else:
                     i += 1

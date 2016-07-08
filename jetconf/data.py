@@ -283,6 +283,35 @@ class BaseDatastore:
                 # Prun subtree data
                 n = nrpc.check_data_read_path(self._data, ii)
 
+        try:
+            max_depth = int(rpc.qs["depth"][0])
+        except KeyError:
+            max_depth = None
+        except IndexError:
+            max_depth = None
+        except ValueError:
+            raise ValueError("Invalid value of query param \"depth\"")
+
+        if max_depth is not None:
+            def _tree_limit_depth(node: InstanceNode, depth: int) -> InstanceNode:
+                if isinstance(node.value, ObjectValue):
+                    if depth > max_depth:
+                        node.value = ObjectValue({})
+                    else:
+                        for child_key in sorted(node.value.keys()):
+                            m = node.member(child_key)
+                            node = _tree_limit_depth(m, depth + 1).up()
+                elif isinstance(node.value, ArrayValue):
+                    if depth > max_depth:
+                        node.value = ArrayValue([])
+                    else:
+                        for i in range(len(node.value)):
+                            e = node.entry(i)
+                            node = _tree_limit_depth(e, depth + 1).up()
+
+                return node
+            n = _tree_limit_depth(n, 1)
+
         return n
 
     # Get staging data node, evaluate NACM if required
