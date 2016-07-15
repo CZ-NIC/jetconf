@@ -13,7 +13,7 @@
         "name": "iana-dns-parameters",
         "revision": "2015-08-11",
         "namespace": "http://www.nic.cz/ns/yang/dns-parameters",
-        "conformance-type": "import",
+        "conformance-type": "implement",
         "schema": "https://gitlab.labs.nic.cz/llhotka/zone-data-yang/blob/master/iana-dns-parameters.yang"
       },
       {
