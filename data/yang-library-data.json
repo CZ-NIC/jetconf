@@ -73,7 +73,7 @@
         "name": "tsig-algorithms",
         "revision": "2016-01-13",
         "namespace": "http://www.nic.cz/ns/yang/tsig-algorithms",
-        "conformance-type": "import",
+        "conformance-type": "implement",
         "schema": "https://gitlab.labs.nic.cz/labs/dns-server-yang/raw/master/tsig-algorithms.yang"
       }
     ]
