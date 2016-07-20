@@ -3,7 +3,6 @@ from threading import Lock
 from enum import Enum
 from colorlog import error, warning as warn, info, debug
 from typing import List, Any, Dict, TypeVar, Tuple, Set, Callable
-from pydispatch import dispatcher
 
 from yangson.schema import SchemaRoute, SchemaNode, NonexistentSchemaNode, ListNode, LeafListNode
 from yangson.datamodel import DataModel, InstancePath
@@ -72,18 +71,23 @@ class NoHandlerForStateDataError(NoHandlerError):
     pass
 
 
+class ConfHandlerResult(Enum):
+    PASS = 0,
+    OK = 1,
+    ERROR = 2
+
+
 class BaseDataListener:
     def __init__(self, ds: "BaseDatastore", sch_pth: str):
         self._ds = ds
         self.schema_path = sch_pth                          # type: str
         self.schema_node = ds.get_schema_node(sch_pth)      # type: SchemaNode
-        dispatcher.connect(self.process, str(id(self.schema_node)))
 
-    def process(self, sn: SchemaNode, ii: InstancePath, ch: "DataChange"):
+    def process(self, sn: SchemaNode, ii: InstancePath, ch: "DataChange") -> ConfHandlerResult:
         raise NotImplementedError("Not implemented in base class")
 
     def __str__(self):
-        return self.__class__.__name__ + ": listening at " + str(self.schema_paths)
+        return self.__class__.__name__ + ": listening at " + self.schema_path
 
 
 class RpcInfo:
@@ -245,7 +249,19 @@ class BaseDatastore:
             sn = self.get_schema_node(sch_pth)
 
             while sn is not None:
-                dispatcher.send(str(id(sn)), **{'sn': sn, 'ii': ii, 'ch': ch})
+                h = CONF_DATA_HANDLES.get_handler(str(id(sn)))
+                if h is not None:
+                    h_res = h.process(sn, ii, ch)
+                    if h_res == ConfHandlerResult.OK:
+                        # Edit successfully handled
+                        break
+                    elif h_res == ConfHandlerResult.ERROR:
+                        # Error occured in handler
+                        warn("Error occured in handler for sch_node \"{}\"".format(sch_pth))
+                        break
+                    else:
+                        # Pass edit to superior handler
+                        pass
                 sn = sn.parent
         except NonexistentInstance:
             warn("Cannnot notify {}, parent container removed".format(ii))
@@ -587,4 +603,4 @@ def test():
 
 
 from .nacm import NacmConfig, Permission, Action
-from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES
+from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES

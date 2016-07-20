@@ -10,9 +10,9 @@ from . import usr_op_handlers, usr_state_data_handlers
 from .rest_server import RestServer
 from .config import CONFIG, load_config, print_config
 from .nacm import NacmConfig
-from .data import JsonDatastore, BaseDataListener, SchemaNode, PathFormat, ChangeType, DataChange
+from .data import JsonDatastore, BaseDataListener, SchemaNode, PathFormat, ChangeType, DataChange, ConfHandlerResult
 from .helpers import DataHelpers
-from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES
+from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES
 from .knot_api import KNOT, KnotConfig, SOARecord
 
 
@@ -57,6 +57,7 @@ class KnotConfServerListener(BaseDataListener):
         KNOT.set_item(section="server", item="rate-limit-table-size", data=base_nv.get("response-rate-limiting", {}).get("table-size"))
 
         KNOT.commit()
+        return ConfHandlerResult.OK
 
 
 class KnotConfLogListener(BaseDataListener):
@@ -81,6 +82,7 @@ class KnotConfLogListener(BaseDataListener):
             KNOT.set_item(section="log", identifier=tgt, item="any", data=logitem.get("any"))
 
         KNOT.commit()
+        return ConfHandlerResult.OK
 
 
 class KnotConfZoneListener(BaseDataListener):
@@ -131,6 +133,7 @@ class KnotConfZoneListener(BaseDataListener):
         KNOT.set_item(section="zone", zone=domain, item="semantic-checks", data=zone_nv.get("knot-dns:semantic-checks"))
 
         KNOT.commit()
+        return ConfHandlerResult.OK
 
 
 class KnotConfControlListener(BaseDataListener):
@@ -144,6 +147,7 @@ class KnotConfControlListener(BaseDataListener):
         KNOT.begin()
         KNOT.set_item(section="control", item="listen", data=base_nv.get("unix"))
         KNOT.commit()
+        return ConfHandlerResult.OK
 
 
 class KnotConfAclListener(BaseDataListener):
@@ -188,6 +192,7 @@ class KnotConfAclListener(BaseDataListener):
                 self._process_list_item(acl_nv)
 
         KNOT.commit()
+        return ConfHandlerResult.OK
 
 
 class KnotZoneDataListener(BaseDataListener):
@@ -227,6 +232,7 @@ class KnotZoneDataListener(BaseDataListener):
                     soarr.minimum = soa["minimum"]
                     KNOT.zone_add_record(zone_name, soarr)
                     KNOT.commit_zone()
+        return ConfHandlerResult.OK
 
 
 def main():
@@ -250,14 +256,12 @@ def main():
     nacmc.set_ds(datastore)
 
     # Register schema listeners
-    # We need to hold references somewhere
-    sch_lo = []
-    sch_lo.append(KnotConfServerListener(datastore, "/dns-server:dns-server/server-options"))
-    sch_lo.append(KnotConfLogListener(datastore, "/dns-server:dns-server/knot-dns:log"))
-    sch_lo.append(KnotConfZoneListener(datastore, "/dns-server:dns-server/zones/zone"))
-    sch_lo.append(KnotConfControlListener(datastore, "/dns-server:dns-server/knot-dns:control-socket"))
-    sch_lo.append(KnotConfAclListener(datastore, "/dns-server:dns-server/access-control-list"))
-    sch_lo.append(KnotZoneDataListener(datastore, "/dns-zones:zones"))
+    CONF_DATA_HANDLES.register_handler(KnotConfServerListener(datastore, "/dns-server:dns-server/server-options"))
+    CONF_DATA_HANDLES.register_handler(KnotConfLogListener(datastore, "/dns-server:dns-server/knot-dns:log"))
+    CONF_DATA_HANDLES.register_handler(KnotConfZoneListener(datastore, "/dns-server:dns-server/zones/zone"))
+    CONF_DATA_HANDLES.register_handler(KnotConfControlListener(datastore, "/dns-server:dns-server/knot-dns:control-socket"))
+    CONF_DATA_HANDLES.register_handler(KnotConfAclListener(datastore, "/dns-server:dns-server/access-control-list"))
+    CONF_DATA_HANDLES.register_handler(KnotZoneDataListener(datastore, "/dns-zones:zones"))
 
     # Register op handlers
     OP_HANDLERS.register_handler("generate-key", usr_op_handlers.sign_op_handler)

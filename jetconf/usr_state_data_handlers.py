@@ -13,6 +13,8 @@ JsonNodeT = Dict[str, Any]
 class StateNodeHandlerBase:
     def __init__(self, data_model: DataModel, ctl: KnotCtl):
         self.data_model = data_model
+        self.sch_pth = None
+        self.schema_node = None
         self.knotctl = ctl
         self.member_handlers = {}  # type: Dict[str, StateNodeHandlerBase]
 
