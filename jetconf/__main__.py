@@ -3,7 +3,7 @@ import getopt
 import logging
 import sys
 
-from colorlog import info, warning as warn
+from colorlog import info, warning as warn, error
 from importlib import import_module
 from yangson.instance import InstancePath, NonexistentInstance, ObjectValue, EntryKeys
 from . import usr_op_handlers, usr_state_data_handlers
@@ -11,9 +11,11 @@ from .rest_server import RestServer
 from .config import CONFIG, load_config, print_config
 from .nacm import NacmConfig
 from .data import JsonDatastore, BaseDataListener, SchemaNode, PathFormat, ChangeType, DataChange, ConfHandlerResult
-from .helpers import DataHelpers
+from .helpers import DataHelpers, ErrorHelpers
 from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES
-from .knot_api import KNOT, KnotConfig, SOARecord
+from .knot_api import KNOT, KnotConfig, SOARecord, KnotError
+
+epretty = ErrorHelpers.epretty
 
 
 def knot_connect():
@@ -217,11 +219,13 @@ class KnotZoneDataListener(BaseDataListener):
         elif (len(ii) > len(base_ii)) and isinstance(ii[len(base_ii) + 1], EntryKeys):
             zone_name = ii[len(base_ii) + 1].keys["name"]
             print("--- Zone \"{}\" resource {}".format(zone_name, ch.change_type.name.lower()))
+
             if ch.change_type == ChangeType.CREATE:
                 soa = ch.data.get("SOA")
                 if soa is not None:
                     print("writing soa {}".format(soa))
                     KNOT.begin_zone()
+
                     soarr = SOARecord(zone_name)
                     soarr.mname = soa["mname"]
                     soarr.rname = soa["rname"]
@@ -230,8 +234,12 @@ class KnotZoneDataListener(BaseDataListener):
                     soarr.retry = soa["retry"]
                     soarr.expire = soa["expire"]
                     soarr.minimum = soa["minimum"]
-                    KNOT.zone_add_record(zone_name, soarr)
+
+                    resp = KNOT.zone_add_record(zone_name, soarr)
+                    print("resp = {}".format(resp))
+
                     KNOT.commit_zone()
+
         return ConfHandlerResult.OK
 
 

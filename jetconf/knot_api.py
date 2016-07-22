@@ -7,18 +7,30 @@ from .libknot.control import KnotCtl, KnotCtlType
 KNOT = None     # type: KnotConfig
 
 
-class KnotConfState(Enum):
-    NONE = 0
-    CONF = 1
-    ZONE = 2
-
-
-class KnotStateError(Exception):
+class KnotError(Exception):
     def __init__(self, msg=""):
         self.msg = msg
 
     def __str__(self):
         return self.msg
+
+
+class KnotApiStateError(KnotError):
+    pass
+
+
+class KnotInternalError(KnotError):
+    pass
+
+
+class KnotApiError(KnotError):
+    pass
+
+
+class KnotConfState(Enum):
+    NONE = 0
+    CONF = 1
+    ZONE = 2
 
 
 class RRecordBase:
@@ -77,10 +89,10 @@ class KnotConfig(KnotCtl):
 
     def knot_connect(self):
         if self.connected:
-            raise Exception("Knot socket already opened")
+            raise KnotApiError("Knot socket already opened")
 
         if not self.socket_lock.acquire(blocking=True, timeout=5):
-            raise Exception("Cannot acquire Knot socket lock")
+            raise KnotApiError("Cannot acquire Knot socket lock")
 
         self.connect(self.sock_path)
         self.connected = True
@@ -106,19 +118,18 @@ class KnotConfig(KnotCtl):
             self.send_block("conf-commit")
             self.conf_state = KnotConfState.NONE
         else:
-            raise KnotStateError()
+            raise KnotApiStateError()
 
     def commit_zone(self):
         if self.conf_state == KnotConfState.ZONE:
             self.send_block("zone-commit")
             self.conf_state = KnotConfState.NONE
         else:
-            raise KnotStateError()
-
+            raise KnotApiStateError()
 
     def set_item(self, item=None, section=None, identifier=None, zone=None, data: str=None):
         if not self.connected:
-            raise Exception("Knot socket is closed")
+            raise KnotApiError("Knot socket is closed")
 
         if data is not None:
             self.send_block("conf-set", section=section, identifier=identifier, item=item, zone=zone, data=data)
@@ -127,7 +138,7 @@ class KnotConfig(KnotCtl):
 
     def set_item_list(self, item=None, section=None, identifier=None, zone=None, data: List[str]=None):
         if not self.connected:
-            raise Exception("Knot socket is closed")
+            raise KnotApiError("Knot socket is closed")
 
         self.send_block("conf-unset", section=section, identifier=identifier, item=item, zone=zone)
         if data is None:
@@ -138,7 +149,7 @@ class KnotConfig(KnotCtl):
 
     def set_zone_item(self, section=None, identifier=None, item=None, zone=None, owner=None, ttl=None, type=None, data=None):
         if not self.connected:
-            raise Exception("Knot socket is closed")
+            raise KnotApiError("Knot socket is closed")
 
         if data is not None:
             self.send_block("zone-add", section=section, identifier=identifier, item=item, zone=zone, owner=owner, ttl=ttl, type=type, data=data)
@@ -146,12 +157,23 @@ class KnotConfig(KnotCtl):
             self.send_block("zone-remove", section=section, identifier=identifier, item=item, zone=zone, owner=owner, ttl=ttl, type=type, data=data)
 
     def zone_new(self, domain_name: str) -> str:
-        self.set_item(section="zone", item="domain", data=domain_name)
-        resp = self.receive_block()
+        if not self.connected:
+            raise KnotApiError("Knot socket is closed")
+
+        try:
+            self.set_item(section="zone", item="domain", data=domain_name)
+            resp = self.receive_block()
+        except Exception as e:
+            raise KnotInternalError(str(e))
         return resp
 
     def zone_add_record(self, domain_name: str, rr: RRecordBase) -> str:
-        self.set_zone_item(zone=domain_name, owner=rr.owner, ttl="3600", type=rr.type, data=rr.rrdata_format())
+        if not self.connected:
+            raise KnotApiError("Knot socket is closed")
 
-        resp = self.receive_zone_block()
+        try:
+            self.set_zone_item(zone=domain_name, owner=rr.owner, ttl="3600", type=rr.type, data=rr.rrdata_format())
+            resp = self.receive_zone_block()
+        except Exception as e:
+            raise KnotInternalError(str(e))
         return resp

@@ -47,20 +47,24 @@ class DataLockError(Exception):
         return self.msg
 
 
-class NoHandlerError(Exception):
-    def __init__(self, msg=""):
-        self.msg = msg
-
-    def __str__(self):
-        return self.msg
-
-
 class InstanceAlreadyPresent(Exception):
     def __init__(self, msg=""):
         self.msg = msg
 
     def __str__(self):
         return self.msg
+
+
+class HandlerError(Exception):
+    def __init__(self, msg=""):
+        self.msg = msg
+
+    def __str__(self):
+        return self.msg
+
+
+class NoHandlerError(HandlerError):
+    pass
 
 
 class NoHandlerForOpError(NoHandlerError):

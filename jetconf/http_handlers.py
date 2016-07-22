@@ -9,6 +9,7 @@ from typing import Dict, List
 from yangson.schema import NonexistentSchemaNode
 from yangson.instance import NonexistentInstance, InstanceTypeError, DuplicateMember
 
+from jetconf.knot_api import KnotError
 from .config import CONFIG_GLOBAL, CONFIG_HTTP, NACM_ADMINS, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops
 from .helpers import CertHelpers, DataHelpers, DateTimeHelpers, ErrorHelpers
 from .data import \
@@ -528,5 +529,8 @@ def create_api_op(ds: BaseDatastore):
         except NoHandlerForOpError:
             warn("Nonexistent handler for operation \"{}\"".format(op_name))
             prot.send_empty(stream_id, "400", "Bad Request")
+        except KnotError as e:
+            warn(epretty(e))
+            prot.send_empty(stream_id, "500", "Internal Server Error")
 
     return api_op_closure
