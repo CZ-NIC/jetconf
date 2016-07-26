@@ -295,6 +295,16 @@ class BaseDatastore:
         self._data = root
         n = self._data.goto(ii)
 
+        try:
+            with_defs = rpc.qs["with-defaults"][0]
+        except KeyError:
+            with_defs = None
+        except IndexError:
+            with_defs = None
+
+        if with_defs == "report-all":
+            n = n.add_defaults()
+
         if self.nacm:
             nrpc = self.nacm.get_user_nacm(rpc.username)
             if nrpc.check_data_node_path(self._data, ii, Permission.NACM_ACCESS_READ) == Action.DENY:
