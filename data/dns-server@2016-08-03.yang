@@ -33,7 +33,7 @@ module dns-server {
     "This YANG module defines the data model for an authoritative DNS
      server.";
 
-  revision 2016-01-14 {
+  revision 2016-08-03 {
     description
       "Initial revision.";
     reference
@@ -191,7 +191,7 @@ module dns-server {
     leaf name {
       type string;
       description
-        "The name of the list entry.";
+        "Name of a list entry.";
     }
   }
 

@@ -36,7 +36,7 @@ module knot-dns {
   reference
     "https://www.knot-dns.cz/docs/2.0/html/";
 
-  revision 2016-01-13 {
+  revision 2016-08-03 {
     description
       "Initial revision.";
     reference
@@ -215,7 +215,7 @@ module knot-dns {
     description
       "Knot-specific configuration data.";
     list log {
-      key "name";
+      key "target";
       description
         "List of log options.
 
@@ -252,33 +252,20 @@ module knot-dns {
         description
           "Severity levels.";
       }
-      uses dnss:entry-name;
-      uses dnss:description;
-      choice target {
-        mandatory "true";
+      leaf target {
+        type string;
         description
-          "Destination of log messages.";
-        leaf stdout {
-          type empty;
-          description
-            "Standard output.";
-        }
-        leaf stderr {
-          type empty;
-          description
-            "Standard error.";
-        }
-        leaf syslog {
-          type empty;
-          description
-            "Syslog service.";
-        }
-        leaf file {
-          type dnss:fs-path;
-          description
-            "File name.";
-        }
+          "Destination of log messages. The value can be either a
+           file name, or one of the following special strings:
+
+           - stdout: log messages are sent to standard output,
+
+           - stderr: log messages are sent to standard error,
+
+           - stderr: log messages are passed to the syslog
+             facility.";
       }
+      uses dnss:description;
       leaf server {
         type severity;
         description
@@ -414,7 +401,7 @@ module knot-dns {
   }
 
   augment "/dnss:dns-server/dnss:query-module" {
-    when "dnss:type = 'knot:dnstap'";
+    when "derived-from-or-self(dnss:type, 'knot:dnstap')";
     description
       "Configuration of 'dnstap' query module.";
     container dnstap {
@@ -446,7 +433,7 @@ module knot-dns {
   }
 
   augment "/dnss:dns-server/dnss:query-module" {
-    when "dnss:type = 'knot:synth-record'";
+    when "derived-from-or-self(dnss:type, 'knot:synth-record')";
     description
       "Configuration of 'synth-record' query module.";
     container synth-record {
@@ -508,7 +495,7 @@ module knot-dns {
   }
 
   augment "/dnss:dns-server/dnss:query-module" {
-    when "dnss:type = 'knot:dnsproxy'";
+    when "derived-from-or-self(dnss:type, 'knot:dnsproxy')";
     description
       "Configuration of 'dnsproxy' query module.";
     container dnsproxy {
@@ -527,7 +514,7 @@ module knot-dns {
   }
 
   augment "/dnss:dns-server/dnss:query-module" {
-    when "dnss:type = 'knot:rosedb'";
+    when "derived-from-or-self(dnss:type, 'knot:rosedb')";
     description
       "Configuration of 'rosedb' query module.";
     container rosedb {
