@@ -40,13 +40,11 @@
     },
     "knot-dns:log": [
       {
-        "name": "01",
-        "syslog": [null],
+        "target": "syslog",
         "any": "warning"
       },
       {
-        "name": "02",
-        "file": "/tmp/knot.log",
+        "target": "/tmp/knot.log",
         "server": "info",
         "zone": "info"
       }
@@ -188,8 +186,8 @@
       {
         "name": "default_rsa",
         "algorithm": "RSASHA256",
-        "zsk-length": 1024,
-        "ksk-length": 2048
+        "zsk-size": 1024,
+        "ksk-size": 2048
       }
     ],
     "zones": {
@@ -276,7 +274,7 @@
               "key-id": "d3a9fd3b36a6be275adea2b67c6e82b27ca30e90",
               "key-tag": 30348,
               "algorithm": "RSASHA256",
-              "length": 2048,
+              "size": 2048,
               "flags": "zone-key secure-entry-point",
               "created": "2015-06-18T18:02:45+02:00",
               "publish": "2015-06-18T19:00:00+02:00",
@@ -332,6 +330,86 @@
             ]
           }
         }
+      }
+    ]
+  },
+  "ietf-netconf-acm:nacm": {
+    "enable-nacm": true,
+    "read-default": "permit",
+    "write-default": "deny",
+    "exec-default": "deny",
+    "denied-operations": 123,
+    "denied-data-writes": 456,
+    "denied-notifications": 0,
+    "groups": {
+      "group": [
+        {
+          "name": "admin",
+          "user-name": [
+            "root",
+            "dominik"
+          ]
+        },
+        {
+          "name": "users",
+          "user-name": [
+            "lada",
+            "pavel"
+          ]
+        }
+      ]
+    },
+    "rule-list": [
+      {
+        "name": "admin-acl",
+        "group": [
+          "admin"
+        ],
+        "rule": [
+          {
+            "name": "permit-all",
+            "module-name": "*",
+            "access-operations": "*",
+            "comment": "The 'admin' group has unlimited access.",
+            "action": "permit"
+          }
+        ]
+      },
+      {
+        "name": "users-acl",
+        "group": [
+          "users"
+        ],
+        "rule": [
+          {
+            "name": "no-writes-on-example.com",
+            "path": "/dnss:dns-server/dnss:zones/dnss:zone[dnss:domain='example.com']",
+            "access-operations": "create update delete",
+            "comment": "Users cannot write example.com.",
+            "action": "deny"
+          },
+          {
+            "name": "permit-zone-access",
+            "path": "/dnss:dns-server/dnss:zones/dnss:zone",
+            "access-operations": "*",
+            "comment": "Users can write other zones.",
+            "action": "permit"
+          },
+          {
+            "name": "permit-zone-reload",
+            "module-name": "dns-server",
+            "rpc-name": "zone-reload",
+            "comment": "Users can reload zones",
+            "action": "permit"
+          },
+          {
+            "name": "permit-zone-sign",
+            "module-name": "dnssec-signing",
+            "rpc-name": "zone-sign",
+            "comment": "Users can sign zones",
+            "action": "permit"
+          }
+        ]
       }
     ]
   }
