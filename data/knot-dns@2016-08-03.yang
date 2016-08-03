@@ -262,7 +262,7 @@ module knot-dns {
 
            - stderr: log messages are sent to standard error,
 
-           - stderr: log messages are passed to the syslog
+           - syslog: log messages are passed to the syslog
              facility.";
       }
       uses dnss:description;
