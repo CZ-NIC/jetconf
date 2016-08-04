@@ -75,6 +75,20 @@
         "namespace": "http://www.nic.cz/ns/yang/tsig-algorithms",
         "conformance-type": "implement",
         "schema": "https://gitlab.labs.nic.cz/labs/dns-server-yang/raw/master/tsig-algorithms.yang"
+      },
+      {
+        "name": "dns-zones",
+        "revision": "2016-08-04",
+        "namespace": "http://www.nic.cz/ns/yang/dns-zones",
+        "conformance-type": "implement",
+        "schema": "https://gitlab.labs.nic.cz/labs/zone-data-yang/raw/master/dns-zones.yang"
+      },
+      {
+        "name": "iana-dns-parameters",
+        "revision": "2016-08-03",
+        "namespace": "http://www.nic.cz/ns/yang/iana-dns-parameters",
+        "conformance-type": "implement",
+        "schema": "https://gitlab.labs.nic.cz/labs/zone-data-yang/raw/master/iana-dns-parameters.yang"
       }
     ]
   }
