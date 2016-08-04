@@ -36,7 +36,7 @@ module knot-dns {
   reference
     "https://www.knot-dns.cz/docs/2.0/html/";
 
-  revision 2016-06-08 {
+  revision 2016-08-03 {
     description
       "Initial revision.";
     reference
@@ -262,7 +262,7 @@ module knot-dns {
 
            - stderr: log messages are sent to standard error,
 
-           - stderr: log messages are passed to the syslog
+           - syslog: log messages are passed to the syslog
              facility.";
       }
       uses dnss:description;
@@ -401,7 +401,7 @@ module knot-dns {
   }
 
   augment "/dnss:dns-server/dnss:query-module" {
-    when "dnss:type = 'knot:dnstap'";
+    when "derived-from-or-self(dnss:type, 'knot:dnstap')";
     description
       "Configuration of 'dnstap' query module.";
     container dnstap {
@@ -433,7 +433,7 @@ module knot-dns {
   }
 
   augment "/dnss:dns-server/dnss:query-module" {
-    when "dnss:type = 'knot:synth-record'";
+    when "derived-from-or-self(dnss:type, 'knot:synth-record')";
     description
       "Configuration of 'synth-record' query module.";
     container synth-record {
@@ -495,7 +495,7 @@ module knot-dns {
   }
 
   augment "/dnss:dns-server/dnss:query-module" {
-    when "dnss:type = 'knot:dnsproxy'";
+    when "derived-from-or-self(dnss:type, 'knot:dnsproxy')";
     description
       "Configuration of 'dnsproxy' query module.";
     container dnsproxy {
@@ -514,7 +514,7 @@ module knot-dns {
   }
 
   augment "/dnss:dns-server/dnss:query-module" {
-    when "dnss:type = 'knot:rosedb'";
+    when "derived-from-or-self(dnss:type, 'knot:rosedb')";
     description
       "Configuration of 'rosedb' query module.";
     container rosedb {
