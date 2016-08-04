@@ -106,16 +106,20 @@ class KnotConfig(KnotCtl):
     def begin(self):
         if self.conf_state == KnotConfState.NONE:
             self.send_block("conf-begin")
+            self.receive_block()
+            print(">>> CONF BEGIN")
             self.conf_state = KnotConfState.CONF
 
     def begin_zone(self):
         if self.conf_state == KnotConfState.NONE:
             self.send_block("zone-begin")
+            self.receive_block()
             self.conf_state = KnotConfState.ZONE
 
     def commit(self):
         if self.conf_state == KnotConfState.CONF:
             self.send_block("conf-commit")
+            self.receive_block()
             self.conf_state = KnotConfState.NONE
         else:
             raise KnotApiStateError()
@@ -123,6 +127,7 @@ class KnotConfig(KnotCtl):
     def commit_zone(self):
         if self.conf_state == KnotConfState.ZONE:
             self.send_block("zone-commit")
+            self.receive_block()
             self.conf_state = KnotConfState.NONE
         else:
             raise KnotApiStateError()
@@ -147,14 +152,14 @@ class KnotConfig(KnotCtl):
         for data_item in data:
             self.send_block("conf-set", section=section, identifier=identifier, item=item, zone=zone, data=data_item)
 
-    def set_zone_item(self, section=None, identifier=None, item=None, zone=None, owner=None, ttl=None, type=None, data=None):
+    def set_zone_item(self, section=None, identifier=None, item=None, zone=None, owner=None, ttl=None, rtype=None, data=None):
         if not self.connected:
             raise KnotApiError("Knot socket is closed")
 
         if data is not None:
-            self.send_block("zone-add", section=section, identifier=identifier, item=item, zone=zone, owner=owner, ttl=ttl, type=type, data=data)
+            self.send_block("zone-set", section=section, identifier=identifier, item=item, zone=zone, owner=owner, ttl=ttl, rtype=rtype, data=data)
         else:
-            self.send_block("zone-remove", section=section, identifier=identifier, item=item, zone=zone, owner=owner, ttl=ttl, type=type, data=data)
+            self.send_block("zone-unset", section=section, identifier=identifier, item=item, zone=zone, owner=owner, ttl=ttl, rtype=rtype, data=data)
 
     def zone_new(self, domain_name: str) -> str:
         if not self.connected:
@@ -172,8 +177,10 @@ class KnotConfig(KnotCtl):
             raise KnotApiError("Knot socket is closed")
 
         try:
-            self.set_zone_item(zone=domain_name, owner=rr.owner, ttl="3600", type=rr.type, data=rr.rrdata_format())
-            resp = self.receive_zone_block()
+            self.set_zone_item(zone=domain_name, owner=rr.owner, ttl=str(rr.ttl), rtype=rr.type, data=rr.rrdata_format())
+            print(rr.rrdata_format())
+            print(rr.owner)
+            resp = self.receive_block()
         except Exception as e:
             raise KnotInternalError(str(e))
         return resp

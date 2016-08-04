@@ -1,5 +1,7 @@
 module dns-zones {
 
+  yang-version "1.1";
+
   namespace "http://www.nic.cz/ns/yang/dns-zones";
 
   prefix "dnsz";
@@ -33,7 +35,7 @@ module dns-zones {
   reference
     "RFC 1035: Domain Names - Implementation and Specification.";
 
-  revision 2015-08-11 {
+  revision 2016-08-04 {
     description
       "Initial revision.";
   }
@@ -256,9 +258,9 @@ module dns-zones {
 
   /* Configuration data */
 
-  container zones {
+  container zone-data {
     description
-      "Container for DNS zones.";
+      "Container for DNS zone data.";
     list zone {
       key "name class";
       description
@@ -368,7 +370,7 @@ module dns-zones {
             description
               "Each (shorthand) case of this choice defines the
                content of a single RR type wrapped in a container
-               whose name is the RR type (in lowercase).
+               whose name is the RR type.
 
                The SOA RR for the zone and RRSIG for the RRSet are
                specified separately.
@@ -377,7 +379,7 @@ module dns-zones {
                the 'rdata-content' choice.";
             /* RFC 1035 */
             container A {
-              must "../../type = 'ianadns:A'";
+              when "derived-from-or-self(../../type, 'ianadns:A')";
               description
                 "RDATA content for 'A' Resource Record.";
               reference
@@ -391,7 +393,8 @@ module dns-zones {
               }
             }
             container CNAME {
-              must "../../type = 'ianadns:CNAME'";
+              when
+                "derived-from-or-self(../../type, 'ianadns:CNAME')";
               description
                 "RDATA content for 'CNAME' Resource Record.";
               reference
@@ -405,7 +408,8 @@ module dns-zones {
               }
             }
             container HINFO {
-              must "../../type = 'ianadns:HINFO'";
+              when
+                "derived-from-or-self(../../type, 'ianadns:HINFO')";
               description
                 "RDATA content for 'HINFO' Resource Record.";
               reference
@@ -425,7 +429,7 @@ module dns-zones {
               }
             }
             container MB {
-              must "../../type = 'ianadns:MB'";
+              when "derived-from-or-self(../../type, 'ianadns:MB')";
               description
                 "RDATA content for 'MB' Resource Record.";
               reference
@@ -439,7 +443,7 @@ module dns-zones {
               }
             }
             container MD {
-              must "../../type = 'ianadns:MD'";
+              when "derived-from-or-self(../../type, 'ianadns:MD')";
               status "obsolete";
               description
                 "RDATA content for 'MD' Resource Record (obsolete,
@@ -456,7 +460,7 @@ module dns-zones {
               }
             }
             container MF {
-              must "../../type = 'ianadns:MF'";
+              when "derived-from-or-self(../../type, 'ianadns:MF')";
               status "obsolete";
               description
                 "RDATA content for 'MF' Resource Record (obsolete,
@@ -473,7 +477,7 @@ module dns-zones {
               }
             }
             container MG {
-              must "../../type = 'ianadns:MG'";
+              when "derived-from-or-self(../../type, 'ianadns:MG')";
               description
                 "RDATA content for 'MG' Resource Record.";
               reference
@@ -488,7 +492,8 @@ module dns-zones {
               }
             }
             container MINFO {
-              must "../../type = 'ianadns:MINFO'";
+              when
+                "derived-from-or-self(../../type, 'ianadns:MINFO')";
               description
                 "RDATA content for 'MINFO' Resource Record.";
               reference
@@ -511,7 +516,7 @@ module dns-zones {
               }
             }
             container MR {
-              must "../../type = 'ianadns:MR'";
+              when "derived-from-or-self(../../type, 'ianadns:MR')";
               description
                 "RDATA content for 'MR' Resource Record.";
               reference
@@ -526,7 +531,7 @@ module dns-zones {
               }
             }
             container MX {
-              must "../../type = 'ianadns:MX'";
+              when "derived-from-or-self(../../type, 'ianadns:MX')";
               description
                 "RDATA content for 'MX' Resource Record.";
               reference
@@ -548,7 +553,7 @@ module dns-zones {
               }
             }
             container NS {
-              must "../../type = 'ianadns:NS'";
+              when "derived-from-or-self(../../type, 'ianadns:NS')";
               description
                 "RDATA content for 'NS' Resource Record.";
               reference
@@ -563,7 +568,8 @@ module dns-zones {
               }
             }
             container NULL {
-              must "../../type = 'ianadns:NULL'";
+              when
+                "derived-from-or-self(../../type, 'ianadns:NULL')";
               description
                 "RDATA content for 'NULL' Resource Record.";
               reference
@@ -579,7 +585,8 @@ module dns-zones {
               }
             }
             container PTR {
-              must "../../type = 'ianadns:PTR'";
+              when
+                "derived-from-or-self(../../type, 'ianadns:PTR')";
               description
                 "RDATA content for 'PTR' Resource Record.";
               reference
@@ -594,7 +601,8 @@ module dns-zones {
               }
             }
             container TXT {
-              must "../../type = 'ianadns:TXT'";
+              when
+                "derived-from-or-self(../../type, 'ianadns:TXT')";
               description
                 "RDATA content for 'TXT' Resource Record.";
               reference
@@ -609,7 +617,8 @@ module dns-zones {
               }
             }
             container WKS {
-              must "../../type = 'ianadns:WKS'";
+              when
+                "derived-from-or-self(../../type, 'ianadns:WKS')";
               description
                 "RDATA content for 'WKS' Resource Record.";
               reference
@@ -637,7 +646,8 @@ module dns-zones {
             }
             /* RFC 3596 */
             container AAAA {
-              must "../../type = 'ianadns:AAAA'";
+              when
+                "derived-from-or-self(../../type, 'ianadns:AAAA')";
               description
                 "RDATA content for 'AAAA' Resource Record.";
               reference
@@ -651,7 +661,8 @@ module dns-zones {
             }
             /* RFC 4034 */
             container DNSKEY {
-              must "../../type = 'ianadns:DNSKEY'";
+              when "derived-from-or-self(../../type, "
+                 + "'ianadns:DNSKEY')";
               description
                 "RDATA content for 'DNSKEY' Resource Record.";
               reference
@@ -704,7 +715,8 @@ module dns-zones {
               }
             }
             container NSEC {
-              must "../../type = 'ianadns:NSEC'";
+              when
+                "derived-from-or-self(../../type, 'ianadns:NSEC')";
               description
                 "RDATA content for 'NSEC' Resource Record.";
               reference
@@ -722,7 +734,7 @@ module dns-zones {
               uses rrset-types;
             }
             container DS {
-              must "../../type = 'ianadns:DS'";
+              when "derived-from-or-self(../../type, 'ianadns:DS')";
               description
                 "RDATA content for 'DS' Resource Record.";
               reference
@@ -755,7 +767,8 @@ module dns-zones {
             }
             /* RFC 5155 */
             container NSEC3 {
-              must "../../type = 'ianadns:NSEC3'";
+              when
+                "derived-from-or-self(../../type, 'ianadns:NSEC3')";
               description
                 "RDATA content for 'NSEC3' Resource Record.";
               reference
@@ -781,7 +794,8 @@ module dns-zones {
               uses rrset-types;
             }
             container NSEC3PARAM {
-              must "../../type = 'ianadns:NSEC3PARAM'";
+              when "derived-from-or-self(../../type, "
+                 + "'ianadns:NSEC3PARAM')";
               description
                 "RDATA content for 'NSEC3PARAM' Resource Record.";
               reference
@@ -791,7 +805,8 @@ module dns-zones {
             }
             /* RFC 6698 */
             container TLSA {
-              must "../../type = 'ianadns:TLSA'";
+              when
+                "derived-from-or-self(../../type, 'ianadns:TLSA')";
               description
                 "RDATA content for 'TLSA' Resource Record.";
               reference
@@ -842,7 +857,8 @@ module dns-zones {
             }
             /* RFC 4025 */
             container IPSECKEY {
-              must "../../type = 'ianadns:IPSECKEY'";
+              when "derived-from-or-self(../../type, "
+                 + "'ianadns:IPSECKEY')";
               description
                 "RDATA content for 'IPSECKEY' Resource Record.";
               reference
@@ -906,7 +922,8 @@ module dns-zones {
             }
             /* RFC 2672 */
             container DNAME {
-              must "../../type = 'ianadns:DNAME'";
+              when
+                "derived-from-or-self(../../type, 'ianadns:DNAME')";
               description
                 "RDATA content for 'DNAME' Resource Record.";
               reference
@@ -921,7 +938,8 @@ module dns-zones {
             }
             /* RFC 4255 */
             container SSHFP {
-              must "../../type = 'ianadns:SSHFP'";
+              when
+                "derived-from-or-self(../../type, 'ianadns:SSHFP')";
               description
                 "RDATA content for 'SSHFP' Resource Record.";
               reference

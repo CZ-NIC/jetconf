@@ -10,6 +10,10 @@ module dnssec-signing {
     prefix "yang";
   }
 
+  import ietf-inet-types {
+    prefix "inet";
+  }
+
   import dns-server {
     prefix "dnss";
   }
@@ -29,7 +33,7 @@ module dnssec-signing {
     "This YANG module defines configuration data and RPC operations
      for automatic DNSSEC signatures.";
 
-  revision 2016-01-14 {
+  revision 2016-03-03 {
     description
       "Initial revision.";
     reference
@@ -38,12 +42,21 @@ module dnssec-signing {
 
   /* Typedefs */
 
-  typedef lifetime {
-    type uint32;
+  typedef time-interval {
+    type uint32 {
+      range "1..max";
+    }
     units "seconds";
     description
-      "This type is used for the lifetime values of keys and
-       signatures.";
+      "This type is used for time intervals such as TTL of resource
+       records or lifetime values of keys and signatures.";
+  }
+
+  typedef key-size {
+    type uint16;
+    units "bits";
+    description
+      "Size of a cryptographic key.";
   }
 
   typedef key-id {
@@ -92,12 +105,11 @@ module dnssec-signing {
       description
         "Encryption algorithm for which the key works.";
     }
-    leaf length {
-      type uint16;
-      units "bits";
+    leaf size {
+      type key-size;
       mandatory "true";
       description
-        "Length of the key.";
+        "Size of the key.";
     }
     leaf publish {
       type yang:date-and-time;
@@ -212,19 +224,17 @@ module dnssec-signing {
         description
           "Algorithm used for signing keys and issued signatures.";
       }
-      leaf ksk-length {
-        type uint16;
-        units "bits";
+      leaf ksk-size {
+        type key-size;
         default "2048";
         description
-          "Length of generated key-signing keys.";
+          "The size of generated key-signing keys.";
       }
-      leaf zsk-length {
-        type uint16;
-        units "bits";
+      leaf zsk-size {
+        type key-size;
         default "1024";
         description
-          "Length of generated zone-signing keys.";
+          "The size of generated zone-signing keys.";
       }
       leaf dnskey-ttl {
         type dnss:rr-ttl;
@@ -232,7 +242,7 @@ module dnssec-signing {
           "TTL value for DNSKEY records added to zone apex.";
       }
       leaf zsk-lifetime {
-        type lifetime;
+        type time-interval;
         default "2592000";
         description
           "Time interval after which ZSK rollover will be initiated.
@@ -240,7 +250,7 @@ module dnssec-signing {
            The default value corresponds to 30 days.";
       }
       leaf rrsig-lifetime {
-        type lifetime;
+        type time-interval;
         default "1209600";
         description
           "Lifetime of newly issued signatures.
@@ -280,6 +290,77 @@ module dnssec-signing {
         default "3600";
         description
           "Extra delay added to every key rollover step.";
+      }
+      leaf manual {
+        type boolean;
+        default "false";
+        description
+          "Setting this flag to true enables manual key management.
+           In this case, no keys will be generated or rolled out
+           automatically.";
+      }
+      leaf keystore {
+        type leafref {
+          path "../../keystore/name";
+        }
+        description
+          "Name of a keystore to be used by the policy.";
+      }
+    }
+    list keystore {
+      key "name";
+      description
+        "The list of configured stores for private key material.";
+      uses dnss:entry-name;
+      leaf backend {
+        type enumeration {
+          enum pkcs8 {
+            description
+              "This backend type stores private key material in
+               unencrypted X.509 PEM files.";
+          }
+          enum pkcs11 {
+            description
+              "This backend type stores private key material in a
+               cryptographic token accessible via the PKCS#11
+               interface.";
+          }
+        }
+        default "pkcs8";
+        description
+          "Type of the keystore backend.";
+      }
+      choice keystore-config {
+        description
+          "Additional configuration parameters for individual
+           backends.";
+        case pkcs8 {
+          when "../backend = 'pkcs8'";
+          leaf keystore-directory {
+            type dnss:fs-path;
+            description
+              "Absolute path to a filesystem directory where private
+               key material is stored.";
+          }
+        }
+        case pkcs11 {
+          when "../backend = 'pkcs11'";
+          leaf token-url {
+            type inet:uri;
+            description
+              "URI of the PKCS#11 token.
+
+               If the token is protected by a PIN, the URI must
+               include 'pin-value' or 'pin-source' attribute.";
+            reference
+              "RFC 7512: The PKCS #11 URI Scheme";
+          }
+          leaf module-path {
+            type dnss:fs-path;
+            description
+              "PKCS #11 module path.";
+          }
+        }
       }
     }
   }

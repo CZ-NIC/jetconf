@@ -1,5 +1,7 @@
 module iana-dns-parameters {
 
+  yang-version "1.1";
+
   namespace "http://www.nic.cz/ns/yang/iana-dns-parameters";
 
   prefix "ianadns";
@@ -43,7 +45,7 @@ module iana-dns-parameters {
      - IANA: DNS SSHFP Resource Record Parameters.
        https://www.iana.org/assignments/dns-sshfp-rr-parameters/dns-sshfp-rr-parameters.xhtml";
 
-  revision 2015-08-11 {
+  revision 2016-08-03 {
     description
       "Initial revision.";
   }

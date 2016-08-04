@@ -186,8 +186,8 @@
       {
         "name": "default_rsa",
         "algorithm": "RSASHA256",
-        "zsk-length": 1024,
-        "ksk-length": 2048
+        "zsk-size": 1024,
+        "ksk-size": 2048
       }
     ],
     "zones": {
@@ -274,7 +274,7 @@
               "key-id": "d3a9fd3b36a6be275adea2b67c6e82b27ca30e90",
               "key-tag": 30348,
               "algorithm": "RSASHA256",
-              "length": 2048,
+              "size": 2048,
               "flags": "zone-key secure-entry-point",
               "created": "2015-06-18T18:02:45+02:00",
               "publish": "2015-06-18T19:00:00+02:00",
@@ -333,52 +333,688 @@
       }
     ]
   },
-  "dns-zones:zones": {
-      "zone": [
+  "ietf-netconf-acm:nacm": {
+    "enable-nacm": true,
+    "read-default": "permit",
+    "write-default": "deny",
+    "exec-default": "deny",
+    "denied-operations": 123,
+    "denied-data-writes": 456,
+    "denied-notifications": 0,
+    "groups": {
+      "group": [
+        {
+          "name": "admin",
+          "user-name": [
+            "root",
+            "dominik"
+          ]
+        },
+        {
+          "name": "users",
+          "user-name": [
+            "lada",
+            "pavel"
+          ]
+        }
+      ]
+    },
+    "rule-list": [
+      {
+        "name": "admin-acl",
+        "group": [
+          "admin"
+        ],
+        "rule": [
           {
-              "name": "pokus.cz",
-              "class": "IN",
-              "default-ttl": 100,
-              "SOA": {
-                  "mname": "dns1.pokus.cz",
-                  "rname": "hostmaster.pokus.cz",
-                  "serial": 20160621,
-                  "refresh": 200,
-                  "retry": 300,
-                  "expire": 400,
-                  "minimum": 500
-              },
-              "rrset": [
-                  {
-                      "owner": "sub1.pokus.cz",
-                      "type": "iana-dns-parameters:A",
-                      "rdata": [
-                          {
-                              "A": {
-                                  "address": "192.168.100.100"
-                              }
-                          }
-                      ]
-                  },
-                  {
-                      "owner": "pokus.cz",
-                      "type": "iana-dns-parameters:MX",
-                      "rdata": [
-                          {
-                              "MX": {
-                                  "preference": 0,
-                                  "exchange": "sub1.pokus.cz"
-                              }
-                          }
-                      ]
-                  }
-              ]
+            "name": "permit-all",
+            "module-name": "*",
+            "access-operations": "*",
+            "comment": "The 'admin' group has unlimited access.",
+            "action": "permit"
+          }
+        ]
+      },
+      {
+        "name": "users-acl",
+        "group": [
+          "users"
+        ],
+        "rule": [
+          {
+            "name": "no-writes-on-example.com",
+            "path": "/dnss:dns-server/dnss:zones/dnss:zone[dnss:domain='example.com']",
+            "access-operations": "create update delete",
+            "comment": "Users cannot write example.com.",
+            "action": "deny"
           },
           {
-              "name": "example.com",
-              "class": "IN",
-              "default-ttl": 100
+            "name": "permit-zone-access",
+            "path": "/dnss:dns-server/dnss:zones/dnss:zone",
+            "access-operations": "*",
+            "comment": "Users can write other zones.",
+            "action": "permit"
+          },
+          {
+            "name": "permit-zone-reload",
+            "module-name": "dns-server",
+            "rpc-name": "zone-reload",
+            "comment": "Users can reload zones",
+            "action": "permit"
+          },
+          {
+            "name": "permit-zone-sign",
+            "module-name": "dnssec-signing",
+            "rpc-name": "zone-sign",
+            "comment": "Users can sign zones",
+            "action": "permit"
           }
-      ]
+        ]
+      }
+    ]
+  },
+  "dns-zones:zone-data": {
+    "zone": [
+      {
+        "name": "example",
+        "class": "IN",
+        "description": "\n\tThis zone comes from RFC 4035.\n      ",
+        "default-ttl": 3600,
+        "SOA": {
+          "ttl": 3599,
+          "mname": "ns1.example",
+          "rname": "bugs.x.w.example",
+          "serial": 1081539377,
+          "refresh": 3600,
+          "retry": 300,
+          "expire": 3600000,
+          "minimum": 3600,
+          "RRSIG": {
+            "algorithm": "RSASHA1",
+            "signature-expiration": "2050-01-01T00:00:00Z",
+            "signature-inception": "2014-09-08T11:59:12Z",
+            "key-tag": 35721,
+            "signature": "eUi219ENFoSmkCstQZ0D/eYNg3amKIdX8HvW1qHwM2rSv9Q7XaCI2NByki0poLwEuabZf8SHm2Kqh7EA35UFKYkEhEwtN/292ROuHVkZRCUzM3lD9PT1NPkleqT3JcjiBRy3BCTirnGX5qQXK9qKW08fIawvNhwexI3e5hjSQUU="
+          }
+        },
+        "rrset": [
+          {
+            "owner": "frobozz.example",
+            "type": "iana-dns-parameters:DNAME",
+            "rdata": [
+              {
+                "id": "1",
+                "DNAME": {
+                  "target": "frobozz-division.acme.example"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "example",
+            "type": "iana-dns-parameters:NSEC3PARAM",
+            "rdata": [
+              {
+                "id": "1",
+                "NSEC3PARAM": {
+                  "iterations": 12,
+                  "salt": "aabbccdd"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "0p9mhaveqvm6t7vbl5lop2u3t2rp3tom.example",
+            "type": "iana-dns-parameters:NSEC3",
+            "rdata": [
+              {
+                "id": "1",
+                "NSEC3": {
+                  "flags": "Opt-Out",
+                  "iterations": 12,
+                  "salt": "aabbccdd",
+                  "next-hashed-owner-name": "2t7b4g4vsa5smi47k61mv5bv1a22bojr",
+                  "rrset-type": [
+                    "iana-dns-parameters:MX",
+                    "iana-dns-parameters:DNSKEY",
+                    "iana-dns-parameters:NS",
+                    "iana-dns-parameters:SOA",
+                    "iana-dns-parameters:NSEC3PARAM",
+                    "iana-dns-parameters:RRSIG"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "owner": "example",
+            "type": "iana-dns-parameters:NS",
+            "ttl": 3601,
+            "RRSIG": {
+              "algorithm": "RSASHA1",
+              "signature-expiration": "2050-01-01T00:00:00Z",
+              "signature-inception": "2014-09-08T11:59:12Z",
+              "key-tag": 35721,
+              "signature": "XRYbz0NL/bcF4uOH+puXe5hSJgmG9wX+sWz7ksi3Vl4HO5InUkyltxknCdWw0M8cfpM8FM30inACCOOfBUEbyFL7TWUjfTwk3jKDX+7gm5FkItNE2ZMLK0QnyjWQOiE5G15+cvV31eQHBRFpYLrQBIeGiL+V9aDYafTLV+Yt0e0="
+            },
+            "rdata": [
+              {
+                "id": "1",
+                "NS": {
+                  "nsdname": "ns1.example"
+                }
+              },
+              {
+                "id": "2",
+                "NS": {
+                  "nsdname": "ns2.example"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "example",
+            "type": "iana-dns-parameters:MX",
+            "RRSIG": {
+              "algorithm": "RSASHA1",
+              "signature-expiration": "2050-01-01T00:00:00Z",
+              "signature-inception": "2014-09-08T11:59:12Z",
+              "key-tag": 35721,
+              "signature": "ejvossk9ErTnwuBQ0bcfwRXOvXeIJ419x/AphtwAJMtsj01kASdszAi1Rzlo1CSca18Z6nq0XZQ1KeDjLg07WEWS1WU8l30RAKgWawlCjjJeeOTyr0GJ2IYhtbFDm9BB3u6EUmrD5/1/1NBchvWATMCo4FfspGNwZ7BgiUB3ne4="
+            },
+            "rdata": [
+              {
+                "id": "1",
+                "MX": {
+                  "preference": 1,
+                  "exchange": "xx.example"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "example",
+            "type": "iana-dns-parameters:NSEC",
+            "RRSIG": {
+              "algorithm": "RSASHA1",
+              "signature-expiration": "2050-01-01T00:00:00Z",
+              "signature-inception": "2014-09-08T11:59:12Z",
+              "key-tag": 35721,
+              "signature": "X20KQj2os3I3fMWGXLoNccWhbP53v95PwHrKZJPCf0KawwAMsGNXfKfT9mDLGi4AJMImmJJfufSI/Za1clHQ5n5t2Ru5w0W4QAPkpBaWuQSU/5WUIV54lCVtBBgTMuf3zpMnRgda2Q/o1XoFvN3+5eFvk0Qgs3m4OxBIfeJuZ7c="
+            },
+            "rdata": [
+              {
+                "id": "1",
+                "NSEC": {
+                  "next-domain-name": "a.example",
+                  "rrset-type": [
+                    "iana-dns-parameters:NS",
+                    "iana-dns-parameters:SOA",
+                    "iana-dns-parameters:MX",
+                    "iana-dns-parameters:RRSIG",
+                    "iana-dns-parameters:NSEC",
+                    "iana-dns-parameters:DNSKEY"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "owner": "_443._tcp.www.example.com",
+            "type": "iana-dns-parameters:TLSA",
+            "rdata": [
+              {
+                "id": "1",
+                "TLSA": {
+                  "certificate-usage": "PKIX-TA",
+                  "selector": "Cert",
+                  "matching-type": "SHA2-256",
+                  "certificate-association-data": "d2abde240d7cd3ee6b4b28c54df034b97983a1d16e8a410e4561cb106618e971"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "example",
+            "type": "iana-dns-parameters:DNSKEY",
+            "RRSIG": {
+              "algorithm": "RSASHA1",
+              "signature-expiration": "2050-01-01T00:00:00Z",
+              "signature-inception": "2014-09-08T11:59:12Z",
+              "key-tag": 35721,
+              "signature": "zft/jYjZDK2eq6twehtmp6W3UgZQBVhDjDauBwGG6jimkZ00PwAL4Eh51ZM/nGnw8CPt6YxXK32FGoLy9VQTOgFUfp0myZiRggH1At7RSBusDyOAI/BaZhJ+X1hCG2wfvPfiD9irPHB11az+isrms4FmQrWsPkyF/A3ZJqclDpM="
+            },
+            "rdata": [
+              {
+                "id": "1",
+                "DNSKEY": {
+                  "flags": "ZONE",
+                  "algorithm": "RSASHA1",
+                  "public-key": "AwEAAdcURIq28DnbSgdwnQjjX/9ihQAgPylq7HHnMjQOm59fGPMnsjy/AkpcNxadAVGRycM7jZHloPyp7Tty/11J9wKDsLR86YChcYk9KXFKakdrEE1jchkL7KYL7g0bUTAIJSDLhsn6TyLILzgTX6Ru4mCceS4wLJ30LSi+DR4cockH"
+                }
+              },
+              {
+                "id": "2",
+                "DNSKEY": {
+                  "flags": "ZONE SEP",
+                  "algorithm": "RSASHA1",
+                  "public-key": "AwEAAeMNmQ/1/6yfFfp7jOqy2M7AGBtuSzZJFpnUqrcAmTTI+RxX9vN01Z5CpAs9nhYTVyLEQLaGQBwkrF+QBIPJ6DQ0SvHJEWEAN25tyvWmDdUjeDnevEpbQbkdaV+XQJ3SMWGf7OtzGo0BC4vO5ecw+zGteWT/UUbX9XkK3vWOirLAF1s5kNEEnUt+kIbr50vz+qOfvWa+ldWHSt2T2Ds6fMVkdE84gyb3mE0syQbEuSdgOO6Vko4qn9FtJ2Uz0L2i8vKb1chT+f7RISQhicTLX/RQgH0kV80UCBtn4CEgE6Cx5Yv+z50li0I4bNRI1BLBqJneCeN/eqQs/pYNJhZg4d8="
+                }
+              }
+            ]
+          },
+          {
+            "owner": "*.a.example",
+            "type": "iana-dns-parameters:A",
+            "rdata": [
+              {
+                "id": "1",
+                "A": {
+                  "address": "192.0.2.11"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "ns1.a.example",
+            "type": "iana-dns-parameters:A",
+            "rdata": [
+              {
+                "id": "1",
+                "A": {
+                  "address": "192.0.2.5"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "ns2.a.example",
+            "type": "iana-dns-parameters:A",
+            "rdata": [
+              {
+                "id": "1",
+                "A": {
+                  "address": "192.0.2.6"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "ns1.b.example",
+            "type": "iana-dns-parameters:A",
+            "rdata": [
+              {
+                "id": "1",
+                "A": {
+                  "address": "192.0.2.7"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "ns2.b.example",
+            "type": "iana-dns-parameters:A",
+            "rdata": [
+              {
+                "id": "1",
+                "A": {
+                  "address": "192.0.2.8"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "b.example",
+            "type": "iana-dns-parameters:NS",
+            "rdata": [
+              {
+                "id": "1",
+                "NS": {
+                  "nsdname": "ns1.b.example"
+                }
+              },
+              {
+                "id": "2",
+                "NS": {
+                  "nsdname": "ns2.b.example"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "b.example",
+            "type": "iana-dns-parameters:NSEC",
+            "RRSIG": {
+              "algorithm": "RSASHA1",
+              "signature-expiration": "2050-01-01T00:00:00Z",
+              "signature-inception": "2014-09-08T11:59:12Z",
+              "key-tag": 35721,
+              "signature": "gXx+XR8khxgHGl4Zc5H2Fk+ekZQMFyb8qVGGztE+sGh6YD8ERZyBi6J/GaL+PF7iDO9qJvrOHmULssCgiiTooWhnG8ezXt429ADB+8bsd9qjoyU1cAcYL6zXHpYdf8LOTSetEaaoZISF0buD3UMOmErSZ+z5liN09V+woZqu2K0="
+            },
+            "rdata": [
+              {
+                "id": "1",
+                "NSEC": {
+                  "next-domain-name": "ns1.example",
+                  "rrset-type": [
+                    "iana-dns-parameters:NS",
+                    "iana-dns-parameters:RRSIG",
+                    "iana-dns-parameters:NSEC"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "owner": "a.example",
+            "type": "iana-dns-parameters:NS",
+            "rdata": [
+              {
+                "id": "1",
+                "NS": {
+                  "nsdname": "ns1.a.example"
+                }
+              },
+              {
+                "id": "2",
+                "NS": {
+                  "nsdname": "ns2.a.example"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "a.example",
+            "type": "iana-dns-parameters:DS",
+            "RRSIG": {
+              "algorithm": "RSASHA1",
+              "signature-expiration": "2050-01-01T00:00:00Z",
+              "signature-inception": "2014-09-08T11:59:12Z",
+              "key-tag": 35721,
+              "signature": "X5GpSOMM71nyseLAMDsZ0ClXiQknr4KNhnde+WYsSeQwSmHjxE7cyhrtKBrhRpaCTwjGn2ydmYteRWkeCGhatr19zqdHVbu0KCbX2RQ+dv2FUu2oaw4yzIGGPsw38BxwCECauLiPIAN9cx57QIIGNRxMsestpQf1xgdNrBPSp/s="
+            },
+            "rdata": [
+              {
+                "id": "1",
+                "DS": {
+                  "key-tag": 57855,
+                  "algorithm": "RSASHA1",
+                  "digest-type": "SHA-1",
+                  "digest": "B6DCD485719ADCA18E5F3D48A2331627FDD3636B"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "ai.example",
+            "type": "iana-dns-parameters:A",
+            "rdata": [
+              {
+                "id": "1",
+                "A": {
+                  "address": "192.0.2.9"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "ai.example",
+            "type": "iana-dns-parameters:HINFO",
+            "rdata": [
+              {
+                "id": "1",
+                "HINFO": {
+                  "cpu": "KLH-10",
+                  "os": "ITS"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "ai.example",
+            "type": "iana-dns-parameters:AAAA",
+            "rdata": [
+              {
+                "id": "1",
+                "AAAA": {
+                  "address": "2001:db8::f00:baa9"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "ns1.example",
+            "type": "iana-dns-parameters:A",
+            "rdata": [
+              {
+                "id": "1",
+                "A": {
+                  "address": "192.0.2.1"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "ns2.example",
+            "type": "iana-dns-parameters:A",
+            "rdata": [
+              {
+                "id": "1",
+                "A": {
+                  "address": "192.0.2.2"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "*.w.example",
+            "type": "iana-dns-parameters:MX",
+            "rdata": [
+              {
+                "id": "1",
+                "MX": {
+                  "preference": 1,
+                  "exchange": "ai.example"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "x.y.w.example",
+            "type": "iana-dns-parameters:MX",
+            "rdata": [
+              {
+                "id": "1",
+                "MX": {
+                  "preference": 1,
+                  "exchange": "xx.example"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "xx.example",
+            "type": "iana-dns-parameters:A",
+            "rdata": [
+              {
+                "id": "1",
+                "A": {
+                  "address": "192.0.2.10"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "xx.example",
+            "type": "iana-dns-parameters:HINFO",
+            "rdata": [
+              {
+                "id": "1",
+                "HINFO": {
+                  "cpu": "KLH-10",
+                  "os": "TOPS-20"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "xx.example",
+            "type": "iana-dns-parameters:AAAA",
+            "rdata": [
+              {
+                "id": "1",
+                "AAAA": {
+                  "address": "2001:db8::f00:baaa"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "x.w.example",
+            "type": "iana-dns-parameters:MX",
+            "rdata": [
+              {
+                "id": "1",
+                "MX": {
+                  "preference": 1,
+                  "exchange": "xx.example"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "38.2.0.192.in-addr.arpa",
+            "type": "iana-dns-parameters:IPSECKEY",
+            "rdata": [
+              {
+                "id": "1",
+                "IPSECKEY": {
+                  "precedence": 10,
+                  "gateway-type": "IPv4-address",
+                  "algorithm": "RSA",
+                  "gateway": "192.0.2.38",
+                  "public-key": "AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ=="
+                }
+              },
+              {
+                "id": "2",
+                "IPSECKEY": {
+                  "precedence": 10,
+                  "gateway-type": "no-gateway",
+                  "algorithm": "RSA",
+                  "public-key": "AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ=="
+                }
+              }
+            ]
+          },
+          {
+            "owner": "host.example",
+            "type": "iana-dns-parameters:SSHFP",
+            "rdata": [
+              {
+                "id": "1",
+                "SSHFP": {
+                  "algorithm": "DSA",
+                  "fingerprint-type": "SHA-1",
+                  "fingerprint": "123456789abcdef67890123456789abcdef67890"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "example",
+            "type": "iana-dns-parameters:TXT",
+            "rdata": [
+              {
+                "id": "1",
+                "TXT": {
+                  "txt-data": "v=spf1 +mx a:colo.example/28 -all"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "*.to-apex.example",
+            "type": "iana-dns-parameters:CNAME",
+            "rdata": [
+              {
+                "id": "1",
+                "CNAME": {
+                  "cname": "example"
+                },
+                "description": "Wildcard expansion leading to apex"
+              }
+            ]
+          },
+          {
+            "owner": "*.to-nxdomain.example",
+            "type": "iana-dns-parameters:CNAME",
+            "rdata": [
+              {
+                "id": "1",
+                "CNAME": {
+                  "cname": "nxdomain.example"
+                },
+                "description": "Wildcard expansion leading to nonexistent name."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "bind",
+        "class": "CH",
+        "description": "Parameters for BIND",
+        "default-ttl": 3600,
+        "SOA": {
+          "ttl": 86400,
+          "mname": "localhost",
+          "rname": "root.localhost",
+          "serial": 2015050801,
+          "refresh": 3600,
+          "retry": 3600,
+          "expire": 604800,
+          "minimum": 86400
+        },
+        "rrset": [
+          {
+            "owner": "bind",
+            "type": "iana-dns-parameters:NS",
+            "rdata": [
+              {
+                "id": "1",
+                "NS": {
+                  "nsdname": "localhost"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "version.bind",
+            "type": "iana-dns-parameters:TXT",
+            "rdata": [
+              {
+                "id": "1",
+                "TXT": {
+                  "txt-data": "Knot DNS version 2.0.1"
+                }
+              }
+            ]
+          },
+          {
+            "owner": "authors.bind",
+            "type": "iana-dns-parameters:TXT",
+            "rdata": [
+              {
+                "id": "1",
+                "TXT": {
+                  "txt-data": "Example.org"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
   }
 }

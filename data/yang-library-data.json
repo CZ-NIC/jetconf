@@ -11,7 +11,7 @@
       },
       {
         "name": "iana-dns-parameters",
-        "revision": "2015-08-11",
+        "revision": "2016-08-03",
         "namespace": "http://www.nic.cz/ns/yang/dns-parameters",
         "conformance-type": "implement",
         "schema": "https://gitlab.labs.nic.cz/llhotka/zone-data-yang/blob/master/iana-dns-parameters.yang"
@@ -30,7 +30,7 @@
       },
       {
         "name": "dns-zones",
-        "revision": "2015-08-11",
+        "revision": "2016-08-04",
         "namespace": "http://www.nic.cz/ns/yang/dns-zones",
         "conformance-type": "implement",
         "schema": "https://gitlab.labs.nic.cz/llhotka/zone-data-yang/blob/master/dns-zones.yang"
@@ -44,7 +44,7 @@
       },
       {
         "name": "dnssec-signing",
-        "revision": "2016-01-14",
+        "revision": "2016-03-03",
         "namespace": "http://www.nic.cz/ns/yang/dnssec-signing",
         "conformance-type": "implement",
         "schema": "https://gitlab.labs.nic.cz/labs/dns-server-yang/raw/master/dnssec-signing.yang"

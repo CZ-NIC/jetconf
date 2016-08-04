@@ -13,7 +13,7 @@ from .nacm import NacmConfig
 from .data import JsonDatastore, BaseDataListener, SchemaNode, PathFormat, ChangeType, DataChange, ConfHandlerResult
 from .helpers import DataHelpers, ErrorHelpers
 from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES
-from .knot_api import KNOT, KnotConfig, SOARecord, KnotError
+from .knot_api import KNOT, KnotConfig, SOARecord, KnotError, ARecord
 
 epretty = ErrorHelpers.epretty
 
@@ -236,7 +236,20 @@ class KnotZoneDataListener(BaseDataListener):
                     soarr.minimum = soa["minimum"]
 
                     resp = KNOT.zone_add_record(zone_name, soarr)
-                    print("resp = {}".format(resp))
+                    print("resp_soa = {}".format(resp))
+
+                    KNOT.commit_zone()
+
+                rr = ch.data.get("rrset", {})
+                rtype = rr.get("type")
+                if rtype == "iana-dns-parameters:A":
+                    KNOT.begin_zone()
+                    arr = ARecord(zone_name)
+                    arr.owner = rr["owner"]
+                    arr.address = rr["rdata"][0]["A"]["address"]
+
+                    resp = KNOT.zone_add_record(zone_name, arr)
+                    print("resp_a = {}".format(resp))
 
                     KNOT.commit_zone()
 
@@ -251,17 +264,14 @@ def main():
     # Load data model
     datamodel = DataHelpers.load_data_model("data/", "data/yang-library-data.json")
 
-    # NACM init
-    nacm_datastore = JsonDatastore(datamodel, "NACM data")
-    nacm_datastore.load("jetconf/example-data-nacm.json")
-
-    nacmc = NacmConfig(nacm_datastore)
-
     # Datastore init
     datastore = JsonDatastore(datamodel, "DNS data")
     datastore.load("jetconf/example-data.json")
+    nacmc = NacmConfig(datastore)
     datastore.register_nacm(nacmc)
     nacmc.set_ds(datastore)
+
+    datastore.get_data_root().validate()
 
     # Register schema listeners
     CONF_DATA_HANDLES.register_handler(KnotConfServerListener(datastore, "/dns-server:dns-server/server-options"))
