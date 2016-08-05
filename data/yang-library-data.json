@@ -1,6 +1,6 @@
 {
   "ietf-yang-library:modules-state": {
-    "module-set-id": "-TO-BE-INVENTED-",
+    "module-set-id": "e595da11ace92c0d881995fa7e56bbe86f1f48e9",
     "module": [
       {
         "name": "dns-parameters",
