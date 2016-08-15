@@ -1,6 +1,4 @@
 from typing import List, Tuple, Callable, Any
-from .data import BaseDatastore, PathFormat, BaseDataListener
-from .usr_state_data_handlers import StateNodeHandlerBase
 from yangson.context import Context
 from yangson.schema import SchemaNode
 
@@ -38,7 +36,7 @@ class ConfDataHandlerList:
     def __init__(self):
         self.handlers = []  # type: List[Tuple[HandlerSelectorT, BaseDataListener]]
 
-    def register_handler(self, handler: BaseDataListener):
+    def register_handler(self, handler: "BaseDataListener"):
         schema_node = handler.schema_node  # type: SchemaNode
         sch_node_id = str(id(schema_node))
         self.handlers.append((sch_node_id, handler))

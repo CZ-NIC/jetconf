@@ -1,10 +1,12 @@
 from enum import Enum
-from typing import List
+from typing import List, Union, Dict, Any
 from threading import Lock
 
 from .libknot.control import KnotCtl, KnotCtlType
+from .config import CONFIG
 
 KNOT = None     # type: KnotConfig
+JsonNodeT = Union[Dict[str, Any], List]
 
 
 class KnotError(Exception):
@@ -161,7 +163,18 @@ class KnotConfig(KnotCtl):
         else:
             self.send_block("zone-unset", section=section, identifier=identifier, item=item, zone=zone, owner=owner, ttl=ttl, rtype=rtype, data=data)
 
-    def zone_new(self, domain_name: str) -> str:
+    def zone_status(self, domain_name: str=None) -> JsonNodeT:
+        if not self.connected:
+            raise KnotApiError("Knot socket is closed")
+
+        try:
+            self.send_block("zone-status", zone=domain_name)
+            resp = self.receive_block()
+        except Exception as e:
+            raise KnotInternalError(str(e))
+        return resp
+
+    def zone_new(self, domain_name: str) -> JsonNodeT:
         if not self.connected:
             raise KnotApiError("Knot socket is closed")
 
@@ -172,7 +185,7 @@ class KnotConfig(KnotCtl):
             raise KnotInternalError(str(e))
         return resp
 
-    def zone_add_record(self, domain_name: str, rr: RRecordBase) -> str:
+    def zone_add_record(self, domain_name: str, rr: RRecordBase) -> JsonNodeT:
         if not self.connected:
             raise KnotApiError("Knot socket is closed")
 
@@ -184,3 +197,11 @@ class KnotConfig(KnotCtl):
         except Exception as e:
             raise KnotInternalError(str(e))
         return resp
+
+
+def knot_api_init():
+    global KNOT
+    if KNOT is None:
+        KNOT = KnotConfig(CONFIG["KNOT"]["SOCKET"])
+    else:
+        raise ValueError("Knot API already instantiated")

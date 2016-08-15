@@ -1,7 +1,7 @@
 from typing import Dict, Any
 from datetime import datetime
 from pytz import timezone
-from yangson.instance import InstanceIdentifier, MemberName, EntryKeys
+from yangson.instance import InstanceRoute, MemberName, EntryKeys
 from yangson.datamodel import DataModel
 
 
@@ -14,7 +14,7 @@ class CertHelpers:
 class DataHelpers:
     # Create parent data nodes to JSON subtree up to top level
     @staticmethod
-    def node2doc(id: InstanceIdentifier, val: Any) -> Dict[str, Any]:
+    def node2doc(id: InstanceRoute, val: Any) -> Dict[str, Any]:
         n = val
         for isel in reversed(id):
             if isinstance(isel, MemberName):

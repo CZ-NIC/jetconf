@@ -2,19 +2,22 @@ import json
 from threading import Lock
 from enum import Enum
 from colorlog import error, warning as warn, info, debug
-from typing import List, Any, Dict, TypeVar, Tuple, Set, Callable
+from typing import List, Any, Dict, Callable
 
-from yangson.schema import SchemaRoute, SchemaNode, NonexistentSchemaNode, ListNode, LeafListNode
+from yangson.schema import SchemaNode, NonexistentSchemaNode, ListNode, LeafListNode
 from yangson.datamodel import DataModel, InstancePath
-from yangson.instance import \
-    InstanceNode, \
-    NonexistentInstance, \
-    InstanceTypeError, \
-    ArrayValue, \
-    ObjectValue, \
-    MemberName, \
-    EntryKeys, \
-    EntryIndex
+from yangson.instance import (
+    InstanceNode,
+    NonexistentInstance,
+    InstanceTypeError,
+    ArrayValue,
+    ObjectValue,
+    MemberName,
+    EntryKeys,
+    EntryIndex,
+    InstanceIdParser,
+    ResourceIdParser
+)
 
 from .helpers import DataHelpers
 
@@ -200,10 +203,11 @@ class BaseDatastore:
         self.name = name
         self.nacm = None    # type: NacmConfig
         self._data = None   # type: InstanceNode
+        self._yang_lib_data = None   # type: InstanceNode
         self._dm = dm       # type: DataModel
         self._data_lock = Lock()
         self._lock_username = None  # type: str
-        self._usr_journals = {}   # type: Dict[str, UsrChangeJournal]
+        self._usr_journals = {}     # type: Dict[str, UsrChangeJournal]
         self.commit_begin_callback = None   # type: Callable
         self.commit_end_callback = None     # type: Callable
 
@@ -238,9 +242,9 @@ class BaseDatastore:
     # Parse Instance Identifier from string
     def parse_ii(self, path: str, path_format: PathFormat) -> InstancePath:
         if path_format == PathFormat.URL:
-            ii = self._dm.parse_resource_id(path)
+            ii = ResourceIdParser(path).parse()
         else:
-            ii = self._dm.parse_instance_id(path)
+            ii = InstanceIdParser(path).parse()
 
         return ii
 
@@ -276,24 +280,33 @@ class BaseDatastore:
         return n
 
     # Get data node, evaluate NACM if required
-    def get_node_rpc(self, rpc: RpcInfo) -> InstanceNode:
+    def get_node_rpc(self, rpc: RpcInfo, yl_data=False) -> InstanceNode:
         ii = self.parse_ii(rpc.path, rpc.path_format)
-        root = self._data
-        n = root.goto(ii)
-        sn = n.schema_node
+        if yl_data:
+            root = self._yang_lib_data
+        else:
+            root = self._data
 
-        for state_node_pth in sn.state_roots():
-            sn_pth_str = "".join(["/" + pth_seg for pth_seg in state_node_pth])
-            # print(sn_pth_str)
-            sdh = STATE_DATA_HANDLES.get_handler(sn_pth_str)
-            if sdh is not None:
-                root = sdh.update_node(ii, root).top()
-                self._data = root
-            else:
-                raise NoHandlerForStateDataError()
+        # n = root.goto(ii)
+        # sn = n.schema_node
+        sch_pth = str(InstancePath(filter(lambda n: isinstance(n, MemberName), ii)))
+        sn = self.get_schema_node(sch_pth)
 
-        self._data = root
-        n = self._data.goto(ii)
+        if not yl_data:
+            if sn.state_roots():
+                self.commit_begin_callback()
+                for state_node_pth in sn.state_roots():
+                    sn_pth_str = "".join(["/" + pth_seg for pth_seg in state_node_pth])
+                    # print(sn_pth_str)
+                    sdh = STATE_DATA_HANDLES.get_handler(sn_pth_str)
+                    if sdh is not None:
+                        root_val = sdh.update_node(ii, root, True)
+                        root = self._data.update_from_raw(root_val)
+                    else:
+                        raise NoHandlerForStateDataError()
+                self.commit_end_callback()
+
+            n = root.goto(ii)
 
         try:
             with_defs = rpc.qs["with-defaults"][0]
@@ -307,11 +320,11 @@ class BaseDatastore:
 
         if self.nacm:
             nrpc = self.nacm.get_user_nacm(rpc.username)
-            if nrpc.check_data_node_path(self._data, ii, Permission.NACM_ACCESS_READ) == Action.DENY:
+            if nrpc.check_data_node_path(root, ii, Permission.NACM_ACCESS_READ) == Action.DENY:
                 raise NacmForbiddenError()
             else:
                 # Prun subtree data
-                n = nrpc.check_data_read_path(self._data, ii)
+                n = nrpc.check_data_read_path(root, ii)
 
         try:
             max_depth = int(rpc.qs["depth"][0])
@@ -604,6 +617,11 @@ class JsonDatastore(BaseDatastore):
         self._data = None
         with open(filename, "rt") as fp:
             self._data = self._dm.from_raw(json.load(fp))
+
+    def load_yl_data(self, filename: str):
+        self._yang_lib_data = None
+        with open(filename, "rt") as fp:
+            self._yang_lib_data = self._dm.from_raw(json.load(fp))
 
     def save(self, filename: str):
         with open(filename, "w") as jfd:

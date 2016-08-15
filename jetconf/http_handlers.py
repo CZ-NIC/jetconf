@@ -12,15 +12,16 @@ from yangson.instance import NonexistentInstance, InstanceTypeError, DuplicateMe
 from jetconf.knot_api import KnotError
 from .config import CONFIG_GLOBAL, CONFIG_HTTP, NACM_ADMINS, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops
 from .helpers import CertHelpers, DataHelpers, DateTimeHelpers, ErrorHelpers
-from .data import \
-    BaseDatastore, \
-    RpcInfo, \
-    DataLockError, \
-    NacmForbiddenError, \
-    NoHandlerError, \
-    NoHandlerForOpError, \
-    InstanceAlreadyPresent, \
+from .data import (
+    BaseDatastore,
+    RpcInfo,
+    DataLockError,
+    NacmForbiddenError,
+    NoHandlerError,
+    NoHandlerForOpError,
+    InstanceAlreadyPresent,
     ChangeType
+)
 
 QueryStrT = Dict[str, List[str]]
 epretty = ErrorHelpers.epretty
@@ -52,7 +53,7 @@ def api_root_handler(prot: "H2Protocol", headers: OrderedDict, stream_id: int):
     prot.conn.send_data(stream_id, response_bytes, end_stream=True)
 
 
-def _get(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str):
+def _get(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str, yl_data: bool=False):
     username = CertHelpers.get_field(prot.client_cert, "emailAddress")
 
     url_split = pth.split("?")
@@ -69,7 +70,7 @@ def _get(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str):
 
     try:
         ds.lock_data(username)
-        n = ds.get_node_rpc(rpc1)
+        n = ds.get_node_rpc(rpc1, yl_data)
 
         response = json.dumps(n.value, indent=4) + "\n"
         response_bytes = response.encode()
@@ -124,6 +125,8 @@ def create_get_api(ds: BaseDatastore):
                 prot.send_empty(stream_id, "403", "Forbidden")
             else:
                 _get(prot, stream_id, ds.nacm.nacm_ds, api_pth)
+        elif ns == "ietf-yang-library":
+            _get(prot, stream_id, ds, api_pth, yl_data=True)
         else:
             _get(prot, stream_id, ds, api_pth)
 
