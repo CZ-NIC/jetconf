@@ -1,3 +1,5 @@
+import os
+
 import colorlog
 import getopt
 import logging
@@ -261,6 +263,43 @@ def main():
     # Load configuration
     load_config("jetconf/config.yaml")
     print_config()
+
+    # Daemonize
+    if CONFIG["GLOBAL"]["LOGFILE"] not in ("-", "stdout"):
+        info("Going to daemon mode.")
+
+        logging.root.handlers.clear()
+        colorlog.basicConfig(
+            format="%(asctime)s %(log_color)s%(levelname)-8s%(reset)s %(message)s",
+            level=logging.INFO,
+            filename=CONFIG["GLOBAL"]["LOGFILE"]
+        )
+
+        pid = os.fork()
+        if pid != 0:
+            sys.exit(0)
+        os.setsid()
+        os.umask(0)
+        pid = os.fork()
+        if pid != 0:
+            sys.exit(0)
+
+        os.close(sys.stdin.fileno())
+        os.close(sys.stdout.fileno())
+        os.close(sys.stderr.fileno())
+        fd_null = os.open("/dev/null", os.O_RDWR)
+        os.dup(fd_null)
+        os.dup(fd_null)
+
+    # Create pidfile
+    fl = os.open(CONFIG["GLOBAL"]["PIDFILE"], os.O_WRONLY + os.O_CREAT, 0o666)
+    try:
+        os.lockf(fl, os.F_TLOCK, 0)
+        os.write(fl, str(os.getpid()).encode())
+        os.fsync(fl)
+    except BlockingIOError:
+        error("Jetconf daemon already running (pidfile exists). Exiting.")
+        sys.exit(1)
 
     # Load data model
     datamodel = DataHelpers.load_data_model("data/", "data/yang-library-data.json")

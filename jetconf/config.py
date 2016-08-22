@@ -3,7 +3,9 @@ import yaml
 from colorlog import warning as warn, info
 
 CONFIG_GLOBAL = {
-    "TIMEZONE": "GMT"
+    "TIMEZONE": "GMT",
+    "LOGFILE": "-",
+    "PIDFILE": "/tmp/jetconf.pid"
 }
 
 CONFIG_HTTP = {
