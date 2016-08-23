@@ -4,6 +4,7 @@ import colorlog
 import getopt
 import logging
 import sys
+import signal
 
 from colorlog import info, warning as warn, error
 from importlib import import_module
@@ -300,6 +301,16 @@ def main():
     except BlockingIOError:
         error("Jetconf daemon already running (pidfile exists). Exiting.")
         sys.exit(1)
+
+    # Set signal handlers
+    def sig_exit_handler(signum, frame):
+        os.close(fl)
+        os.unlink(CONFIG["GLOBAL"]["PIDFILE"])
+        info("Exiting.")
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, sig_exit_handler)
+    signal.signal(signal.SIGINT, sig_exit_handler)
 
     # Load data model
     datamodel = DataHelpers.load_data_model("data/", "data/yang-library-data.json")

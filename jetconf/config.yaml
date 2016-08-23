@@ -1,6 +1,6 @@
 GLOBAL:
     TIMEZONE: "Europe/Prague"
-    LOGFILE: "/tmp/jetconf.log"
+    LOGFILE: "-"
     PIDFILE: "/tmp/jetconf.pid"
 
 HTTP_SERVER:
