@@ -8,8 +8,8 @@ import signal
 
 from colorlog import info, warning as warn, error
 from importlib import import_module
-from yangson.instance import InstancePath, NonexistentInstance, ObjectValue, EntryKeys
-from yangson.constants import ContentType
+from yangson.instance import InstanceRoute, NonexistentInstance, ObjectValue, EntryKeys
+from yangson.enumerations import ContentType
 from . import usr_op_handlers, usr_state_data_handlers, knot_api
 from .rest_server import RestServer
 from .config import CONFIG, load_config, print_config
@@ -33,7 +33,7 @@ def knot_disconnect():
 
 
 class KnotConfServerListener(BaseDataListener):
-    def process(self, sn: SchemaNode, ii: InstancePath, ch: DataChange):
+    def process(self, sn: SchemaNode, ii: InstanceRoute, ch: DataChange):
         print("Change at sn \"{}\", dn \"{}\"".format(sn.name, ii))
 
         base_ii_str = self.schema_path
@@ -67,7 +67,7 @@ class KnotConfServerListener(BaseDataListener):
 
 
 class KnotConfLogListener(BaseDataListener):
-    def process(self, sn: SchemaNode, ii: InstancePath, ch: DataChange):
+    def process(self, sn: SchemaNode, ii: InstanceRoute, ch: DataChange):
         print("lChange at sn \"{}\", dn \"{}\"".format(sn.name, ii))
         base_ii_str = self.schema_path
         base_ii = self._ds.parse_ii(base_ii_str, PathFormat.URL)
@@ -92,7 +92,7 @@ class KnotConfLogListener(BaseDataListener):
 
 
 class KnotConfZoneListener(BaseDataListener):
-    def process(self, sn: SchemaNode, ii: InstancePath, ch: DataChange):
+    def process(self, sn: SchemaNode, ii: InstanceRoute, ch: DataChange):
         print("zChange at sn \"{}\", dn \"{}\"".format(sn.name, ii))
         base_ii_str = self.schema_path
         base_ii = self._ds.parse_ii(base_ii_str, PathFormat.URL)
@@ -143,7 +143,7 @@ class KnotConfZoneListener(BaseDataListener):
 
 
 class KnotConfControlListener(BaseDataListener):
-    def process(self, sn: SchemaNode, ii: InstancePath, ch: DataChange):
+    def process(self, sn: SchemaNode, ii: InstanceRoute, ch: DataChange):
         print("cChange at sn \"{}\", dn \"{}\"".format(sn.name, ii))
 
         base_ii_str = self.schema_path
@@ -175,7 +175,7 @@ class KnotConfAclListener(BaseDataListener):
         deny = "true" if action == "deny" else "false"
         knot_api.KNOT.set_item(section="acl", identifier=name, item="deny", data=deny)
 
-    def process(self, sn: SchemaNode, ii: InstancePath, ch: DataChange):
+    def process(self, sn: SchemaNode, ii: InstanceRoute, ch: DataChange):
         base_ii_str = self.schema_path
         print("aChange at sn \"{}\", dn \"{}\"".format(sn.name, ii))
         base_ii = self._ds.parse_ii(base_ii_str, PathFormat.URL)
@@ -202,7 +202,7 @@ class KnotConfAclListener(BaseDataListener):
 
 
 class KnotZoneDataListener(BaseDataListener):
-    def process(self, sn: SchemaNode, ii: InstancePath, ch: DataChange):
+    def process(self, sn: SchemaNode, ii: InstanceRoute, ch: DataChange):
         base_ii_str = self.schema_path
         print("zdChange at sn \"{}\", dn \"{}\"".format(sn.name, ii))
         base_ii = self._ds.parse_ii(base_ii_str, PathFormat.URL)

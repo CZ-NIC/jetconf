@@ -13,7 +13,7 @@ from yangson.instance import \
     ObjectValue, \
     InstanceSelector, \
     InstanceIdentifier, \
-    InstancePath, \
+    InstanceRoute, \
     MemberName, \
     EntryIndex, \
     EntryKeys
@@ -314,7 +314,7 @@ class UserNacm:
         # config.update() always creates new structures instead of modifying ones
         config.internal_data_lock.release()
 
-    def check_data_node_path(self, root: InstanceNode, ii: InstancePath, access: Permission, out_matching_rule: List[NacmRule]=None) -> Action:
+    def check_data_node_path(self, root: InstanceNode, ii: InstanceRoute, access: Permission, out_matching_rule: List[NacmRule]=None) -> Action:
         if not self.nacm_enabled:
             return Action.PERMIT
 
@@ -359,7 +359,7 @@ class UserNacm:
 
         return retval
 
-    def _check_data_read_path(self, node: InstanceNode, root: InstanceNode, ii: InstancePath) -> InstanceNode:
+    def _check_data_read_path(self, node: InstanceNode, root: InstanceNode, ii: InstanceRoute) -> InstanceNode:
         # node = self.data.get_node(ii)
 
         if isinstance(node.value, ObjectValue):
@@ -399,7 +399,7 @@ class UserNacm:
 
         return node
 
-    def check_data_read_path(self, root: InstanceNode, ii: InstancePath) -> InstanceNode:
+    def check_data_read_path(self, root: InstanceNode, ii: InstanceRoute) -> InstanceNode:
         n = self.data.get_node(root, ii)
         if not self.nacm_enabled:
             return n

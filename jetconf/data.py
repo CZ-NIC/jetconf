@@ -5,7 +5,7 @@ from colorlog import error, warning as warn, info, debug
 from typing import List, Any, Dict, Callable
 
 from yangson.schema import SchemaNode, NonexistentSchemaNode, ListNode, LeafListNode
-from yangson.datamodel import DataModel, InstancePath
+from yangson.datamodel import DataModel
 from yangson.instance import (
     InstanceNode,
     NonexistentInstance,
@@ -16,7 +16,8 @@ from yangson.instance import (
     EntryKeys,
     EntryIndex,
     InstanceIdParser,
-    ResourceIdParser
+    ResourceIdParser,
+    InstanceRoute
 )
 
 from .helpers import DataHelpers
@@ -90,7 +91,7 @@ class BaseDataListener:
         self.schema_path = sch_pth                          # type: str
         self.schema_node = ds.get_schema_node(sch_pth)      # type: SchemaNode
 
-    def process(self, sn: SchemaNode, ii: InstancePath, ch: "DataChange") -> ConfHandlerResult:
+    def process(self, sn: SchemaNode, ii: InstanceRoute, ch: "DataChange") -> ConfHandlerResult:
         raise NotImplementedError("Not implemented in base class")
 
     def __str__(self):
@@ -219,6 +220,9 @@ class BaseDatastore:
     def get_data_root(self) -> InstanceNode:
         return self._data
 
+    def get_yl_data_root(self) -> InstanceNode:
+        return self._yang_lib_data
+
     # Returns the root node of data tree
     def get_data_root_staging(self, username: str) -> InstanceNode:
         usr_journal = self._usr_journals.get(username)
@@ -240,7 +244,7 @@ class BaseDatastore:
         return sn
 
     # Parse Instance Identifier from string
-    def parse_ii(self, path: str, path_format: PathFormat) -> InstancePath:
+    def parse_ii(self, path: str, path_format: PathFormat) -> InstanceRoute:
         if path_format == PathFormat.URL:
             ii = ResourceIdParser(path).parse()
         else:
@@ -249,11 +253,11 @@ class BaseDatastore:
         return ii
 
     # Notify data observers about change in datastore
-    def notify_edit(self, ii: InstancePath, ch: DataChange):
+    def notify_edit(self, ii: InstanceRoute, ch: DataChange):
         try:
             # n = self._data.goto(ii)
             # sn = n.schema_node
-            sch_pth = str(InstancePath(filter(lambda n: isinstance(n, MemberName), ii)))
+            sch_pth = str(InstanceRoute(filter(lambda n: isinstance(n, MemberName), ii)))
             sn = self.get_schema_node(sch_pth)
 
             while sn is not None:
@@ -275,7 +279,7 @@ class BaseDatastore:
             warn("Cannnot notify {}, parent container removed".format(ii))
 
     # Just get the node, do not evaluate NACM (needed for NACM)
-    def get_node(self, root: InstanceNode, ii: InstancePath) -> InstanceNode:
+    def get_node(self, root: InstanceNode, ii: InstanceRoute) -> InstanceNode:
         n = root.goto(ii)
         return n
 
@@ -289,16 +293,15 @@ class BaseDatastore:
 
         # n = root.goto(ii)
         # sn = n.schema_node
-        sch_pth = str(InstancePath(filter(lambda n: isinstance(n, MemberName), ii)))
+        sch_pth_list = filter(lambda n: isinstance(n, MemberName), ii)
+        sch_pth = "".join([str(seg) for seg in sch_pth_list])
         sn = self.get_schema_node(sch_pth)
 
         if not yl_data:
             if sn.state_roots():
                 self.commit_begin_callback()
                 for state_node_pth in sn.state_roots():
-                    sn_pth_str = "".join(["/" + pth_seg for pth_seg in state_node_pth])
-                    # print(sn_pth_str)
-                    sdh = STATE_DATA_HANDLES.get_handler(sn_pth_str)
+                    sdh = STATE_DATA_HANDLES.get_handler(state_node_pth)
                     if sdh is not None:
                         root_val = sdh.update_node(ii, root, True)
                         root = self._data.update_from_raw(root_val)

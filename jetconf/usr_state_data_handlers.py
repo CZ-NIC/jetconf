@@ -143,5 +143,5 @@ def create_zone_state_handlers(handler_list: "StateDataHandlerList", dm: DataMod
     handler_list.register_handler(zssh)
 
     zsh = ZoneStateHandler(dm, knot_api.KNOT)
-    zsh.add_member_handler("dnssec-signing:dnssec-signing", zssh)
+    # zsh.add_member_handler("dnssec-signing:dnssec-signing", zssh)
     handler_list.register_handler(zsh)
