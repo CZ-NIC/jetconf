@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import List, Union, Dict, Any
 from threading import Lock
+from colorlog import debug
 
 from .libknot.control import KnotCtl, KnotCtlType
 from .config import CONFIG
@@ -46,8 +47,8 @@ class RRecordBase:
 
 
 class SOARecord(RRecordBase):
-    def __init__(self, owner_name: str):
-        super().__init__(owner_name, "SOA")
+    def __init__(self):
+        super().__init__("@", "SOA")
         self.mname = None       # type: str
         self.rname = None       # type: str
         self.serial = None      # type: str
@@ -109,19 +110,21 @@ class KnotConfig(KnotCtl):
         if self.conf_state == KnotConfState.NONE:
             self.send_block("conf-begin")
             self.receive_block()
-            print(">>> CONF BEGIN")
+            # print(">>> CONF BEGIN")
             self.conf_state = KnotConfState.CONF
 
     def begin_zone(self):
         if self.conf_state == KnotConfState.NONE:
             self.send_block("zone-begin")
             self.receive_block()
+            # print(">>> ZONE BEGIN")
             self.conf_state = KnotConfState.ZONE
 
     def commit(self):
         if self.conf_state == KnotConfState.CONF:
             self.send_block("conf-commit")
             self.receive_block()
+            # print(">>> CONF COMMIT")
             self.conf_state = KnotConfState.NONE
         else:
             raise KnotApiStateError()
@@ -130,6 +133,7 @@ class KnotConfig(KnotCtl):
         if self.conf_state == KnotConfState.ZONE:
             self.send_block("zone-commit")
             self.receive_block()
+            # print(">>> ZONE COMMIT")
             self.conf_state = KnotConfState.NONE
         else:
             raise KnotApiStateError()
@@ -190,9 +194,11 @@ class KnotConfig(KnotCtl):
             raise KnotApiError("Knot socket is closed")
 
         try:
-            self.set_zone_item(zone=domain_name, owner=rr.owner, ttl=str(rr.ttl), rtype=rr.type, data=rr.rrdata_format())
-            print(rr.rrdata_format())
-            print(rr.owner)
+            res_data = rr.rrdata_format()
+            self.set_zone_item(zone=domain_name, owner=rr.owner, ttl=str(rr.ttl), rtype=rr.type, data=res_data)
+            debug("Inserting zone \"{}\" RR, type=\"{}\", owner=\"{}\", ttl=\"{}\", data=\"{}\"".format(
+                domain_name, rr.type, rr.owner, rr.ttl, res_data
+            ))
             resp = self.receive_block()
         except Exception as e:
             raise KnotInternalError(str(e))

@@ -1,8 +1,14 @@
+from enum import Enum
 from typing import Dict, Any
 from datetime import datetime
 from pytz import timezone
-from yangson.instance import InstanceRoute, MemberName, EntryKeys
+from yangson.instance import InstanceRoute, MemberName, EntryKeys, InstanceIdParser, ResourceIdParser
 from yangson.datamodel import DataModel
+
+
+class PathFormat(Enum):
+    URL = 0
+    XPATH = 1
 
 
 class CertHelpers:
@@ -40,6 +46,16 @@ class DataHelpers:
         dm = DataModel(yl, [module_dir])
         return dm
 
+    # Parse Instance Identifier from string
+    @staticmethod
+    def parse_ii(path: str, path_format: PathFormat) -> InstanceRoute:
+        if path_format == PathFormat.URL:
+            ii = ResourceIdParser(path).parse()
+        else:
+            ii = InstanceIdParser(path).parse()
+
+        return ii
+
 
 class DateTimeHelpers:
     @staticmethod
@@ -55,5 +71,9 @@ class DateTimeHelpers:
 
 class ErrorHelpers:
     @staticmethod
-    def epretty(e: BaseException) -> str:
-        return e.__class__.__name__ + ": " + str(e)
+    def epretty(e: BaseException, module_name: str=None) -> str:
+        err_str = e.__class__.__name__ + ": " + str(e)
+        if module_name is not None:
+            return "In module " + module_name + ": " + err_str
+        else:
+            return err_str

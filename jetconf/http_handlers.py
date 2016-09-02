@@ -72,7 +72,7 @@ def _get(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str, yl_dat
         ds.lock_data(username)
         n = ds.get_node_rpc(rpc1, yl_data)
 
-        response = json.dumps(n.value, indent=4) + "\n"
+        response = json.dumps(n.raw_value(), indent=4) + "\n"
         response_bytes = response.encode()
 
         response_headers = [
@@ -90,7 +90,14 @@ def _get(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str, yl_dat
         response_headers.append(("content-length", len(response_bytes)))
 
         prot.conn.send_headers(stream_id, response_headers)
-        prot.conn.send_data(stream_id, response_bytes, end_stream=True)
+        # prot.conn.send_data(stream_id, response_bytes, end_stream=True)
+
+        def split_arr(arr, chunk_size):
+            for i in range(0, len(arr), chunk_size):
+                yield arr[i:i + chunk_size]
+
+        for data_chunk in split_arr(response_bytes, prot.conn.max_outbound_frame_size):
+            prot.conn.send_data(stream_id, data_chunk, end_stream=False)
     except DataLockError as e:
         warn(epretty(e))
         prot.send_empty(stream_id, "500", "Internal Server Error")

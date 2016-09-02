@@ -83,7 +83,8 @@ class ZoneStateHandler(StateNodeHandlerBase):
         self.schema_node = data_model.get_data_node(self.sch_pth)
 
     def update_node(self, node_ii: InstanceRoute, data_root: InstanceNode, with_container: bool) -> InstanceNode:
-        print("zone_state_handler, ii = {}".format(node_ii))
+        node_ii_str = sch_pth = "".join([str(seg) for seg in node_ii])
+        print("zone_state_handler, ii = {}".format(node_ii_str))
 
         # Request status of specific zone
         if len(node_ii) > 2:

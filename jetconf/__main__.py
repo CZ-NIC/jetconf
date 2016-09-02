@@ -204,7 +204,9 @@ class KnotConfAclListener(BaseDataListener):
 class KnotZoneDataListener(BaseDataListener):
     def process(self, sn: SchemaNode, ii: InstanceRoute, ch: DataChange):
         base_ii_str = self.schema_path
-        print("zdChange at sn \"{}\", dn \"{}\"".format(sn.name, ii))
+        ii_str = "".join([str(seg) for seg in ii])
+
+        print("zdChange at sn \"{}\", dn \"{}\"".format(sn.name, ii_str))
         base_ii = self._ds.parse_ii(base_ii_str, PathFormat.URL)
         base_nv = self._ds.get_node(self._ds.get_data_root(), base_ii).value
 
@@ -212,13 +214,13 @@ class KnotZoneDataListener(BaseDataListener):
             name = ch.data["zone"]["name"]
             print("--- Creating new zone \"{}\"".format(name))
             knot_api.KNOT.begin()
-            knot_api.KNOT.set_item(section="zone", item="domain", data=name)
+            knot_api.KNOT.zone_new(name)
             knot_api.KNOT.commit()
         elif (len(ii) == (len(base_ii) + 2)) and isinstance(ii[len(base_ii) + 1], EntryKeys) and (ch.change_type == ChangeType.DELETE):
             name = ii[len(base_ii) + 1].keys["name"]
             print("--- Deleting zone \"{}\"".format(name))
             knot_api.KNOT.begin()
-            knot_api.KNOT.zone_new(name)
+            # knot_api.KNOT.zone_new(name)
             knot_api.KNOT.commit()
         elif (len(ii) > len(base_ii)) and isinstance(ii[len(base_ii) + 1], EntryKeys):
             zone_name = ii[len(base_ii) + 1].keys["name"]
@@ -230,7 +232,7 @@ class KnotZoneDataListener(BaseDataListener):
                     print("writing soa {}".format(soa))
                     knot_api.KNOT.begin_zone()
 
-                    soarr = SOARecord(zone_name)
+                    soarr = SOARecord()
                     soarr.mname = soa["mname"]
                     soarr.rname = soa["rname"]
                     soarr.serial = soa["serial"]

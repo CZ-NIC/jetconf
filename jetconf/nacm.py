@@ -1,4 +1,3 @@
-import json
 import collections
 import copy
 from threading import Lock
@@ -6,19 +5,22 @@ from enum import Enum
 from colorlog import error, warning as warn, info, debug
 from typing import List, Set
 
-from yangson.instance import \
-    InstanceNode, \
-    NonexistentInstance, \
-    ArrayValue, \
-    ObjectValue, \
-    InstanceSelector, \
-    InstanceIdentifier, \
-    InstanceRoute, \
-    MemberName, \
-    EntryIndex, \
+from yangson.instance import (
+    InstanceNode,
+    NonexistentSchemaNode,
+    NonexistentInstance,
+    ArrayValue,
+    ObjectValue,
+    InstanceSelector,
+    InstanceRoute,
+    MemberName,
+    EntryIndex,
     EntryKeys
+)
 
-from .helpers import DataHelpers
+from .helpers import DataHelpers, PathFormat, ErrorHelpers
+
+epretty = ErrorHelpers.epretty
 
 
 class Action(Enum):
@@ -105,10 +107,14 @@ class DataRuleTree:
         self.root = []  # type: List[RuleTreeNode]
 
     # Access to datastore needed for parsing IIs
-    def create_rule_tree(self, ds, rule_lists: List[NacmRuleList]):
+    def create_rule_tree(self, rule_lists: List[NacmRuleList]):
         for rl in rule_lists:
             for rule in filter(lambda r: r.type == NacmRuleType.NACM_RULE_DATA, rl.rules):
-                ii = ds.parse_ii(rule.type_data.path, PathFormat.XPATH)
+                try:
+                    ii = DataHelpers.parse_ii(rule.type_data.path, PathFormat.XPATH)
+                except NonexistentSchemaNode as e:
+                    error(epretty(e, __name__))
+                    ii = []
                 nl = self.root
                 node_match_prev = None
                 for isel in ii:
@@ -307,7 +313,7 @@ class UserNacm:
         user_groups_names = list(map(lambda x: x.name, user_groups))
         self.rule_lists = list(filter(lambda x: (set(user_groups_names) & set(x.groups)), config.rule_lists))
 
-        self.rule_tree.create_rule_tree(self.data, self.rule_lists)
+        self.rule_tree.create_rule_tree(self.rule_lists)
         # self.rule_tree.print_rule_tree()
 
         # No need to hold lock anymore

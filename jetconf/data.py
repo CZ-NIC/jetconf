@@ -20,12 +20,7 @@ from yangson.instance import (
     InstanceRoute
 )
 
-from .helpers import DataHelpers
-
-
-class PathFormat(Enum):
-    URL = 0
-    XPATH = 1
+from .helpers import PathFormat
 
 
 class ChangeType(Enum):
@@ -257,7 +252,8 @@ class BaseDatastore:
         try:
             # n = self._data.goto(ii)
             # sn = n.schema_node
-            sch_pth = str(InstanceRoute(filter(lambda n: isinstance(n, MemberName), ii)))
+            sch_pth_list = filter(lambda n: isinstance(n, MemberName), ii)
+            sch_pth = "".join([str(seg) for seg in sch_pth_list])
             sn = self.get_schema_node(sch_pth)
 
             while sn is not None:

@@ -275,7 +275,8 @@
           "name": "users",
           "user-name": [
             "lada",
-            "pavel"
+            "pavel",
+            "lojza@mail.cz"
           ]
         }
       ]
@@ -304,16 +305,23 @@
         "rule": [
           {
             "name": "no-writes-on-example.com",
-            "path": "/dnss:dns-server/dnss:zones/dnss:zone[dnss:domain='example.com']",
+            "path": "/dns-server:dns-server/zones/zone[domain='example.com']",
             "access-operations": "create update delete",
             "comment": "Users cannot write example.com.",
             "action": "deny"
           },
           {
             "name": "permit-zone-access",
-            "path": "/dnss:dns-server/dnss:zones/dnss:zone",
+            "path": "/dns-server:dns-server/zones/zone",
             "access-operations": "*",
             "comment": "Users can write other zones.",
+            "action": "permit"
+          },
+          {
+            "name": "permit-zone-data-access",
+            "path": "/dns-zones:zone-data",
+            "access-operations": "*",
+            "comment": "Users can edit zone data.",
             "action": "permit"
           },
           {

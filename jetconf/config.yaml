@@ -17,4 +17,4 @@ NACM:
     ALLOWED_USERS: ["lojza@mail.cz"]
 
 KNOT:
-    SOCKET: "/tmp/knottest-1462525244-b67pmzm_/ddns/ttl/knot1/knot.sock"
+    SOCKET: "/home/pspirek/knot-conf/knot.sock"
