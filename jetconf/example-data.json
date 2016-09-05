@@ -16,10 +16,6 @@
           "name": "01",
           "ip-address": "127.0.0.1",
           "port": 53531
-        },
-        {
-          "name": "02",
-          "ip-address": "::1"
         }
       ],
       "filesystem-paths": {
@@ -315,6 +311,13 @@
             "path": "/dns-server:dns-server/zones/zone",
             "access-operations": "*",
             "comment": "Users can write other zones.",
+            "action": "permit"
+          },
+          {
+            "name": "permit-server-options-access",
+            "path": "/dns-server:dns-server/server-options",
+            "access-operations": "*",
+            "comment": "Users can write some server options.",
             "action": "permit"
           },
           {

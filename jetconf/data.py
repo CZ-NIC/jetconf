@@ -519,7 +519,12 @@ class BaseDatastore:
             if self._usr_journals.get(rpc.username) is None:
                 self._usr_journals[rpc.username] = UsrChangeJournal(self._data)
 
-            self._usr_journals[rpc.username].cl_new(rpc.op_input_args["name"])
+            try:
+                cl_name = rpc.op_input_args["name"]
+            except (TypeError, KeyError):
+                raise ValueError("This operation expects \"name\" input parameter")
+
+            self._usr_journals[rpc.username].cl_new(cl_name)
             ret_data = {"status": "OK"}
         elif rpc.op_name == "conf-list":
             usr_journal = self._usr_journals.get(rpc.username)

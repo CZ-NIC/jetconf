@@ -97,7 +97,11 @@ class KnotConfig(KnotCtl):
         if not self.socket_lock.acquire(blocking=True, timeout=5):
             raise KnotApiError("Cannot acquire Knot socket lock")
 
-        self.connect(self.sock_path)
+        try:
+            self.connect(self.sock_path)
+        except Exception:
+            self.socket_lock.release()
+            raise KnotApiError("Cannot connect to Knot socket")
         self.connected = True
 
     def knot_disconnect(self):
@@ -143,6 +147,8 @@ class KnotConfig(KnotCtl):
             raise KnotApiError("Knot socket is closed")
 
         if data is not None:
+            if isinstance(data, (int, bool)):
+                data = str(data).lower()
             self.send_block("conf-set", section=section, identifier=identifier, item=item, zone=zone, data=data)
         else:
             self.send_block("conf-unset", section=section, identifier=identifier, item=item, zone=zone)
