@@ -1,13 +1,15 @@
 from enum import Enum
 from typing import List, Union, Dict, Any
 from threading import Lock
-from colorlog import debug
+from colorlog import info
 
 from .libknot.control import KnotCtl, KnotCtlType
 from .config import CONFIG
+from .helpers import LogHelpers
 
 KNOT = None     # type: KnotConfig
 JsonNodeT = Union[Dict[str, Any], List]
+debug_knot = LogHelpers.create_module_dbg_logger(__name__)
 
 
 class KnotError(Exception):
@@ -113,32 +115,42 @@ class KnotConfig(KnotCtl):
     def begin(self):
         if self.conf_state == KnotConfState.NONE:
             self.send_block("conf-begin")
-            self.receive_block()
-            # print(">>> CONF BEGIN")
-            self.conf_state = KnotConfState.CONF
+            try:
+                self.receive_block()
+                # print(">>> CONF BEGIN")
+                self.conf_state = KnotConfState.CONF
+            except Exception as e:
+                raise KnotInternalError(str(e))
 
     def begin_zone(self):
         if self.conf_state == KnotConfState.NONE:
             self.send_block("zone-begin")
-            self.receive_block()
-            # print(">>> ZONE BEGIN")
-            self.conf_state = KnotConfState.ZONE
+            try:
+                self.receive_block()
+                # print(">>> ZONE BEGIN")
+                self.conf_state = KnotConfState.ZONE
+            except Exception as e:
+                raise KnotInternalError(str(e))
 
     def commit(self):
         if self.conf_state == KnotConfState.CONF:
             self.send_block("conf-commit")
-            self.receive_block()
-            # print(">>> CONF COMMIT")
-            self.conf_state = KnotConfState.NONE
+            try:
+                self.receive_block()
+                self.conf_state = KnotConfState.NONE
+            except Exception as e:
+                raise KnotInternalError(str(e))
         else:
             raise KnotApiStateError()
 
     def commit_zone(self):
         if self.conf_state == KnotConfState.ZONE:
             self.send_block("zone-commit")
-            self.receive_block()
-            # print(">>> ZONE COMMIT")
-            self.conf_state = KnotConfState.NONE
+            try:
+                self.receive_block()
+                self.conf_state = KnotConfState.NONE
+            except Exception as e:
+                raise KnotInternalError(str(e))
         else:
             raise KnotApiStateError()
 
@@ -195,6 +207,17 @@ class KnotConfig(KnotCtl):
             raise KnotInternalError(str(e))
         return resp
 
+    def zone_remove(self, domain_name: str) -> JsonNodeT:
+        if not self.connected:
+            raise KnotApiError("Knot socket is closed")
+
+        try:
+            self.send_block("conf-unset", section="zone", item="domain", zone=domain_name)
+            resp = self.receive_block()
+        except Exception as e:
+            raise KnotInternalError(str(e))
+        return resp
+
     def zone_add_record(self, domain_name: str, rr: RRecordBase) -> JsonNodeT:
         if not self.connected:
             raise KnotApiError("Knot socket is closed")
@@ -202,13 +225,34 @@ class KnotConfig(KnotCtl):
         try:
             res_data = rr.rrdata_format()
             self.set_zone_item(zone=domain_name, owner=rr.owner, ttl=str(rr.ttl), rtype=rr.type, data=res_data)
-            debug("Inserting zone \"{}\" RR, type=\"{}\", owner=\"{}\", ttl=\"{}\", data=\"{}\"".format(
+            debug_knot("Inserting zone \"{}\" RR, type=\"{}\", owner=\"{}\", ttl=\"{}\", data=\"{}\"".format(
                 domain_name, rr.type, rr.owner, rr.ttl, res_data
             ))
             resp = self.receive_block()
         except Exception as e:
             raise KnotInternalError(str(e))
         return resp
+
+    def zone_del_record(self, domain_name: str, owner: str, rr_type: str) -> JsonNodeT:
+        if not self.connected:
+            raise KnotApiError("Knot socket is closed")
+
+        try:
+            self.set_zone_item(zone=domain_name, owner=owner, rtype=rr_type, data=None)
+            resp = self.receive_block()
+        except Exception as e:
+            raise KnotInternalError(str(e))
+        return resp
+
+
+def knot_connect():
+    debug_knot("Connecting to KNOT socket")
+    KNOT.knot_connect()
+
+
+def knot_disconnect():
+    debug_knot("Disonnecting from KNOT socket")
+    KNOT.knot_disconnect()
 
 
 def knot_api_init():

@@ -2,17 +2,17 @@ import json
 import os
 import mimetypes
 from collections import OrderedDict
-from colorlog import error, warning as warn, info, debug
+from colorlog import error, warning as warn, info
 from urllib.parse import parse_qs
 from typing import Dict, List
 
 from yangson.schema import NonexistentSchemaNode
-from yangson.instance import NonexistentInstance, InstanceTypeError, DuplicateMember
+from yangson.instance import NonexistentInstance, InstanceValueError
 from yangson.datatype import YangTypeError
 
 from jetconf.knot_api import KnotError
 from .config import CONFIG_GLOBAL, CONFIG_HTTP, NACM_ADMINS, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops
-from .helpers import CertHelpers, DataHelpers, DateTimeHelpers, ErrorHelpers
+from .helpers import CertHelpers, DataHelpers, DateTimeHelpers, ErrorHelpers, LogHelpers
 from .data import (
     BaseDatastore,
     RpcInfo,
@@ -26,6 +26,7 @@ from .data import (
 
 QueryStrT = Dict[str, List[str]]
 epretty = ErrorHelpers.epretty
+debug_httph = LogHelpers.create_module_dbg_logger(__name__)
 
 
 def unknown_req_handler(prot: "H2Protocol", stream_id: int, headers: OrderedDict, data: bytes=None):
@@ -91,7 +92,6 @@ def _get(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str, yl_dat
         response_headers.append(("content-length", len(response_bytes)))
 
         prot.conn.send_headers(stream_id, response_headers)
-        # prot.conn.send_data(stream_id, response_bytes, end_stream=True)
 
         def split_arr(arr, chunk_size):
             for i in range(0, len(arr), chunk_size):
@@ -111,7 +111,7 @@ def _get(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str, yl_dat
     except NonexistentInstance as e:
         warn(epretty(e))
         prot.send_empty(stream_id, "404", "Not Found")
-    except InstanceTypeError as e:
+    except InstanceValueError as e:
         warn(epretty(e))
         prot.send_empty(stream_id, "400", "Bad Request")
     except KnotError as e:
@@ -242,7 +242,7 @@ def _get_staging(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str
     except NonexistentInstance as e:
         warn(epretty(e))
         prot.send_empty(stream_id, "404", "Not Found")
-    except InstanceTypeError as e:
+    except InstanceValueError as e:
         warn(epretty(e))
         prot.send_empty(stream_id, "400", "Bad Request")
     except NoHandlerError as e:
@@ -278,7 +278,7 @@ def create_get_staging_api(ds: BaseDatastore):
 
 def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth: str):
     data_str = data.decode("utf-8")
-    debug("HTTP data received: " + data_str)
+    debug_httph("HTTP data received: " + data_str)
 
     url_split = pth.split("?")
     url_path = url_split[0]
@@ -319,12 +319,12 @@ def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pt
     except NonexistentInstance as e:
         warn(epretty(e))
         prot.send_empty(stream_id, "404", "Not Found")
-    except DuplicateMember as e:
-        warn(epretty(e))
-        prot.send_empty(stream_id, "409", "Conflict")
-    except (InstanceTypeError, YangTypeError, InstanceAlreadyPresent, NoHandlerError, ValueError) as e:
+    except (InstanceValueError, YangTypeError, NoHandlerError, ValueError) as e:
         warn(epretty(e))
         prot.send_empty(stream_id, "400", "Bad Request")
+    except InstanceAlreadyPresent as e:
+        warn(epretty(e))
+        prot.send_empty(stream_id, "409", "Conflict")
     finally:
         ds.unlock_data()
 
@@ -352,7 +352,7 @@ def create_post_api(ds: BaseDatastore):
 
 def _put(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth: str):
     data_str = data.decode("utf-8")
-    debug("HTTP data received: " + data_str)
+    debug_httph("HTTP data received: " + data_str)
 
     url_split = pth.split("?")
     url_path = url_split[0]

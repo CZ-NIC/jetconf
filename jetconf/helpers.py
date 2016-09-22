@@ -1,9 +1,14 @@
+import logging
+
+from colorlog import debug, getLogger
 from enum import Enum
 from typing import Dict, Any
 from datetime import datetime
 from pytz import timezone
 from yangson.instance import InstanceRoute, MemberName, EntryKeys, InstanceIdParser, ResourceIdParser
 from yangson.datamodel import DataModel
+
+from .config import CONFIG
 
 
 class PathFormat(Enum):
@@ -77,3 +82,18 @@ class ErrorHelpers:
             return "In module " + module_name + ": " + err_str
         else:
             return err_str
+
+
+class LogHelpers:
+    @staticmethod
+    def create_module_dbg_logger(module_name: str):
+        module_name_simple = module_name.split(".")[-1]
+
+        def module_dbg_logger(msg: str):
+            if ({module_name_simple, "*"} & set(CONFIG["GLOBAL"]["LOG_DBG_MODULES"])) and (CONFIG["GLOBAL"]["LOG_LEVEL"] == "debug"):
+                logger = getLogger()
+                logger.setLevel(logging.DEBUG)
+                debug(module_name_simple + ": " + msg)
+                logger.setLevel(logging.INFO)
+
+        return module_dbg_logger

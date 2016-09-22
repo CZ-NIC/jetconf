@@ -1,15 +1,16 @@
 import json
 from threading import Lock
 from enum import Enum
-from colorlog import error, warning as warn, info, debug
+from colorlog import error, warning as warn, info
 from typing import List, Any, Dict, Callable
 
-from yangson.schema import SchemaNode, NonexistentSchemaNode, ListNode, LeafListNode
+from yangson.schema import SchemaNode, NonexistentSchemaNode, ListNode, LeafListNode, SchemaError, SemanticError
 from yangson.datamodel import DataModel
+from yangson.enumerations import ContentType
 from yangson.instance import (
     InstanceNode,
     NonexistentInstance,
-    InstanceTypeError,
+    InstanceValueError,
     ArrayValue,
     ObjectValue,
     MemberName,
@@ -20,7 +21,11 @@ from yangson.instance import (
     InstanceRoute
 )
 
-from .helpers import PathFormat
+from .helpers import PathFormat, ErrorHelpers, LogHelpers
+from .config import CONFIG
+
+epretty = ErrorHelpers.epretty
+debug_data = LogHelpers.create_module_dbg_logger(__name__)
 
 
 class ChangeType(Enum):
@@ -157,25 +162,34 @@ class UsrChangeJournal:
         return chl_json
 
     def commit(self, ds: "BaseDatastore"):
-        # ds.lock_data()
+        # Set new data root
+        if hash(ds.get_data_root()) == hash(self.root_origin):
+            info("Commiting new configuration (swapping roots)")
+            # Set new root
+            nr = self.get_root_head()
+        else:
+            info("Commiting new configuration (re-applying changes)")
+            nr = ds.get_data_root()
+            for cl in self.clists:
+                for change in cl.journal:
+                    if change.change_type == ChangeType.CREATE:
+                        nr = ds.create_node_rpc(nr, change.rpc_info, change.data)
+                    elif change.change_type == ChangeType.REPLACE:
+                        nr = ds.update_node_rpc(nr, change.rpc_info, change.data)
+                    elif change.change_type == ChangeType.DELETE:
+                        nr = ds.delete_node_rpc(nr, change.rpc_info)
+
         try:
+            nr.validate(ContentType.config)
+            new_data_valid = True
+        except (SchemaError, SemanticError) as e:
+            error("Data validation error:")
+            error(epretty(e))
+            new_data_valid = False
+
+        if new_data_valid:
             # Set new data root
-            if hash(ds.get_data_root()) == hash(self.root_origin):
-                info("Commiting new configuration (swapping roots)")
-                # Set new root
-                ds.set_data_root(self.get_root_head())
-            else:
-                info("Commiting new configuration (re-applying changes)")
-                nr = ds.get_data_root()
-                for cl in self.clists:
-                    for change in cl.journal:
-                        if change.change_type == ChangeType.CREATE:
-                            nr = ds.create_node_rpc(nr, change.rpc_info, change.data)
-                        elif change.change_type == ChangeType.REPLACE:
-                            nr = ds.update_node_rpc(nr, change.rpc_info, change.data)
-                        elif change.change_type == ChangeType.DELETE:
-                            nr = ds.delete_node_rpc(nr, change.rpc_info)
-                ds.set_data_root(nr)
+            ds.set_data_root(nr)
 
             # Notify schema node observers
             for cl in self.clists:
@@ -189,9 +203,6 @@ class UsrChangeJournal:
 
             # Clear user changelists
             self.clists.clear()
-        finally:
-            # ds.unlock_data()
-            pass
 
 
 class BaseDatastore:
@@ -300,7 +311,7 @@ class BaseDatastore:
                     sdh = STATE_DATA_HANDLES.get_handler(state_node_pth)
                     if sdh is not None:
                         root_val = sdh.update_node(ii, root, True)
-                        root = self._data.update_from_raw(root_val)
+                        root = self._data.update(root_val, raw=True)
                     else:
                         raise NoHandlerForStateDataError()
                 self.commit_end_callback()
@@ -402,7 +413,7 @@ class BaseDatastore:
         n = root.goto(ii)
 
         sn = n.schema_node
-        sch_member_name = sn.iname2qname(input_member_name)
+        sch_member_name = sn._iname2qname(input_member_name)
         member_sn = sn.get_data_child(*sch_member_name)
 
         if isinstance(member_sn, ListNode):
@@ -476,7 +487,7 @@ class BaseDatastore:
             if nrpc.check_data_node_path(root, ii, Permission.NACM_ACCESS_UPDATE) == Action.DENY:
                 raise NacmForbiddenError()
 
-        new_n = n.update_from_raw(value)
+        new_n = n.update(value, raw=True)
 
         return new_n.top()
 
@@ -502,7 +513,7 @@ class BaseDatastore:
             if isinstance(last_isel, MemberName):
                 new_n = n_parent.delete_member(last_isel.name)
         else:
-            raise InstanceTypeError(n, "Invalid target node type")
+            raise InstanceValueError(n, "Invalid target node type")
 
         return new_n.top()
 
@@ -550,7 +561,16 @@ class BaseDatastore:
             if usr_journal is not None:
                 if self.commit_begin_callback is not None:
                     self.commit_begin_callback()
-                usr_journal.commit(self)
+
+                try:
+                    self.lock_data(rpc.username)
+                    old_root = self._data
+                    usr_journal.commit(self)
+                    if CONFIG["GLOBAL"]["PERSISTENT_CHANGES"] is True:
+                        self.save()
+                finally:
+                    self.unlock_data()
+
                 if self.commit_end_callback is not None:
                     self.commit_end_callback()
                 del self._usr_journals[rpc.username]
@@ -591,7 +611,7 @@ class BaseDatastore:
         ret = self._data_lock.acquire(blocking=blocking, timeout=1)
         if ret:
             self._lock_username = username or "(unknown)"
-            debug("Acquired lock in datastore \"{}\" for user \"{}\"".format(self.name, username))
+            debug_data("Acquired lock in datastore \"{}\" for user \"{}\"".format(self.name, username))
         else:
             raise DataLockError(
                 "Failed to acquire lock in datastore \"{}\" for user \"{}\", already locked by \"{}\"".format(
@@ -604,22 +624,26 @@ class BaseDatastore:
     # Unlock datastore data
     def unlock_data(self):
         self._data_lock.release()
-        debug("Released lock in datastore \"{}\" for user \"{}\"".format(self.name, self._lock_username))
+        debug_data("Released lock in datastore \"{}\" for user \"{}\"".format(self.name, self._lock_username))
         self._lock_username = None
 
     # Load data from persistent storage
-    def load(self, filename: str):
+    def load(self):
         raise NotImplementedError("Not implemented in base class")
 
     # Save data to persistent storage
-    def save(self, filename: str):
+    def save(self):
         raise NotImplementedError("Not implemented in base class")
 
 
 class JsonDatastore(BaseDatastore):
-    def load(self, filename: str):
+    def __init__(self, dm: DataModel, json_file: str, name: str = ""):
+        super().__init__(dm, name)
+        self.json_file = json_file
+
+    def load(self):
         self._data = None
-        with open(filename, "rt") as fp:
+        with open(self.json_file, "rt") as fp:
             self._data = self._dm.from_raw(json.load(fp))
 
     def load_yl_data(self, filename: str):
@@ -627,11 +651,9 @@ class JsonDatastore(BaseDatastore):
         with open(filename, "rt") as fp:
             self._yang_lib_data = self._dm.from_raw(json.load(fp))
 
-    def save(self, filename: str):
-        with open(filename, "w") as jfd:
-            self.lock_data("json_save")
-            json.dump(self._data, jfd)
-            self.unlock_data()
+    def save(self):
+        with open(self.json_file, "w") as jfd:
+            json.dump(self._data.raw_value(), jfd, indent=4)
 
 
 def test():

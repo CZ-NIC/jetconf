@@ -1,11 +1,16 @@
 import os
 import yaml
-from colorlog import warning as warn, info
+
+from yaml.parser import ParserError
+from colorlog import error, warning as warn, info
 
 CONFIG_GLOBAL = {
     "TIMEZONE": "GMT",
     "LOGFILE": "-",
-    "PIDFILE": "/tmp/jetconf.pid"
+    "PIDFILE": "/tmp/jetconf.pid",
+    "PERSISTENT_CHANGES": True,
+    "LOG_LEVEL": "info",
+    "LOG_DBG_MODULES": ["*"]
 }
 
 CONFIG_HTTP = {
@@ -59,6 +64,9 @@ def load_config(filename: str):
 
     except FileNotFoundError:
         warn("Configuration file does not exist")
+    except ParserError as e:
+        error("Configuration syntax error: " + str(e))
+        exit()
 
     # Shortcuts
     NACM_ADMINS = CONFIG["NACM"]["ALLOWED_USERS"]

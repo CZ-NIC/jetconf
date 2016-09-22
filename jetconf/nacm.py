@@ -2,7 +2,7 @@ import collections
 import copy
 from threading import Lock
 from enum import Enum
-from colorlog import error, warning as warn, info, debug
+from colorlog import error, warning as warn, info
 from typing import List, Set
 
 from yangson.instance import (
@@ -18,9 +18,10 @@ from yangson.instance import (
     EntryKeys
 )
 
-from .helpers import DataHelpers, PathFormat, ErrorHelpers
+from .helpers import DataHelpers, ErrorHelpers, LogHelpers
 
 epretty = ErrorHelpers.epretty
+debug_nacm = LogHelpers.create_module_dbg_logger(__name__)
 
 
 class Action(Enum):
@@ -377,10 +378,10 @@ class UserNacm:
                 mii = copy.copy(ii)
                 mii.append(nsel)
 
-                debug("checking mii {}".format(mii))
+                debug_nacm("checking mii {}".format(mii))
                 if self.check_data_node_path(root, mii, Permission.NACM_ACCESS_READ) == Action.DENY:
                     # info("Pruning node {} {}".format(id(node.value[child_key]), node.value[child_key]))
-                    debug("Pruning node {}".format(mii))
+                    debug_nacm("Pruning node {}".format(mii))
                     node = node.delete_member(child_key, validate=False)
                 else:
                     node = self._check_data_read_path(m, root, mii).up()
@@ -394,9 +395,9 @@ class UserNacm:
                 eii = copy.copy(ii)
                 eii.append(nsel)
 
-                debug("checking eii {}".format(eii))
+                debug_nacm("checking eii {}".format(eii))
                 if self.check_data_node_path(root, eii, Permission.NACM_ACCESS_READ) == Action.DENY:
-                    debug("Pruning node {} {}".format(id(node.value[i]), node.value[i]))
+                    debug_nacm("Pruning node {} {}".format(id(node.value[i]), node.value[i]))
                     node = node.delete_entry(i)
                     arr_len -= 1
                 else:
