@@ -1,11 +1,13 @@
 from colorlog import info, warning as warn, error
+from typing import List, Dict, Union, Any
 
 from yangson.instance import InstanceRoute, ObjectValue, EntryKeys, MemberName
 from . import knot_api
 from .data import BaseDataListener, SchemaNode, PathFormat, ChangeType, DataChange, ConfHandlerResult
 from .helpers import ErrorHelpers, LogHelpers
-from .knot_api import SOARecord, ARecord
+from .knot_api import RRecordBase, SOARecord, ARecord, AAAARecord, NSRecord, MXRecord
 
+JsonNodeT = Union[Dict[str, Any], List]
 epretty = ErrorHelpers.epretty
 debug_confh = LogHelpers.create_module_dbg_logger(__name__)
 
@@ -15,8 +17,8 @@ class KnotConfServerListener(BaseDataListener):
         debug_confh(self.__class__.__name__ + " triggered")
 
         base_ii_str = self.schema_path
-        base_ii = self._ds.parse_ii(base_ii_str, PathFormat.URL)
-        base_nv = self._ds.get_node(self._ds.get_data_root(), base_ii).value
+        base_ii = self.ds.parse_ii(base_ii_str, PathFormat.URL)
+        base_nv = self.ds.get_node(self.ds.get_data_root(), base_ii).value
 
         knot_api.KNOT.begin()
 
@@ -49,8 +51,8 @@ class KnotConfLogListener(BaseDataListener):
         debug_confh(self.__class__.__name__ + " triggered")
 
         base_ii_str = self.schema_path
-        base_ii = self._ds.parse_ii(base_ii_str, PathFormat.URL)
-        base_nv = self._ds.get_node(self._ds.get_data_root(), base_ii).value
+        base_ii = self.ds.parse_ii(base_ii_str, PathFormat.URL)
+        base_nv = self.ds.get_node(self.ds.get_data_root(), base_ii).value
 
         knot_api.KNOT.begin()
         knot_api.KNOT.set_item(section="log", data=None)
@@ -76,7 +78,7 @@ class KnotConfZoneListener(BaseDataListener):
 
         # ii_str = "".join([str(seg) for seg in ii])
         base_ii_str = self.schema_path
-        base_ii = self._ds.parse_ii(base_ii_str, PathFormat.URL)
+        base_ii = self.ds.parse_ii(base_ii_str, PathFormat.URL)
 
         knot_api.KNOT.begin()
 
@@ -96,7 +98,7 @@ class KnotConfZoneListener(BaseDataListener):
             debug_confh("Editing config of zone \"{}\"".format(domain))
 
             # Write whole zone config to Knot
-            zone_nv = self._ds.get_node(self._ds.get_data_root(), ii[0:(len(base_ii) + 1)]).value
+            zone_nv = self.ds.get_node(self.ds.get_data_root(), ii[0:(len(base_ii) + 1)]).value
             knot_api.KNOT.set_item(section="zone", zone=domain, item="comment", data=zone_nv.get("description"))
             knot_api.KNOT.set_item(section="zone", zone=domain, item="file", data=zone_nv.get("file"))
             knot_api.KNOT.set_item_list(section="zone", zone=domain, item="master", data=zone_nv.get("master"))
@@ -129,8 +131,8 @@ class KnotConfControlListener(BaseDataListener):
         debug_confh(self.__class__.__name__ + " triggered")
 
         base_ii_str = self.schema_path
-        base_ii = self._ds.parse_ii(base_ii_str, PathFormat.URL)
-        base_nv = self._ds.get_node(self._ds.get_data_root(), base_ii).value
+        base_ii = self.ds.parse_ii(base_ii_str, PathFormat.URL)
+        base_nv = self.ds.get_node(self.ds.get_data_root(), base_ii).value
 
         knot_api.KNOT.begin()
         knot_api.KNOT.set_item(section="control", item="listen", data=base_nv.get("unix"))
@@ -161,15 +163,15 @@ class KnotConfAclListener(BaseDataListener):
         debug_confh(self.__class__.__name__ + " triggered")
 
         base_ii_str = self.schema_path
-        base_ii = self._ds.parse_ii(base_ii_str, PathFormat.URL)
-        base_nv = self._ds.get_node(self._ds.get_data_root(), base_ii).value
+        base_ii = self.ds.parse_ii(base_ii_str, PathFormat.URL)
+        base_nv = self.ds.get_node(self.ds.get_data_root(), base_ii).value
 
         knot_api.KNOT.begin()
         knot_api.KNOT.set_item(section="acl", data=None)
 
         if (len(ii) > len(base_ii)) and isinstance(ii[len(base_ii)], EntryKeys):
             # Write only changed list item
-            acl_nv = self._ds.get_node(self._ds.get_data_root(), ii[0:(len(base_ii) + 1)]).value
+            acl_nv = self.ds.get_node(self.ds.get_data_root(), ii[0:(len(base_ii) + 1)]).value
             print("acl nv={}".format(acl_nv))
             self._process_list_item(acl_nv)
         else:
@@ -185,11 +187,38 @@ class KnotConfAclListener(BaseDataListener):
 
 
 class KnotZoneDataListener(BaseDataListener):
+    # Create RR object from "rdata" json node
+    @staticmethod
+    def _rr_from_rdata_item(domain_name: str, rr_owner: str, rr_ttl: int, rr_type: str, rdata_item: JsonNodeT) -> RRecordBase:
+        try:
+            if rr_type == "A":
+                new_rr = ARecord(domain_name, rr_ttl)
+                new_rr.owner = rr_owner
+                new_rr.address = rdata_item["A"]["address"]
+            elif rr_type == "AAAA":
+                new_rr = AAAARecord(domain_name, rr_ttl)
+                new_rr.owner = rr_owner
+                new_rr.address = rdata_item["AAAA"]["address"]
+            elif rr_type == "NS":
+                new_rr = NSRecord(domain_name, rr_ttl)
+                new_rr.owner = rr_owner
+                new_rr.nsdname = rdata_item["NS"]["nsdname"]
+            elif rr_type == "MX":
+                new_rr = MXRecord(domain_name, rr_ttl)
+                new_rr.owner = rr_owner
+                new_rr.exchange = rdata_item["MX"]["exchange"]
+            else:
+                new_rr = None
+        except KeyError:
+            new_rr = None
+
+        return new_rr
+
     def process(self, sn: SchemaNode, ii: InstanceRoute, ch: DataChange):
         debug_confh(self.__class__.__name__ + " triggered")
 
         base_ii_str = "/dns-zones:zone-data"
-        base_ii = self._ds.parse_ii(base_ii_str, PathFormat.URL)
+        base_ii = self.ds.parse_ii(base_ii_str, PathFormat.URL)
         base_ii_len = len(base_ii)
         ii_str = "".join([str(seg) for seg in ii])
 
@@ -198,12 +227,14 @@ class KnotZoneDataListener(BaseDataListener):
         # Create new zone with SOA in zone data section
         if (ii == base_ii) and (ch.change_type == ChangeType.CREATE):
             domain_name = ch.data["zone"]["name"]
+            def_ttl = ch.data["zone"]["default-ttl"]
 
             soa = ch.data.get("zone", {}).get("SOA")
             if soa is None:
                 return ConfHandlerResult.ERROR
 
             soarr = SOARecord()
+            soarr.ttl = def_ttl
             soarr.mname = soa["mname"]
             soarr.rname = soa["rname"]
             soarr.serial = soa["serial"]
@@ -222,20 +253,50 @@ class KnotZoneDataListener(BaseDataListener):
                 len(ii) == (base_ii_len + 2)) \
                 and isinstance(ii[base_ii_len], MemberName) and (ii[base_ii_len].name == "zone") \
                 and isinstance(ii[base_ii_len + 1], EntryKeys) \
-                and (ch.change_type == ChangeType.CREATE):
+                and (ch.change_type == ChangeType.CREATE) \
+                and (ch.data.get("rrset") is not None):
             domain_name = ii[base_ii_len + 1].keys["name"]
             rr = ch.data.get("rrset", {})
-            rr_type = rr.get("type")
+            rr_owner = rr["owner"]
+            rr_type = rr.get("type").split(":")[-1]
+            rr_ttl = rr.get("ttl")
+            if rr_ttl is None:
+                # Obtain default ttl from datastore if not specified explicitly
+                rr_ttl = self.ds.get_data_root().goto(ii[0:3]).value["default-ttl"]
 
-            if rr_type == "iana-dns-parameters:A":
-                new_rr = ARecord(domain_name)
-                new_rr.owner = rr["owner"]
-                new_rr.address = rr["rdata"][0]["A"]["address"]
-            else:
-                new_rr = None
+            for rdata_item in rr["rdata"]:
+                new_rr = self._rr_from_rdata_item(domain_name, rr_owner, rr_ttl, rr_type, rdata_item)
+                if new_rr is not None:
+                    debug_confh("KnotApi: adding new {} RR to zone \"{}\"".format(rr_type, domain_name))
+                    knot_api.KNOT.begin_zone()
+                    knot_api.KNOT.zone_add_record(domain_name, new_rr)
+                    knot_api.KNOT.commit_zone()
+
+        # Add resource record to particular zone (only specific "rdata" item)
+        elif (
+                len(ii) == (base_ii_len + 4)) \
+                and isinstance(ii[base_ii_len], MemberName) and (ii[base_ii_len].name == "zone") \
+                and isinstance(ii[base_ii_len + 1], EntryKeys) \
+                and isinstance(ii[base_ii_len + 2], MemberName) and (ii[base_ii_len + 2].name == "rrset") \
+                and isinstance(ii[base_ii_len + 3], EntryKeys) \
+                and (ch.change_type == ChangeType.CREATE) \
+                and (ch.data.get("rdata") is not None):
+            domain_name = ii[base_ii_len + 1].keys["name"]
+            rdata_item = ch.data.get("rdata", {})
+            keys_ii_seg = ii[len(base_ii) + 3]
+            rr_owner = keys_ii_seg.keys["owner"]
+            rr_type = keys_ii_seg.keys["type"][0].split(":")[-1]
+
+            # Try to use record-specific ttl first
+            rr_ttl = self.ds.get_data_root().goto(ii).value.get("ttl")
+            if rr_ttl is None:
+                # Obtain default ttl from datastore if not specified explicitly
+                rr_ttl = self.ds.get_data_root().goto(ii[0:3]).value["default-ttl"]
+
+            new_rr = self._rr_from_rdata_item(domain_name, rr_owner, rr_ttl, rr_type, rdata_item)
 
             if new_rr is not None:
-                debug_confh("KnotApi: adding new RR to zone \"{}\"".format(domain_name))
+                debug_confh("KnotApi: adding new {} RR to zone \"{}\"".format(rr_type, domain_name))
                 knot_api.KNOT.begin_zone()
                 knot_api.KNOT.zone_add_record(domain_name, new_rr)
                 knot_api.KNOT.commit_zone()
@@ -253,9 +314,32 @@ class KnotZoneDataListener(BaseDataListener):
             rr_owner = keys_ii_seg.keys["owner"]
             rr_type = keys_ii_seg.keys["type"][0]
 
-            debug_confh("KnotApi: deleting RR from zone \"{}\"".format(domain_name))
+            debug_confh("KnotApi: deleting {} RR from zone \"{}\"".format(rr_type, domain_name))
             knot_api.KNOT.begin_zone()
             knot_api.KNOT.zone_del_record(domain_name, rr_owner, rr_type)
+            knot_api.KNOT.commit_zone()
+
+        # Delete resource record from particular zone (only specific "rdata" item)
+        elif (
+                len(ii) == (base_ii_len + 6)) \
+                and isinstance(ii[base_ii_len], MemberName) and (ii[base_ii_len].name == "zone") \
+                and isinstance(ii[base_ii_len + 1], EntryKeys) \
+                and isinstance(ii[base_ii_len + 2], MemberName) and (ii[base_ii_len + 2].name == "rrset") \
+                and isinstance(ii[base_ii_len + 3], EntryKeys) \
+                and isinstance(ii[base_ii_len + 4], MemberName) and (ii[base_ii_len + 4].name == "rdata") \
+                and isinstance(ii[base_ii_len + 5], EntryKeys) \
+                and (ch.change_type == ChangeType.DELETE):
+            domain_name = ii[base_ii_len + 1].keys["name"]
+            keys_ii_seg = ii[len(base_ii) + 3]
+            rr_owner = keys_ii_seg.keys["owner"]
+            rr_type = keys_ii_seg.keys["type"][0]
+            rdata_item = self.ds.get_data_root(previous_version=1).goto(ii).value
+
+            rr_sel = self._rr_from_rdata_item(domain_name, rr_owner, 0, rr_type, rdata_item)
+
+            debug_confh("KnotApi: deleting {} RR from zone \"{}\"".format(rr_type, domain_name))
+            knot_api.KNOT.begin_zone()
+            knot_api.KNOT.zone_del_record(domain_name, rr_owner, rr_type, selector=rr_sel.rrdata_format())
             knot_api.KNOT.commit_zone()
 
         else:

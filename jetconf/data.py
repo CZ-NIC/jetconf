@@ -2,7 +2,7 @@ import json
 from threading import Lock
 from enum import Enum
 from colorlog import error, warning as warn, info
-from typing import List, Any, Dict, Callable
+from typing import List, Any, Dict, Callable, Optional
 
 from yangson.schema import SchemaNode, NonexistentSchemaNode, ListNode, LeafListNode, SchemaError, SemanticError
 from yangson.datamodel import DataModel
@@ -87,7 +87,7 @@ class ConfHandlerResult(Enum):
 
 class BaseDataListener:
     def __init__(self, ds: "BaseDatastore", sch_pth: str):
-        self._ds = ds
+        self.ds = ds
         self.schema_path = sch_pth                          # type: str
         self.schema_node = ds.get_schema_node(sch_pth)      # type: SchemaNode
 
@@ -191,15 +191,15 @@ class UsrChangeJournal:
             # Set new data root
             ds.set_data_root(nr)
 
-            # Notify schema node observers
+            # Run schema node handlers
             for cl in self.clists:
                 for change in cl.journal:
                     ii = ds.parse_ii(change.rpc_info.path, change.rpc_info.path_format)
-                    ds.notify_edit(ii, change)
-                    # if change.change_type != ChangeType.DELETE:
-                    #     ds.notify_edit(ii)
-                    # else:
-                    #     ds.notify_edit(ii[0:-1])
+                    try:
+                        ds.run_conf_edit_handler(ii, change)
+                    except Exception as e:
+                        ds.data_root_rollback(1, False)
+                        raise e
 
             # Clear user changelists
             self.clists.clear()
@@ -210,7 +210,8 @@ class BaseDatastore:
         self.name = name
         self.nacm = None    # type: NacmConfig
         self._data = None   # type: InstanceNode
-        self._yang_lib_data = None   # type: InstanceNode
+        self._data_history = []     # type: List[InstanceNode]
+        self._yang_lib_data = None  # type: InstanceNode
         self._dm = dm       # type: DataModel
         self._data_lock = Lock()
         self._lock_username = None  # type: str
@@ -223,8 +224,11 @@ class BaseDatastore:
         self.nacm = nacm_config
 
     # Returns the root node of data tree
-    def get_data_root(self) -> InstanceNode:
-        return self._data
+    def get_data_root(self, previous_version: int=0) -> InstanceNode:
+        if previous_version > 0:
+            return self._data_history[-previous_version]
+        else:
+            return self._data
 
     def get_yl_data_root(self) -> InstanceNode:
         return self._yang_lib_data
@@ -238,9 +242,16 @@ class BaseDatastore:
         else:
             raise NoHandlerError("No active changelist for user \"{}\"".format(username))
 
-    # Set a new Instance node as data root
+    # Set a new Instance node as data root, store old root to archive
     def set_data_root(self, new_root: InstanceNode):
+        self._data_history.append(self._data)
         self._data = new_root
+
+    def data_root_rollback(self, history_steps: int, store_current: bool):
+        if store_current:
+            self._data_history.append(self._data)
+
+        self._data = self._data_history[-history_steps]
 
     # Get schema node with particular schema address
     def get_schema_node(self, sch_pth: str) -> SchemaNode:
@@ -259,10 +270,10 @@ class BaseDatastore:
         return ii
 
     # Notify data observers about change in datastore
-    def notify_edit(self, ii: InstanceRoute, ch: DataChange):
+    def run_conf_edit_handler(self, ii: InstanceRoute, ch: DataChange) -> Optional[ConfHandlerResult]:
+        h_res = None
+
         try:
-            # n = self._data.goto(ii)
-            # sn = n.schema_node
             sch_pth_list = filter(lambda n: isinstance(n, MemberName), ii)
             sch_pth = "".join([str(seg) for seg in sch_pth_list])
             sn = self.get_schema_node(sch_pth)
@@ -284,6 +295,8 @@ class BaseDatastore:
                 sn = sn.parent
         except NonexistentInstance:
             warn("Cannnot notify {}, parent container removed".format(ii))
+
+        return h_res
 
     # Just get the node, do not evaluate NACM (needed for NACM)
     def get_node(self, root: InstanceNode, ii: InstanceRoute) -> InstanceNode:

@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Union, Dict, Any
+from typing import List, Union, Dict, Any, Optional
 from threading import Lock
 from colorlog import info
 
@@ -39,13 +39,17 @@ class KnotConfState(Enum):
 
 
 class RRecordBase:
-    def __init__(self, owner_name: str, res_type: str, ttl: int=3600):
-        self.owner = owner_name
+    def __init__(self, owner: str, res_type: str, ttl: Optional[int]=None):
+        self.owner = owner
         self.type = res_type
         self.ttl = ttl
 
     def rrdata_format(self) -> str:
         raise NotImplementedError("Not implemented in base class")
+
+    @property
+    def ttl_str(self):
+        return str(self.ttl) if self.ttl is not None else None
 
 
 class SOARecord(RRecordBase):
@@ -65,9 +69,27 @@ class SOARecord(RRecordBase):
         )
 
 
+class NSRecord(RRecordBase):
+    def __init__(self, owner: str, ttl: Optional[int]=None):
+        super().__init__(owner, "NS", ttl)
+        self.nsdname = None     # type: str
+
+    def rrdata_format(self) -> str:
+        return self.nsdname
+
+
 class ARecord(RRecordBase):
-    def __init__(self, owner_name: str):
-        super().__init__(owner_name, "A")
+    def __init__(self, owner: str, ttl: Optional[int]=None):
+        super().__init__(owner, "A", ttl)
+        self.address = None     # type: str
+
+    def rrdata_format(self) -> str:
+        return self.address
+
+
+class AAAARecord(RRecordBase):
+    def __init__(self, owner: str, ttl: Optional[int]=None):
+        super().__init__(owner, "AAAA", ttl)
         self.address = None     # type: str
 
     def rrdata_format(self) -> str:
@@ -75,8 +97,8 @@ class ARecord(RRecordBase):
 
 
 class MXRecord(RRecordBase):
-    def __init__(self, owner_name: str):
-        super().__init__(owner_name, "MX")
+    def __init__(self, owner: str, ttl: Optional[int]=None):
+        super().__init__(owner, "MX", ttl)
         self.preference = None  # type: str
         self.exchange = None    # type: str
 
@@ -176,15 +198,7 @@ class KnotConfig(KnotCtl):
         for data_item in data:
             self.send_block("conf-set", section=section, identifier=identifier, item=item, zone=zone, data=data_item)
 
-    def set_zone_item(self, section=None, identifier=None, item=None, zone=None, owner=None, ttl=None, rtype=None, data=None):
-        if not self.connected:
-            raise KnotApiError("Knot socket is closed")
-
-        if data is not None:
-            self.send_block("zone-set", section=section, identifier=identifier, item=item, zone=zone, owner=owner, ttl=ttl, rtype=rtype, data=data)
-        else:
-            self.send_block("zone-unset", section=section, identifier=identifier, item=item, zone=zone, owner=owner, ttl=ttl, rtype=rtype, data=data)
-
+    # Returns a status data of all or one specific DNS zone
     def zone_status(self, domain_name: str=None) -> JsonNodeT:
         if not self.connected:
             raise KnotApiError("Knot socket is closed")
@@ -196,6 +210,7 @@ class KnotConfig(KnotCtl):
             raise KnotInternalError(str(e))
         return resp
 
+    # Adds a new DNS zone
     def zone_new(self, domain_name: str) -> JsonNodeT:
         if not self.connected:
             raise KnotApiError("Knot socket is closed")
@@ -207,6 +222,7 @@ class KnotConfig(KnotCtl):
             raise KnotInternalError(str(e))
         return resp
 
+    # Removes a DNS zone
     def zone_remove(self, domain_name: str) -> JsonNodeT:
         if not self.connected:
             raise KnotApiError("Knot socket is closed")
@@ -218,27 +234,32 @@ class KnotConfig(KnotCtl):
             raise KnotInternalError(str(e))
         return resp
 
+    # Adds a resource record to DNS zone
     def zone_add_record(self, domain_name: str, rr: RRecordBase) -> JsonNodeT:
         if not self.connected:
             raise KnotApiError("Knot socket is closed")
 
         try:
             res_data = rr.rrdata_format()
-            self.set_zone_item(zone=domain_name, owner=rr.owner, ttl=str(rr.ttl), rtype=rr.type, data=res_data)
-            debug_knot("Inserting zone \"{}\" RR, type=\"{}\", owner=\"{}\", ttl=\"{}\", data=\"{}\"".format(
-                domain_name, rr.type, rr.owner, rr.ttl, res_data
+            self.send_block("zone-set", zone=domain_name, owner=rr.owner, ttl=rr.ttl_str, rtype=rr.type, data=res_data)
+
+            debug_knot("Inserting zone \"{}\" RR, type=\"{}\", owner=\"{}\", ttl={}, data=\"{}\"".format(
+                domain_name, rr.type, rr.owner, rr.ttl_str, res_data
             ))
             resp = self.receive_block()
         except Exception as e:
             raise KnotInternalError(str(e))
         return resp
 
-    def zone_del_record(self, domain_name: str, owner: str, rr_type: str) -> JsonNodeT:
+    # Removes a resource record from DNS zone
+    # If the zone contains two or more records with the same owner and type, selector parameter can specify
+    # which one to remove. Usually it is the same as record data.
+    def zone_del_record(self, domain_name: str, owner: str, rr_type: str, selector: str=None) -> JsonNodeT:
         if not self.connected:
             raise KnotApiError("Knot socket is closed")
 
         try:
-            self.set_zone_item(zone=domain_name, owner=owner, rtype=rr_type, data=None)
+            self.send_block("zone-unset", zone=domain_name, owner=owner, rtype=rr_type, data=selector)
             resp = self.receive_block()
         except Exception as e:
             raise KnotInternalError(str(e))
