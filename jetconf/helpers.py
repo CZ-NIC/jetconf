@@ -10,6 +10,8 @@ from yangson.datamodel import DataModel
 
 from .config import CONFIG
 
+CERT_TEST = True
+
 
 class PathFormat(Enum):
     URL = 0
@@ -19,7 +21,14 @@ class PathFormat(Enum):
 class CertHelpers:
     @staticmethod
     def get_field(cert: Dict[str, Any], key: str) -> str:
-            return ([x[0][1] for x in cert["subject"] if x[0][0] == key] or [None])[0]
+        if CERT_TEST and (key == "emailAddress"):
+            return "test-user"
+
+        try:
+            retval = ([x[0][1] for x in cert["subject"] if x[0][0] == key] or [None])[0]
+        except (IndexError, KeyError, TypeError):
+            retval = None
+        return retval
 
 
 class DataHelpers:

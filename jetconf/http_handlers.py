@@ -99,6 +99,7 @@ def _get(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str, yl_dat
 
         for data_chunk in split_arr(response_bytes, prot.conn.max_outbound_frame_size):
             prot.conn.send_data(stream_id, data_chunk, end_stream=False)
+        prot.conn.send_data(stream_id, bytes(), end_stream=True)
     except DataLockError as e:
         warn(epretty(e))
         prot.send_empty(stream_id, "500", "Internal Server Error")
@@ -228,8 +229,13 @@ def _get_staging(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str
         response_headers.append(("Content-Type", "application/yang.api+json"))
         response_headers.append(("content-length", len(response_bytes)))
 
-        prot.conn.send_headers(stream_id, response_headers)
-        prot.conn.send_data(stream_id, response_bytes, end_stream=True)
+        def split_arr(arr, chunk_size):
+            for i in range(0, len(arr), chunk_size):
+                yield arr[i:i + chunk_size]
+
+        for data_chunk in split_arr(response_bytes, prot.conn.max_outbound_frame_size):
+            prot.conn.send_data(stream_id, data_chunk, end_stream=False)
+        prot.conn.send_data(stream_id, bytes(), end_stream=True)
     except DataLockError as e:
         warn(epretty(e))
         prot.send_empty(stream_id, "500", "Internal Server Error")
@@ -243,9 +249,6 @@ def _get_staging(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str
         warn(epretty(e))
         prot.send_empty(stream_id, "404", "Not Found")
     except InstanceValueError as e:
-        warn(epretty(e))
-        prot.send_empty(stream_id, "400", "Bad Request")
-    except NoHandlerError as e:
         warn(epretty(e))
         prot.send_empty(stream_id, "400", "Bad Request")
     except KnotError as e:
