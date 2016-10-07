@@ -23,7 +23,8 @@ CONFIG_HTTP = {
 
     "SERVER_SSL_CERT": "server.crt",
     "SERVER_SSL_PRIVKEY": "server.key",
-    "CA_CERT": "ca.pem"
+    "CA_CERT": "ca.pem",
+    "DBG_DISABLE_CERTS": False
 }
 
 CONFIG_NACM = {

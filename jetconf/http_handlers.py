@@ -10,7 +10,7 @@ from yangson.schema import NonexistentSchemaNode
 from yangson.instance import NonexistentInstance, InstanceValueError
 from yangson.datatype import YangTypeError
 
-from jetconf.knot_api import KnotError
+from .knot_api import KnotError
 from .config import CONFIG_GLOBAL, CONFIG_HTTP, NACM_ADMINS, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops
 from .helpers import CertHelpers, DataHelpers, DateTimeHelpers, ErrorHelpers, LogHelpers
 from .data import (
@@ -82,7 +82,7 @@ def _get(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str, yl_dat
             ("server", CONFIG_HTTP["SERVER_NAME"])
         ]
         try:
-            lm_time = DateTimeHelpers.to_httpdate_str(n.value.last_modified, CONFIG_GLOBAL["TIMEZONE"])
+            lm_time = DateTimeHelpers.to_httpdate_str(n.value.timestamp, CONFIG_GLOBAL["TIMEZONE"])
             response_headers.append(("Last-Modified", lm_time))
         except AttributeError:
             # Only arrays and objects have last_modified attribute
@@ -220,7 +220,7 @@ def _get_staging(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str
             ("server", CONFIG_HTTP["SERVER_NAME"])
         ]
         try:
-            lm_time = DateTimeHelpers.to_httpdate_str(n.value.last_modified, CONFIG_GLOBAL["TIMEZONE"])
+            lm_time = DateTimeHelpers.to_httpdate_str(n.value.timestamp, CONFIG_GLOBAL["TIMEZONE"])
             response_headers.append(("Last-Modified", lm_time))
         except AttributeError:
             # Only arrays and objects have last_modified attribute
@@ -279,9 +279,8 @@ def create_get_staging_api(ds: BaseDatastore):
     return get_staging_api_closure
 
 
-def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth: str):
-    data_str = data.decode("utf-8")
-    debug_httph("HTTP data received: " + data_str)
+def _post(prot: "H2Protocol", data: str, stream_id: int, ds: BaseDatastore, pth: str):
+    debug_httph("HTTP data received: " + data)
 
     url_split = pth.split("?")
     url_path = url_split[0]
@@ -297,7 +296,7 @@ def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pt
     rpc1.path = url_path
 
     try:
-        json_data = json.loads(data_str) if len(data_str) > 0 else {}
+        json_data = json.loads(data) if len(data) > 0 else {}
     except ValueError as e:
         error("Failed to parse POST data: " + epretty(e))
         prot.send_empty(stream_id, "400", "Bad Request")
@@ -333,7 +332,7 @@ def _post(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pt
 
 
 def create_post_api(ds: BaseDatastore):
-    def post_api_closure(prot: "H2Protocol", stream_id: int, headers: OrderedDict, data: bytes):
+    def post_api_closure(prot: "H2Protocol", stream_id: int, headers: OrderedDict, data: str):
         username = CertHelpers.get_field(prot.client_cert, "emailAddress")
         info("[{}] api_post: {}".format(username, headers[":path"]))
 
@@ -353,9 +352,8 @@ def create_post_api(ds: BaseDatastore):
     return post_api_closure
 
 
-def _put(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth: str):
-    data_str = data.decode("utf-8")
-    debug_httph("HTTP data received: " + data_str)
+def _put(prot: "H2Protocol", data: str, stream_id: int, ds: BaseDatastore, pth: str):
+    debug_httph("HTTP data received: " + data)
 
     url_split = pth.split("?")
     url_path = url_split[0]
@@ -367,7 +365,7 @@ def _put(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth
     rpc1.path = url_path
 
     try:
-        json_data = json.loads(data_str) if len(data_str) > 0 else {}
+        json_data = json.loads(data) if len(data) > 0 else {}
     except ValueError as e:
         error("Failed to parse PUT data: " + epretty(e))
         prot.send_empty(stream_id, "400", "Bad Request")
@@ -398,7 +396,7 @@ def _put(prot: "H2Protocol", data: bytes, stream_id: int, ds: BaseDatastore, pth
 
 
 def create_put_api(ds: BaseDatastore):
-    def put_api_closure(prot: "H2Protocol", stream_id: int, headers: OrderedDict, data: bytes):
+    def put_api_closure(prot: "H2Protocol", stream_id: int, headers: OrderedDict, data: str):
         username = CertHelpers.get_field(prot.client_cert, "emailAddress")
         info("[{}] api_put: {}".format(username, headers[":path"]))
 
@@ -474,10 +472,9 @@ def create_api_delete(ds: BaseDatastore):
 
 
 def create_api_op(ds: BaseDatastore):
-    def api_op_closure(prot: "H2Protocol", stream_id: int, headers: OrderedDict, data: bytes):
+    def api_op_closure(prot: "H2Protocol", stream_id: int, headers: OrderedDict, data: str):
         username = CertHelpers.get_field(prot.client_cert, "emailAddress")
         info("[{}] invoke_op: {}".format(username, headers[":path"]))
-        data_str = data.decode("utf-8")
 
         api_pth = headers[":path"][len(API_ROOT_ops):]
         op_name_fq = api_pth[1:]
@@ -492,7 +489,7 @@ def create_api_op(ds: BaseDatastore):
         op_name = op_name_splitted[1]
 
         try:
-            json_data = json.loads(data_str) if len(data_str) > 0 else {}
+            json_data = json.loads(data) if len(data) > 0 else {}
         except ValueError as e:
             error("Failed to parse POST data: " + epretty(e))
             prot.send_empty(stream_id, "400", "Bad Request")

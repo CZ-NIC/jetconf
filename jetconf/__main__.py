@@ -81,12 +81,9 @@ def main():
     datamodel = DataHelpers.load_data_model("data/", "data/yang-library-data.json")
 
     # Datastore init
-    datastore = JsonDatastore(datamodel, "jetconf/example-data.json", "DNS data")
+    datastore = JsonDatastore(datamodel, "jetconf/example-data.json", "DNS data", with_nacm=True)
     datastore.load()
     datastore.load_yl_data("data/yang-library-data.json")
-    nacmc = NacmConfig(datastore)
-    datastore.register_nacm(nacmc)
-    nacmc.set_ds(datastore)
 
     datastore.get_data_root().validate(ContentType.config)
 

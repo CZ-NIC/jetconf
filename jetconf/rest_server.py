@@ -1,6 +1,6 @@
-import io
 import asyncio
 import ssl
+from io import BytesIO
 from collections import OrderedDict
 from colorlog import error, warning as warn, info, debug
 from typing import List, Tuple, Dict, Any, Callable
@@ -77,7 +77,7 @@ class H2Protocol(asyncio.Protocol):
             if isinstance(event, RequestReceived):
                 # Store request headers
                 headers = OrderedDict(event.headers)
-                request_data = RequestData(headers, io.BytesIO())
+                request_data = RequestData(headers, BytesIO())
                 self.stream_data[event.stream_id] = request_data
             elif isinstance(event, DataReceived):
                 # Store incoming data
@@ -150,12 +150,13 @@ class RestServer:
         except AttributeError:
             info("Python not compiled with ALPN support, using NPN instead.")
             ssl_context.set_npn_protocols(["h2"])
-        # ssl_context.verify_mode = ssl.CERT_REQUIRED
+        if not CONFIG_HTTP["DBG_DISABLE_CERTS"]:
+            ssl_context.verify_mode = ssl.CERT_REQUIRED
         ssl_context.load_verify_locations(cafile=CONFIG_HTTP["CA_CERT"])
 
         self.loop = asyncio.get_event_loop()
 
-        # Each client connection will create a new protocol instance
+        # Each client connection will create a new H2Protocol instance
         listener = self.loop.create_server(H2Protocol, "127.0.0.1", CONFIG_HTTP["PORT"], ssl=ssl_context)
         self.server = self.loop.run_until_complete(listener)
 

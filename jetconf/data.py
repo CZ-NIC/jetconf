@@ -206,7 +206,7 @@ class UsrChangeJournal:
 
 
 class BaseDatastore:
-    def __init__(self, dm: DataModel, name: str=""):
+    def __init__(self, dm: DataModel, name: str="", with_nacm: bool=False):
         self.name = name
         self.nacm = None    # type: NacmConfig
         self._data = None   # type: InstanceNode
@@ -219,9 +219,8 @@ class BaseDatastore:
         self.commit_begin_callback = None   # type: Callable
         self.commit_end_callback = None     # type: Callable
 
-    # Register NACM module to datastore
-    def register_nacm(self, nacm_config: "NacmConfig"):
-        self.nacm = nacm_config
+        if with_nacm:
+            self.nacm = NacmConfig(self)
 
     # Returns the root node of data tree
     def get_data_root(self, previous_version: int=0) -> InstanceNode:
@@ -311,23 +310,22 @@ class BaseDatastore:
         else:
             root = self._data
 
-        # n = root.goto(ii)
-        # sn = n.schema_node
+        n = root.goto(ii)
         sch_pth_list = filter(lambda n: isinstance(n, MemberName), ii)
         sch_pth = "".join([str(seg) for seg in sch_pth_list])
         sn = self.get_schema_node(sch_pth)
+        state_roots = sn.state_roots()
 
-        if not yl_data:
-            if sn.state_roots():
-                self.commit_begin_callback()
-                for state_node_pth in sn.state_roots():
-                    sdh = STATE_DATA_HANDLES.get_handler(state_node_pth)
-                    if sdh is not None:
-                        root_val = sdh.update_node(ii, root, True)
-                        root = self._data.update(root_val, raw=True)
-                    else:
-                        raise NoHandlerForStateDataError()
-                self.commit_end_callback()
+        if not yl_data and state_roots:
+            self.commit_begin_callback()
+            for state_node_pth in state_roots:
+                sdh = STATE_DATA_HANDLES.get_handler(state_node_pth)
+                if sdh is not None:
+                    root_val = sdh.update_node(ii, root, True)
+                    root = self._data.update(root_val, raw=True)
+                else:
+                    raise NoHandlerForStateDataError()
+            self.commit_end_callback()
 
             n = root.goto(ii)
 
@@ -347,7 +345,7 @@ class BaseDatastore:
                 raise NacmForbiddenError()
             else:
                 # Prun subtree data
-                n = nrpc.check_data_read_path(root, ii)
+                n = nrpc.check_data_read_path(n, root, ii)
 
         try:
             max_depth = int(rpc.qs["depth"][0])
@@ -434,8 +432,7 @@ class BaseDatastore:
 
             # Create list if necessary
             if existing_member is None:
-                new_n = n.put_member(input_member_name, ArrayValue([]))
-                existing_member = new_n.member(input_member_name)
+                existing_member = n.put_member(input_member_name, ArrayValue([]))
 
             # Convert input data from List/Dict to ArrayValue/ObjectValue
             new_value_data = member_sn.from_raw([input_member_value])[0]
@@ -463,8 +460,7 @@ class BaseDatastore:
 
             # Create leaf list if necessary
             if existing_member is None:
-                new_n = n.put_member(input_member_name, ArrayValue([]))
-                existing_member = new_n.member(input_member_name)
+                existing_member = n.put_member(input_member_name, ArrayValue([]))
 
             # Convert input data from List/Dict to ArrayValue/ObjectValue
             new_value_data = member_sn.from_raw([input_member_value])[0]
@@ -650,14 +646,17 @@ class BaseDatastore:
 
 
 class JsonDatastore(BaseDatastore):
-    def __init__(self, dm: DataModel, json_file: str, name: str = ""):
-        super().__init__(dm, name)
+    def __init__(self, dm: DataModel, json_file: str, name: str = "", with_nacm: bool=False):
+        super().__init__(dm, name, with_nacm)
         self.json_file = json_file
 
     def load(self):
         self._data = None
         with open(self.json_file, "rt") as fp:
             self._data = self._dm.from_raw(json.load(fp))
+
+        if self.nacm is not None:
+            self.nacm.update()
 
     def load_yl_data(self, filename: str):
         self._yang_lib_data = None

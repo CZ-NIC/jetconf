@@ -8,9 +8,7 @@ from pytz import timezone
 from yangson.instance import InstanceRoute, MemberName, EntryKeys, InstanceIdParser, ResourceIdParser
 from yangson.datamodel import DataModel
 
-from .config import CONFIG
-
-CERT_TEST = True
+from .config import CONFIG_GLOBAL, CONFIG_HTTP
 
 
 class PathFormat(Enum):
@@ -21,7 +19,7 @@ class PathFormat(Enum):
 class CertHelpers:
     @staticmethod
     def get_field(cert: Dict[str, Any], key: str) -> str:
-        if CERT_TEST and (key == "emailAddress"):
+        if CONFIG_HTTP["DBG_DISABLE_CERTS"] and (key == "emailAddress"):
             return "test-user"
 
         try:
@@ -99,7 +97,7 @@ class LogHelpers:
         module_name_simple = module_name.split(".")[-1]
 
         def module_dbg_logger(msg: str):
-            if ({module_name_simple, "*"} & set(CONFIG["GLOBAL"]["LOG_DBG_MODULES"])) and (CONFIG["GLOBAL"]["LOG_LEVEL"] == "debug"):
+            if ({module_name_simple, "*"} & set(CONFIG_GLOBAL["LOG_DBG_MODULES"])) and (CONFIG_GLOBAL["LOG_LEVEL"] == "debug"):
                 logger = getLogger()
                 logger.setLevel(logging.DEBUG)
                 debug(module_name_simple + ": " + msg)
