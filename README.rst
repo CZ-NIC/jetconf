@@ -5,7 +5,6 @@ JetConf
 -------
 
 :Author: * Pavel Špírek <pavel.spirek@nic.cz>
-	 * Ladislav Lhotka <lhotka@nic.cz>
 :Date: |date|
 
 HTTP/2 RESTCONF implementation.
