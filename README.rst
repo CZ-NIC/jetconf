@@ -1,16 +1,16 @@
 .. |date| date::
 
--------
+*******
 JetConf
--------
+*******
 
-:Author: * Pavel Špírek <pavel.spirek@nic.cz>
+:Author: Pavel Špírek <pavel.spirek@nic.cz>
 :Date: |date|
 
 HTTP/2 RESTCONF implementation.
 
-Info for developers
--------------------
+Development
+===========
 
 * devinstall_ – installation of the development environment,
 
