@@ -2,6 +2,7 @@
 bin
 docs/_build
 include
+*.egg-info
 lib
 pip-selfcheck.json
 pyvenv.cfg
