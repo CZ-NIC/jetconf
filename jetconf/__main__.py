@@ -24,23 +24,24 @@ def main():
     load_config("jetconf/config.yaml")
     print_config()
 
+    log_level = {
+        "error": logging.ERROR,
+        "warning": logging.WARNING,
+        "info": logging.INFO,
+        "debug": logging.INFO
+    }.get(CONFIG["GLOBAL"]["LOG_LEVEL"], logging.INFO)
+    logging.root.handlers.clear()
+
     # Daemonize
     if CONFIG["GLOBAL"]["LOGFILE"] not in ("-", "stdout"):
-        info("Going to daemon mode.")
-
-        log_level = {
-            "error": logging.ERROR,
-            "warning": logging.WARNING,
-            "info": logging.INFO,
-            "debug": logging.INFO
-        }.get(CONFIG["GLOBAL"]["LOG_LEVEL"], logging.INFO)
-        logging.root.handlers.clear()
+        # Setup basic logging
         logging.basicConfig(
             format="%(asctime)s %(levelname)-8s %(message)s",
             level=log_level,
             filename=CONFIG["GLOBAL"]["LOGFILE"]
         )
 
+        # Go to background
         pid = os.fork()
         if pid != 0:
             sys.exit(0)
@@ -50,12 +51,37 @@ def main():
         if pid != 0:
             sys.exit(0)
 
+        # Close standard file descriptors
         os.close(sys.stdin.fileno())
         os.close(sys.stdout.fileno())
         os.close(sys.stderr.fileno())
         fd_null = os.open("/dev/null", os.O_RDWR)
         os.dup(fd_null)
         os.dup(fd_null)
+    else:
+        # Setup color logging
+        log_formatter = colorlog.ColoredFormatter(
+            "%(asctime)s %(log_color)s%(levelname)-8s%(reset)s %(message)s",
+            datefmt=None,
+            reset=True,
+            log_colors={
+                'DEBUG': 'cyan',
+                'INFO': 'green',
+                'WARNING': 'yellow',
+                'ERROR': 'red',
+                'CRITICAL': 'red',
+            },
+            secondary_log_colors={},
+            style='%'
+        )
+
+        log_handler = colorlog.StreamHandler()
+        log_handler.setFormatter(log_formatter)
+        log_handler.stream = sys.stdout
+
+        logger = colorlog.getLogger()
+        logger.addHandler(log_handler)
+        logger.setLevel(log_level)
 
     # Create pidfile
     fl = os.open(CONFIG["GLOBAL"]["PIDFILE"], os.O_WRONLY + os.O_CREAT, 0o666)
@@ -117,37 +143,6 @@ def main():
 
 if __name__ == "__main__":
     opts, args = (None, None)
-
-    log_level = {
-        "error": logging.ERROR,
-        "warning": logging.WARNING,
-        "info": logging.INFO,
-        "debug": logging.INFO
-    }.get(CONFIG["GLOBAL"]["LOG_LEVEL"], logging.INFO)
-
-    log_formatter = colorlog.ColoredFormatter(
-        "%(asctime)s %(log_color)s%(levelname)-8s%(reset)s %(message)s",
-        datefmt=None,
-        reset=True,
-        log_colors={
-            'DEBUG': 'cyan',
-            'INFO': 'green',
-            'WARNING': 'yellow',
-            'ERROR': 'red',
-            'CRITICAL': 'red',
-        },
-        secondary_log_colors={},
-        style='%'
-    )
-
-    log_handler = colorlog.StreamHandler()
-    log_handler.setFormatter(log_formatter)
-    log_handler.stream = sys.stdout
-
-    logger = colorlog.getLogger()
-    logger.addHandler(log_handler)
-    logger.setLevel(log_level)
-
     test_module = None
 
     try:

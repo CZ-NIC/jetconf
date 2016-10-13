@@ -55,7 +55,7 @@ def api_root_handler(prot: "H2Protocol", headers: OrderedDict, stream_id: int):
     prot.conn.send_data(stream_id, response_bytes, end_stream=True)
 
 
-def _get(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str, yl_data: bool=False):
+def _get(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str, yl_data: bool=False, staging: bool=False):
     username = CertHelpers.get_field(prot.client_cert, "emailAddress")
 
     url_split = pth.split("?")
@@ -72,14 +72,21 @@ def _get(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str, yl_dat
 
     try:
         ds.lock_data(username)
-        n = ds.get_node_rpc(rpc1, yl_data)
+        if staging:
+            n = ds.get_node_staging_rpc(rpc1)
+        else:
+            n = ds.get_node_rpc(rpc1, yl_data)
+        ds.unlock_data()
 
         response = json.dumps(n.raw_value(), indent=4) + "\n"
         response_bytes = response.encode()
 
         response_headers = [
             (":status", "200"),
-            ("server", CONFIG_HTTP["SERVER_NAME"])
+            ("server", CONFIG_HTTP["SERVER_NAME"]),
+            ("Content-Type", "application/yang.api+json"),
+            ("content-length", len(response_bytes)),
+            ("ETag", hash(n.value))
         ]
         try:
             lm_time = DateTimeHelpers.to_httpdate_str(n.value.timestamp, CONFIG_GLOBAL["TIMEZONE"])
@@ -87,9 +94,6 @@ def _get(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str, yl_dat
         except AttributeError:
             # Only arrays and objects have last_modified attribute
             pass
-        response_headers.append(("ETag", hash(n.value)))
-        response_headers.append(("Content-Type", "application/yang.api+json"))
-        response_headers.append(("content-length", len(response_bytes)))
 
         prot.conn.send_headers(stream_id, response_headers)
 
@@ -118,13 +122,10 @@ def _get(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str, yl_dat
     except KnotError as e:
         error(epretty(e))
         prot.send_empty(stream_id, "500", "Internal Server Error")
-    finally:
-        ds.unlock_data()
 
 
 def create_get_api(ds: BaseDatastore):
     def get_api_closure(prot: "H2Protocol", stream_id: int, headers: OrderedDict):
-        # api request
         username = CertHelpers.get_field(prot.client_cert, "emailAddress")
         info("[{}] api_get: {}".format(username, headers[":path"]))
 
@@ -143,6 +144,26 @@ def create_get_api(ds: BaseDatastore):
             _get(prot, stream_id, ds, api_pth)
 
     return get_api_closure
+
+
+def create_get_staging_api(ds: BaseDatastore):
+    def get_staging_api_closure(prot: "H2Protocol", stream_id: int, headers: OrderedDict):
+        username = CertHelpers.get_field(prot.client_cert, "emailAddress")
+        info("[{}] api_get_staging: {}".format(username, headers[":path"]))
+
+        api_pth = headers[":path"][len(API_ROOT_STAGING_data):]
+        ns = DataHelpers.path_first_ns(api_pth)
+
+        if ns == "ietf-netconf-acm":
+            if username not in NACM_ADMINS:
+                warn(username + " not allowed to access NACM data")
+                prot.send_empty(stream_id, "403", "Forbidden")
+            else:
+                _get(prot, stream_id, ds.nacm.nacm_ds, api_pth, staging=True)
+        else:
+            _get(prot, stream_id, ds, api_pth, staging=True)
+
+    return get_staging_api_closure
 
 
 def get_file(prot: "H2Protocol", stream_id: int, headers: OrderedDict):
@@ -166,12 +187,7 @@ def get_file(prot: "H2Protocol", stream_id: int, headers: OrderedDict):
         fd.close()
     except FileNotFoundError:
         warn("[{}] Cannot open requested file \"{}\"".format(username, file_path))
-        response_headers = (
-            (':status', '404'),
-            ('content-length', 0),
-            ('server', CONFIG_HTTP["SERVER_NAME"]),
-        )
-        prot.conn.send_headers(stream_id, response_headers, end_stream=True)
+        prot.send_empty(stream_id, "404", "Not Found")
         return
 
     info("[{}] Serving ordinary file {} of type \"{}\"".format(username, file_path, ctype))
@@ -189,94 +205,7 @@ def get_file(prot: "H2Protocol", stream_id: int, headers: OrderedDict):
 
     for data_chunk in split_arr(response, prot.conn.max_outbound_frame_size):
         prot.conn.send_data(stream_id, data_chunk, end_stream=False)
-
     prot.conn.send_data(stream_id, bytes(), end_stream=True)
-
-
-def _get_staging(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str):
-    username = CertHelpers.get_field(prot.client_cert, "emailAddress")
-
-    url_split = pth.split("?")
-    url_path = url_split[0]
-    if len(url_split) > 1:
-        query_string = parse_qs(url_split[1])
-    else:
-        query_string = {}
-
-    rpc1 = RpcInfo()
-    rpc1.username = username
-    rpc1.path = url_path
-    rpc1.qs = query_string
-
-    try:
-        ds.lock_data(username)
-        n = ds.get_node_staging_rpc(rpc1)
-
-        response = json.dumps(n.value, indent=4) + "\n"
-        response_bytes = response.encode()
-
-        response_headers = [
-            (":status", "200"),
-            ("server", CONFIG_HTTP["SERVER_NAME"])
-        ]
-        try:
-            lm_time = DateTimeHelpers.to_httpdate_str(n.value.timestamp, CONFIG_GLOBAL["TIMEZONE"])
-            response_headers.append(("Last-Modified", lm_time))
-        except AttributeError:
-            # Only arrays and objects have last_modified attribute
-            pass
-        response_headers.append(("ETag", hash(n.value)))
-        response_headers.append(("Content-Type", "application/yang.api+json"))
-        response_headers.append(("content-length", len(response_bytes)))
-
-        def split_arr(arr, chunk_size):
-            for i in range(0, len(arr), chunk_size):
-                yield arr[i:i + chunk_size]
-
-        for data_chunk in split_arr(response_bytes, prot.conn.max_outbound_frame_size):
-            prot.conn.send_data(stream_id, data_chunk, end_stream=False)
-        prot.conn.send_data(stream_id, bytes(), end_stream=True)
-    except DataLockError as e:
-        warn(epretty(e))
-        prot.send_empty(stream_id, "500", "Internal Server Error")
-    except NacmForbiddenError as e:
-        warn(epretty(e))
-        prot.send_empty(stream_id, "403", "Forbidden")
-    except NonexistentSchemaNode as e:
-        warn(epretty(e))
-        prot.send_empty(stream_id, "404", "Not Found")
-    except NonexistentInstance as e:
-        warn(epretty(e))
-        prot.send_empty(stream_id, "404", "Not Found")
-    except InstanceValueError as e:
-        warn(epretty(e))
-        prot.send_empty(stream_id, "400", "Bad Request")
-    except KnotError as e:
-        error(epretty(e))
-        prot.send_empty(stream_id, "500", "Internal Server Error")
-    finally:
-        ds.unlock_data()
-
-
-def create_get_staging_api(ds: BaseDatastore):
-    def get_staging_api_closure(prot: "H2Protocol", stream_id: int, headers: OrderedDict):
-        # api request
-        username = CertHelpers.get_field(prot.client_cert, "emailAddress")
-        info("[{}] api_get_staging: {}".format(username, headers[":path"]))
-
-        api_pth = headers[":path"][len(API_ROOT_STAGING_data):]
-        ns = DataHelpers.path_first_ns(api_pth)
-
-        if ns == "ietf-netconf-acm":
-            if username not in NACM_ADMINS:
-                warn(username + " not allowed to access NACM data")
-                prot.send_empty(stream_id, "403", "Forbidden")
-            else:
-                _get_staging(prot, stream_id, ds.nacm.nacm_ds, api_pth)
-        else:
-            _get_staging(prot, stream_id, ds, api_pth)
-
-    return get_staging_api_closure
 
 
 def _post(prot: "H2Protocol", data: str, stream_id: int, ds: BaseDatastore, pth: str):
