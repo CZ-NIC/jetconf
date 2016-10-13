@@ -169,17 +169,14 @@ def create_get_staging_api(ds: BaseDatastore):
 def get_file(prot: "H2Protocol", stream_id: int, headers: OrderedDict):
     # Ordinary file on filesystem
     username = CertHelpers.get_field(prot.client_cert, "emailAddress")
-    url_split = headers[":path"].split("?")
-    url_path = url_split[0]
-
-    file_path = os.path.join(CONFIG_HTTP["DOC_ROOT"], url_path[1:].replace("..", "").replace("&", ""))
+    url_path = headers[":path"].split("?")[0]
+    url_path_safe = "".join(filter(lambda c: c.isalpha() or c in "/-_.", url_path)).replace("..", "").strip("/")
+    file_path = os.path.join(CONFIG_HTTP["DOC_ROOT"], url_path_safe)
 
     if os.path.isdir(file_path):
         file_path = os.path.join(file_path, CONFIG_HTTP["DOC_DEFAULT_NAME"])
 
-    (ctype, encoding) = mimetypes.guess_type(file_path)
-    if ctype is None:
-        ctype = "application/octet-stream"
+    ctype = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
 
     try:
         fd = open(file_path, 'rb')

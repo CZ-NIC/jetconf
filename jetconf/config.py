@@ -19,6 +19,7 @@ CONFIG_HTTP = {
     "API_ROOT": "/restconf",
     "API_ROOT_STAGING": "/restconf_staging",
     "SERVER_NAME": "hyper-h2",
+    "UPLOAD_SIZE_LIMIT": 1,
     "PORT": 8443,
 
     "SERVER_SSL_CERT": "server.crt",

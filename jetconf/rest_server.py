@@ -6,7 +6,7 @@ from colorlog import error, warning as warn, info, debug
 from typing import List, Tuple, Dict, Any, Callable
 
 from h2.connection import H2Connection
-from h2.errors import PROTOCOL_ERROR
+from h2.errors import PROTOCOL_ERROR, ENHANCE_YOUR_CALM
 from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged, StreamEnded
 
 import jetconf.http_handlers as handlers
@@ -21,9 +21,10 @@ h2_handlers = None  # type: HandlerList
 
 
 class RequestData:
-    def __init__(self, headers=None, data=None):
+    def __init__(self, headers: OrderedDict, data: BytesIO):
         self.headers = headers
         self.data = data
+        self.data_overflow = False
 
 
 class HandlerList:
@@ -49,7 +50,7 @@ class H2Protocol(asyncio.Protocol):
     def __init__(self):
         self.conn = H2Connection(client_side=False)
         self.transport = None
-        self.stream_data = {}
+        self.stream_data = {}       # type: Dict[int, RequestData]
         self.client_cert = None     # type: Dict[str, Any]
 
     def connection_made(self, transport: asyncio.Transport):
@@ -86,7 +87,12 @@ class H2Protocol(asyncio.Protocol):
                 except KeyError:
                     self.conn.reset_stream(event.stream_id, error_code=PROTOCOL_ERROR)
                 else:
-                    stream_data.data.write(event.data)
+                    # Check if incoming data are not excessively large
+                    if (stream_data.data.tell() + len(event.data)) < (CONFIG_HTTP["UPLOAD_SIZE_LIMIT"] * 1048576):
+                        stream_data.data.write(event.data)
+                    else:
+                        stream_data.data_overflow = True
+                        self.conn.reset_stream(event.stream_id, error_code=ENHANCE_YOUR_CALM)
             elif isinstance(event, StreamEnded):
                 # Process request
                 try:
@@ -94,17 +100,20 @@ class H2Protocol(asyncio.Protocol):
                 except KeyError:
                     self.send_empty(event.stream_id, "400", "Bad Request")
                 else:
-                    headers = request_data.headers
-                    body = request_data.data.getvalue().decode('utf-8')
-
-                    http_method = headers[":method"]
-                    if http_method in ("GET", "DELETE"):
-                        self.handle_get_delete(headers, event.stream_id)
-                    elif http_method in ("PUT", "POST"):
-                        self.handle_put_post(headers, event.stream_id, body)
+                    if request_data.data_overflow:
+                        self.send_empty(event.stream_id, "406", "Not Acceptable")
                     else:
-                        warn("Unknown http method \"{}\"".format(headers[":method"]))
-                        self.send_empty(event.stream_id, "405", "Method Not Allowed")
+                        headers = request_data.headers
+                        body = request_data.data.getvalue().decode('utf-8')
+
+                        http_method = headers[":method"]
+                        if http_method in ("GET", "DELETE"):
+                            self.handle_get_delete(headers, event.stream_id)
+                        elif http_method in ("PUT", "POST"):
+                            self.handle_put_post(headers, event.stream_id, body)
+                        else:
+                            warn("Unknown http method \"{}\"".format(headers[":method"]))
+                            self.send_empty(event.stream_id, "405", "Method Not Allowed")
             # elif isinstance(event, RemoteSettingsChanged):
             #     changed_settings = {}
             #     for s in event.changed_settings.items():
