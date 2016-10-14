@@ -78,7 +78,7 @@ def _get(prot: "H2Protocol", stream_id: int, ds: BaseDatastore, pth: str, yl_dat
             n = ds.get_node_rpc(rpc1, yl_data)
         ds.unlock_data()
 
-        response = json.dumps(n.raw_value(), indent=4) + "\n"
+        response = json.dumps(n.raw_value(), indent=4)  # + "\n"
         response_bytes = response.encode()
 
         response_headers = [

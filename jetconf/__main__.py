@@ -22,7 +22,6 @@ from .usr_conf_data_handlers import *
 def main():
     # Load configuration
     load_config("jetconf/config.yaml")
-    print_config()
 
     log_level = {
         "error": logging.ERROR,
@@ -82,6 +81,9 @@ def main():
         logger = colorlog.getLogger()
         logger.addHandler(log_handler)
         logger.setLevel(log_level)
+
+    # Print configuration
+    print_config()
 
     # Create pidfile
     fl = os.open(CONFIG["GLOBAL"]["PIDFILE"], os.O_WRONLY + os.O_CREAT, 0o666)

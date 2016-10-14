@@ -2,7 +2,7 @@ import asyncio
 import ssl
 from io import BytesIO
 from collections import OrderedDict
-from colorlog import error, warning as warn, info, debug
+from colorlog import error, warning as warn, info
 from typing import List, Tuple, Dict, Any, Callable
 
 from h2.connection import H2Connection
@@ -126,7 +126,7 @@ class H2Protocol(asyncio.Protocol):
             if dts:
                 self.transport.write(dts)
 
-    def handle_put_post(self, headers: OrderedDict, stream_id: int, data: bytes):
+    def handle_put_post(self, headers: OrderedDict, stream_id: int, data: str):
         # Handle PUT, POST
         url_path = headers[":path"].split("?")[0]
 

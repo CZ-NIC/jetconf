@@ -307,6 +307,13 @@
             "action": "deny"
           },
           {
+            "name": "no-reads-on-example.com qm",
+            "path": "/dns-server:dns-server/zones/zone[domain='example.com']/query-module",
+            "access-operations": "read",
+            "comment": "Users cannot read example.com. qm",
+            "action": "deny"
+          },
+          {
             "name": "permit-zone-access",
             "path": "/dns-server:dns-server/zones",
             "access-operations": "*",
