@@ -1,12 +1,11 @@
 import os
-
 import colorlog
 import getopt
 import logging
 import sys
 import signal
 
-from colorlog import info
+from colorlog import error, info
 from importlib import import_module
 from yangson.enumerations import ContentType
 from . import usr_op_handlers, usr_state_data_handlers
@@ -16,7 +15,14 @@ from .data import JsonDatastore
 from .helpers import DataHelpers
 from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES
 from .knot_api import knot_api_init, knot_connect, knot_disconnect
-from .usr_conf_data_handlers import *
+from .usr_conf_data_handlers import (
+    KnotConfServerListener,
+    KnotConfLogListener,
+    KnotConfZoneListener,
+    KnotConfControlListener,
+    KnotConfAclListener,
+    KnotZoneDataListener
+)
 
 
 def main():
