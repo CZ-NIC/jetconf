@@ -3,21 +3,23 @@ import ssl
 from io import BytesIO
 from collections import OrderedDict
 from colorlog import error, warning as warn, info
-from typing import List, Tuple, Dict, Any, Callable
+from typing import List, Tuple, Dict, Any, Callable, Optional
 
 from h2.connection import H2Connection
 from h2.errors import PROTOCOL_ERROR, ENHANCE_YOUR_CALM
 from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged, StreamEnded
 
-import jetconf.http_handlers as handlers
+from . import http_handlers as handlers
+from .http_handlers import HttpResponse, HttpStatus
 from .config import CONFIG_HTTP, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops
 from .data import BaseDatastore
+from .helpers import SSLCertT
 
 
-# Function(method, path) -> bool
-HandlerConditionT = Callable[[str, str], bool]
+HandlerConditionT = Callable[[str, str], bool]  # Function(method, path) -> bool
+HttpHandlerT = Callable[[OrderedDict, Optional[str], SSLCertT], handlers.HttpResponse]
 
-h2_handlers = None  # type: HandlerList
+h2_handlers = None  # type: HttpHandlerList
 
 
 class RequestData:
@@ -27,18 +29,18 @@ class RequestData:
         self.data_overflow = False
 
 
-class HandlerList:
+class HttpHandlerList:
     def __init__(self):
-        self.handlers = []              # type: List[Tuple[HandlerConditionT, Callable]]
-        self.default_handler = None     # type: Callable
+        self.handlers = []              # type: List[Tuple[HandlerConditionT, HttpHandlerT]]
+        self.default_handler = None     # type: HttpHandlerT
 
-    def register_handler(self, condition: HandlerConditionT, handler: Callable):
+    def register_handler(self, condition: HandlerConditionT, handler: HttpHandlerT):
         self.handlers.append((condition, handler))
 
-    def register_default_handler(self, handler: Callable):
+    def register_default_handler(self, handler: HttpHandlerT):
         self.default_handler = handler
 
-    def get_handler(self, method: str, path: str) -> Callable:
+    def get_handler(self, method: str, path: str) -> HttpHandlerT:
         for h in self.handlers:
             if h[0](method, path):
                 return h[1]
@@ -51,26 +53,13 @@ class H2Protocol(asyncio.Protocol):
         self.conn = H2Connection(client_side=False)
         self.transport = None
         self.stream_data = {}       # type: Dict[int, RequestData]
-        self.client_cert = None     # type: Dict[str, Any]
+        self.client_cert = None     # type: SSLCertT
 
     def connection_made(self, transport: asyncio.Transport):
         self.transport = transport
         self.conn.initiate_connection()
         self.transport.write(self.conn.data_to_send())
         self.client_cert = self.transport.get_extra_info('peercert')
-
-    def send_empty(self, stream_id: int, status_code: str, status_msg: str, status_in_body: bool = True):
-        response = status_code + " " + status_msg + "\n" if status_in_body else ""
-        response_bytes = response.encode()
-        response_headers = (
-            (":status", status_code),
-            ("content-type", "text/plain"),
-            ("content-length", len(response_bytes)),
-            ("server", CONFIG_HTTP["SERVER_NAME"]),
-        )
-
-        self.conn.send_headers(stream_id, response_headers)
-        self.conn.send_data(stream_id, response_bytes, end_stream=True)
 
     def data_received(self, data: bytes):
         events = self.conn.receive_data(data)
@@ -98,22 +87,22 @@ class H2Protocol(asyncio.Protocol):
                 try:
                     request_data = self.stream_data.pop(event.stream_id)
                 except KeyError:
-                    self.send_empty(event.stream_id, "400", "Bad Request")
+                    self.send_response(HttpResponse.empty(HttpStatus.BadRequest), event.stream_id)
                 else:
                     if request_data.data_overflow:
-                        self.send_empty(event.stream_id, "406", "Not Acceptable")
+                        self.send_response(HttpResponse.empty(HttpStatus.NotAcceptable), event.stream_id)
                     else:
                         headers = request_data.headers
-                        body = request_data.data.getvalue().decode('utf-8')
-
                         http_method = headers[":method"]
+
                         if http_method in ("GET", "DELETE"):
-                            self.handle_get_delete(headers, event.stream_id)
+                            self.run_request_handler(headers, event.stream_id, None)
                         elif http_method in ("PUT", "POST"):
-                            self.handle_put_post(headers, event.stream_id, body)
+                            body = request_data.data.getvalue().decode('utf-8')
+                            self.run_request_handler(headers, event.stream_id, body)
                         else:
                             warn("Unknown http method \"{}\"".format(headers[":method"]))
-                            self.send_empty(event.stream_id, "405", "Method Not Allowed")
+                            self.send_response(HttpResponse.empty(HttpStatus.MethodNotAllowed), event.stream_id)
             # elif isinstance(event, RemoteSettingsChanged):
             #     changed_settings = {}
             #     for s in event.changed_settings.items():
@@ -126,31 +115,50 @@ class H2Protocol(asyncio.Protocol):
             if dts:
                 self.transport.write(dts)
 
-    def handle_put_post(self, headers: OrderedDict, stream_id: int, data: str):
-        # Handle PUT, POST
+    # Find and run handler for specific URI and HTTP method
+    def run_request_handler(self, headers: OrderedDict, stream_id: int, data: Optional[str]):
         url_path = headers[":path"].split("?")[0]
 
         h = h2_handlers.get_handler(headers[":method"], url_path)
-        if h:
-            h(self, stream_id, headers, data)
+        if not h:
+            self.send_response(HttpResponse.empty(HttpStatus.BadRequest), stream_id)
         else:
-            self.send_empty(stream_id, "400", "Bad Request")
+            # Run handler and send HTTP response
+            resp = h(headers, data, self.client_cert)
+            self.send_response(resp, stream_id)
 
-    def handle_get_delete(self, headers: OrderedDict, stream_id: int):
-        # Handle GET, DELETE
-        url_path = headers[":path"].split("?")[0]
+    def send_response(self, resp: HttpResponse, stream_id: int):
+        resp_headers = (
+            (':status', resp.status_code),
+            ('content-type', resp.content_type),
+            ('content-length', len(resp.data)),
+            ('server', CONFIG_HTTP["SERVER_NAME"]),
+        )
 
-        h = h2_handlers.get_handler(headers[":method"], url_path)
-        if h:
-            h(self, stream_id, headers)
+        if resp.extra_headers:
+            resp_headers_od = OrderedDict(resp_headers)
+            resp_headers_od.update(resp.extra_headers)
+            resp_headers = resp_headers_od.items()
+
+        self.conn.send_headers(stream_id, resp_headers)
+
+        # Do this for optimization
+        if len(resp.data) > self.conn.max_outbound_frame_size:
+            def split_arr(arr, chunk_size):
+                for i in range(0, len(arr), chunk_size):
+                    yield arr[i:i + chunk_size]
+
+            for data_chunk in split_arr(resp.data, self.conn.max_outbound_frame_size):
+                self.conn.send_data(stream_id, data_chunk, end_stream=False)
+            self.conn.send_data(stream_id, bytes(), end_stream=True)
         else:
-            self.send_empty(stream_id, "400", "Bad Request")
+            self.conn.send_data(stream_id, resp.data, end_stream=True)
 
 
 class RestServer:
     def __init__(self):
         # HTTP server init
-        self.http_handlers = HandlerList()
+        self.http_handlers = HttpHandlerList()
         ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         ssl_context.options |= (ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1 | ssl.OP_NO_COMPRESSION)
         ssl_context.load_cert_chain(certfile=CONFIG_HTTP["SERVER_SSL_CERT"], keyfile=CONFIG_HTTP["SERVER_SSL_PRIVKEY"])
@@ -166,7 +174,12 @@ class RestServer:
         self.loop = asyncio.get_event_loop()
 
         # Each client connection will create a new H2Protocol instance
-        listener = self.loop.create_server(H2Protocol, "127.0.0.1", CONFIG_HTTP["PORT"], ssl=ssl_context)
+        listener = self.loop.create_server(
+            H2Protocol,
+            "127.0.0.1" if CONFIG_HTTP["LISTEN_LOCALHOST_ONLY"] else "",
+            CONFIG_HTTP["PORT"],
+            ssl=ssl_context
+        )
         self.server = self.loop.run_until_complete(listener)
 
     def register_api_handlers(self, datastore: BaseDatastore):

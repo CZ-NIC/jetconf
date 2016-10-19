@@ -6,12 +6,12 @@ import logging
 import sys
 import signal
 
+from colorlog import info
 from importlib import import_module
 from yangson.enumerations import ContentType
 from . import usr_op_handlers, usr_state_data_handlers
 from .rest_server import RestServer
 from .config import CONFIG, load_config, print_config
-from .nacm import NacmConfig
 from .data import JsonDatastore
 from .helpers import DataHelpers
 from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES

@@ -2,13 +2,15 @@ import logging
 
 from colorlog import debug, getLogger
 from enum import Enum
-from typing import Dict, Any
+from typing import Dict, Any, Iterable
 from datetime import datetime
 from pytz import timezone
 from yangson.instance import InstanceRoute, MemberName, EntryKeys, InstanceIdParser, ResourceIdParser
 from yangson.datamodel import DataModel
 
 from .config import CONFIG_GLOBAL, CONFIG_HTTP
+
+SSLCertT = Dict[str, Any]
 
 
 class PathFormat(Enum):
@@ -18,7 +20,7 @@ class PathFormat(Enum):
 
 class CertHelpers:
     @staticmethod
-    def get_field(cert: Dict[str, Any], key: str) -> str:
+    def get_field(cert: SSLCertT, key: str) -> str:
         if CONFIG_HTTP["DBG_DISABLE_CERTS"] and (key == "emailAddress"):
             return "test-user"
 
@@ -67,6 +69,11 @@ class DataHelpers:
             ii = InstanceIdParser(path).parse()
 
         return ii
+
+    # Convert InstanceRoute or List[InstanceSelector] to string
+    @staticmethod
+    def ii2str(ii: Iterable) -> str:
+        return "".join([str(seg) for seg in ii])
 
 
 class DateTimeHelpers:

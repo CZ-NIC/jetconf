@@ -353,7 +353,7 @@ class UserNacm:
                 # debug_nacm("checking mii {}".format(mii))
                 if self.check_data_node_path(root, mii, Permission.NACM_ACCESS_READ) == Action.DENY:
                     # debug_nacm("Pruning node {} {}".format(id(node.value[child_key]), node.value[child_key]))
-                    debug_nacm("Pruning node {}".format(mii))
+                    debug_nacm("Pruning node {}".format(DataHelpers.ii2str(mii)))
                     node = node.delete_member(child_key)
                 else:
                     node = self._check_data_read_path(m, root, mii).up()
@@ -370,7 +370,7 @@ class UserNacm:
                 # debug_nacm("checking eii {}".format(eii))
                 if self.check_data_node_path(root, eii, Permission.NACM_ACCESS_READ) == Action.DENY:
                     # debug_nacm("Pruning node {} {}".format(id(node.value[i]), node.value[i]))
-                    debug_nacm("Pruning node {}".format(eii))
+                    debug_nacm("Pruning node {}".format(DataHelpers.ii2str(eii)))
                     node = node.delete_entry(i)
                     arr_len -= 1
                 else:
@@ -385,15 +385,13 @@ class UserNacm:
         else:
             return self._check_data_read_path(node, root, ii)
 
-    def check_rpc_name(self, rpc_name: str, out_matching_rule: List[NacmRule] = None) -> Action:
+    def check_rpc_name(self, rpc_name: str) -> Action:
         if not self.nacm_enabled:
             return Action.PERMIT
 
         for rl in self.rule_lists:
             for rpc_rule in filter(lambda r: r.type == NacmRuleType.NACM_RULE_OPERATION, rl.rules):
                 if rpc_name in rpc_rule.type_data.rpc_names:
-                    if out_matching_rule is not None:
-                        out_matching_rule.append(rpc_rule)
                     return rpc_rule.action
 
         return self.default_exec

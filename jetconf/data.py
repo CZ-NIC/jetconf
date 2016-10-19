@@ -21,7 +21,7 @@ from yangson.instance import (
     InstanceRoute
 )
 
-from .helpers import PathFormat, ErrorHelpers, LogHelpers
+from .helpers import PathFormat, ErrorHelpers, LogHelpers, DataHelpers
 from .config import CONFIG
 
 epretty = ErrorHelpers.epretty
@@ -72,7 +72,11 @@ class NoHandlerError(HandlerError):
 
 
 class NoHandlerForOpError(NoHandlerError):
-    pass
+    def __init__(self, op_name: str):
+        self.op_name = op_name
+
+    def __str__(self):
+        return "Nonexistent handler for operation \"{}\"".format(self.op_name)
 
 
 class NoHandlerForStateDataError(NoHandlerError):
@@ -216,8 +220,8 @@ class BaseDatastore:
         self._data_lock = Lock()
         self._lock_username = None  # type: str
         self._usr_journals = {}     # type: Dict[str, UsrChangeJournal]
-        self.commit_begin_callback = None   # type: Callable
-        self.commit_end_callback = None     # type: Callable
+        self.commit_begin_callback = None   # type: Callable[..., None]
+        self.commit_end_callback = None     # type: Callable[..., None]
 
         if with_nacm:
             self.nacm = NacmConfig(self)
@@ -274,7 +278,7 @@ class BaseDatastore:
 
         try:
             sch_pth_list = filter(lambda n: isinstance(n, MemberName), ii)
-            sch_pth = "".join([str(seg) for seg in sch_pth_list])
+            sch_pth = DataHelpers.ii2str(sch_pth_list)
             sn = self.get_schema_node(sch_pth)
 
             while sn is not None:
@@ -312,7 +316,7 @@ class BaseDatastore:
 
         n = root.goto(ii)
         sch_pth_list = filter(lambda n: isinstance(n, MemberName), ii)
-        sch_pth = "".join([str(seg) for seg in sch_pth_list])
+        sch_pth = DataHelpers.ii2str(sch_pth_list)
         sn = self.get_schema_node(sch_pth)
         state_roots = sn.state_roots()
 
@@ -594,7 +598,7 @@ class BaseDatastore:
         else:
             op_handler = OP_HANDLERS.get_handler(rpc.op_name)
             if op_handler is None:
-                raise NoHandlerForOpError()
+                raise NoHandlerForOpError(rpc.op_name)
 
             # Print operation input schema
             # sn = self.get_schema_node(rpc.path)
