@@ -1,8 +1,9 @@
+from colorlog import error
 from datetime import datetime
 from typing import Dict, Any, List, Union
 
 from yangson.datamodel import DataModel
-from yangson.instance import InstanceRoute, InstanceNode, Value, EntryKeys, NonexistentInstance
+from yangson.instance import InstanceRoute, InstanceNode, EntryKeys, NonexistentInstance
 
 from jetconf.knot_api import KnotInternalError
 from .libknot.control import KnotCtl
@@ -115,18 +116,21 @@ class ZoneStateHandler(StateNodeHandlerBase):
             zones_list = []
 
             for zone_name, zone_status in resp.items():
-                zone_name = zone_name.rstrip(".")
-                zone_obj = {
-                    "domain": zone_name,
-                    "class": "IN",
-                    "serial": int(zone_status.get("serial")),
-                    "server-role": zone_status.get("type")
-                }
+                try:
+                    zone_name = zone_name.rstrip(".")
+                    zone_obj = {
+                        "domain": zone_name,
+                        "class": "IN",
+                        "serial": int(zone_status.get("serial")),
+                        "server-role": zone_status.get("type")
+                    }
 
-                for m, h in self.member_handlers.items():
-                    zone_obj[m] = h.update_node(node_ii + [EntryKeys({"domain": zone_name})], data_root, False)
+                    for m, h in self.member_handlers.items():
+                        zone_obj[m] = h.update_node(node_ii + [EntryKeys({"domain": zone_name})], data_root, False)
 
-                zones_list.append(zone_obj)
+                    zones_list.append(zone_obj)
+                except ValueError:
+                    error("Error parsing Knot zone status data")
 
             if with_container:
                 retval = self.gen_container(node_ii[0:2], zones_list)

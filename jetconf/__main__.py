@@ -7,7 +7,7 @@ import signal
 
 from colorlog import error, info
 from importlib import import_module
-from yangson.enumerations import ContentType
+from yangson.enumerations import ContentType, ValidationScope
 from . import usr_op_handlers, usr_state_data_handlers
 from .rest_server import RestServer
 from .config import CONFIG, load_config, print_config
@@ -119,7 +119,7 @@ def main():
     datastore.load()
     datastore.load_yl_data("data/yang-library-data.json")
 
-    datastore.get_data_root().validate(ContentType.config)
+    datastore.get_data_root().validate(ValidationScope.all, ContentType.config)
 
     # Register schema listeners
     CONF_DATA_HANDLES.register_handler(KnotConfServerListener(datastore, "/dns-server:dns-server/server-options"))

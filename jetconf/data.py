@@ -314,8 +314,7 @@ class BaseDatastore:
             else:
                 root = self._data
 
-        n = root.goto(ii)
-        sch_pth_list = filter(lambda n: isinstance(n, MemberName), ii)
+        sch_pth_list = filter(lambda isel: isinstance(isel, MemberName), ii)
         sch_pth = DataHelpers.ii2str(sch_pth_list)
         sn = self.get_schema_node(sch_pth)
         state_roots = sn.state_roots()
@@ -331,7 +330,7 @@ class BaseDatastore:
                     raise NoHandlerForStateDataError()
             self.commit_end_callback()
 
-            n = root.goto(ii)
+        n = root.goto(ii)
 
         try:
             with_defs = rpc.qs["with-defaults"][0]

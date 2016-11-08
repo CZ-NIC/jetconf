@@ -106,35 +106,42 @@ def _get(ds: BaseDatastore, pth: str, username: str, yl_data: bool=False, stagin
 
     try:
         ds.lock_data(username)
-        n = ds.get_node_rpc(rpc1, yl_data, staging)
-        ds.unlock_data()
 
-        response = json.dumps(n.raw_value(), indent=4)
-
-        add_headers = OrderedDict()
-        add_headers["ETag"] = hash(n.value)
+        n = None
+        http_resp = None
         try:
-            lm_time = DateTimeHelpers.to_httpdate_str(n.value.timestamp, CONFIG_GLOBAL["TIMEZONE"])
-            add_headers["Last-Modified"] = lm_time
-        except AttributeError:
-            # Only arrays and objects have last_modified attribute
-            pass
+            n = ds.get_node_rpc(rpc1, yl_data, staging)
+        except NacmForbiddenError as e:
+            warn(epretty(e))
+            http_resp = HttpResponse.empty(HttpStatus.Forbidden)
+        except (NonexistentSchemaNode, NonexistentInstance) as e:
+            warn(epretty(e))
+            http_resp = HttpResponse.empty(HttpStatus.NotFound)
+        except InstanceValueError as e:
+            warn(epretty(e))
+            http_resp = HttpResponse.empty(HttpStatus.BadRequest)
+        except KnotError as e:
+            error(epretty(e))
+            http_resp = HttpResponse.empty(HttpStatus.InternalServerError)
+        finally:
+            ds.unlock_data()
 
-        http_resp = HttpResponse(HttpStatus.Ok, response.encode(), CT_YANG_JSON, extra_headers=add_headers)
+        if n is not None:
+            response = json.dumps(n.raw_value(), indent=4)
+
+            add_headers = OrderedDict()
+            add_headers["ETag"] = hash(n.value)
+            try:
+                lm_time = DateTimeHelpers.to_httpdate_str(n.value.timestamp, CONFIG_GLOBAL["TIMEZONE"])
+                add_headers["Last-Modified"] = lm_time
+            except AttributeError:
+                # Only arrays and objects have last_modified attribute
+                pass
+
+            http_resp = HttpResponse(HttpStatus.Ok, response.encode(), CT_YANG_JSON, extra_headers=add_headers)
+
     except DataLockError as e:
         warn(epretty(e))
-        http_resp = HttpResponse.empty(HttpStatus.InternalServerError)
-    except NacmForbiddenError as e:
-        warn(epretty(e))
-        http_resp = HttpResponse.empty(HttpStatus.Forbidden)
-    except (NonexistentSchemaNode, NonexistentInstance) as e:
-        warn(epretty(e))
-        http_resp = HttpResponse.empty(HttpStatus.NotFound)
-    except InstanceValueError as e:
-        warn(epretty(e))
-        http_resp = HttpResponse.empty(HttpStatus.BadRequest)
-    except KnotError as e:
-        error(epretty(e))
         http_resp = HttpResponse.empty(HttpStatus.InternalServerError)
 
     return http_resp
