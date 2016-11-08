@@ -106,10 +106,7 @@ def _get(ds: BaseDatastore, pth: str, username: str, yl_data: bool=False, stagin
 
     try:
         ds.lock_data(username)
-        if staging:
-            n = ds.get_node_staging_rpc(rpc1)
-        else:
-            n = ds.get_node_rpc(rpc1, yl_data)
+        n = ds.get_node_rpc(rpc1, yl_data, staging)
         ds.unlock_data()
 
         response = json.dumps(n.raw_value(), indent=4)

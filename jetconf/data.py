@@ -194,7 +194,7 @@ class UsrChangeJournal:
 
         try:
             # Validate syntax and semantics of new data
-            nr.validate(ValidationScope.all, ContentType.config)
+            # nr.validate(ValidationScope.all, ContentType.config)
             new_data_valid = True
         except (SchemaError, SemanticError) as e:
             error("Data validation error:")
@@ -304,12 +304,15 @@ class BaseDatastore:
         return h_res
 
     # Get data node, evaluate NACM if required
-    def get_node_rpc(self, rpc: RpcInfo, yl_data=False) -> InstanceNode:
+    def get_node_rpc(self, rpc: RpcInfo, yl_data=False, staging=False) -> InstanceNode:
         ii = DataHelpers.parse_ii(rpc.path, rpc.path_format)
         if yl_data:
             root = self._yang_lib_data
         else:
-            root = self._data
+            if staging:
+                root = self.get_data_root_staging(rpc.username)
+            else:
+                root = self._data
 
         n = root.goto(ii)
         sch_pth_list = filter(lambda n: isinstance(n, MemberName), ii)
@@ -372,23 +375,6 @@ class BaseDatastore:
 
                 return node
             n = _tree_limit_depth(n, 1)
-
-        return n
-
-    # Get staging data node, evaluate NACM if required
-    def get_node_staging_rpc(self, rpc: RpcInfo) -> InstanceNode:
-        ii = DataHelpers.parse_ii(rpc.path, rpc.path_format)
-
-        root = self.get_data_root_staging(rpc.username)
-        n = root.goto(ii)
-
-        if self.nacm:
-            nrpc = self.nacm.get_user_nacm(rpc.username)
-            if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_READ) == Action.DENY:
-                raise NacmForbiddenError()
-            else:
-                # Prune nodes that should not be accessible to user
-                n = nrpc.prune_data_tree(n, root, ii, Permission.NACM_ACCESS_READ)
 
         return n
 
