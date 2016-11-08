@@ -186,7 +186,7 @@ class NacmConfig:
         self._user_nacm_rpc = {}
 
         try:
-            nacm_json = self.nacm_ds.get_data_root().member("ietf-netconf-acm:nacm").value
+            nacm_json = self.nacm_ds.get_data_root()["ietf-netconf-acm:nacm"].value
         except NonexistentInstance:
             raise ValueError("Data does not contain \"ietf-netconf-acm:nacm\" root element")
 
@@ -303,7 +303,7 @@ class UserNacm:
         self.rule_tree = DataRuleTree(self.rule_lists)
         debug_nacm("Rule tree for user \"{}\":\n{}".format(username, self.rule_tree.print_rule_tree()))
 
-    def check_data_node_path(self, root: InstanceNode, ii: InstanceRoute, access: Permission) -> Action:
+    def check_data_node_permission(self, root: InstanceNode, ii: InstanceRoute, access: Permission) -> Action:
         if not self.nacm_enabled:
             return Action.PERMIT
 
@@ -341,22 +341,22 @@ class UserNacm:
         # debug_nacm("check_data_node_path, result = {}".format(retval.name))
         return retval
 
-    def _check_data_read_path(self, node: InstanceNode, root: InstanceNode, ii: InstanceRoute) -> InstanceNode:
+    def _prune_data_tree(self, node: InstanceNode, root: InstanceNode, ii: InstanceRoute, access: Permission) -> InstanceNode:
         if isinstance(node.value, ObjectValue):
             # print("obj: {}".format(node.value))
             nsel = MemberName("")
             mii = ii + [nsel]
             for child_key in node.value.keys():
-                nsel.name = child_key
+                nsel.key = child_key
                 m = nsel.goto_step(node)
 
                 # debug_nacm("checking mii {}".format(mii))
-                if self.check_data_node_path(root, mii, Permission.NACM_ACCESS_READ) == Action.DENY:
+                if self.check_data_node_permission(root, mii, access) == Action.DENY:
                     # debug_nacm("Pruning node {} {}".format(id(node.value[child_key]), node.value[child_key]))
                     debug_nacm("Pruning node {}".format(DataHelpers.ii2str(mii)))
-                    node = node.delete_member(child_key)
+                    node = node.delete_item(child_key)
                 else:
-                    node = self._check_data_read_path(m, root, mii).up()
+                    node = self._prune_data_tree(m, root, mii, access).up()
         elif isinstance(node.value, ArrayValue):
             # print("array: {}".format(node.value))
             nsel = EntryIndex(0)
@@ -368,22 +368,22 @@ class UserNacm:
                 e = nsel.goto_step(node)
 
                 # debug_nacm("checking eii {}".format(eii))
-                if self.check_data_node_path(root, eii, Permission.NACM_ACCESS_READ) == Action.DENY:
+                if self.check_data_node_permission(root, eii, access) == Action.DENY:
                     # debug_nacm("Pruning node {} {}".format(id(node.value[i]), node.value[i]))
                     debug_nacm("Pruning node {}".format(DataHelpers.ii2str(eii)))
-                    node = node.delete_entry(i)
+                    node = node.delete_item(i)
                     arr_len -= 1
                 else:
                     i += 1
-                    node = self._check_data_read_path(e, root, eii).up()
+                    node = self._prune_data_tree(e, root, eii, access).up()
 
         return node
 
-    def check_data_read_path(self, node: InstanceNode, root: InstanceNode, ii: InstanceRoute) -> InstanceNode:
+    def prune_data_tree(self, node: InstanceNode, root: InstanceNode, ii: InstanceRoute, access: Permission) -> InstanceNode:
         if not self.nacm_enabled:
             return node
         else:
-            return self._check_data_read_path(node, root, ii)
+            return self._prune_data_tree(node, root, ii, access)
 
     def check_rpc_name(self, rpc_name: str) -> Action:
         if not self.nacm_enabled:

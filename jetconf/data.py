@@ -4,9 +4,17 @@ from enum import Enum
 from colorlog import error, warning as warn, info
 from typing import List, Any, Dict, Callable, Optional
 
-from yangson.schema import SchemaNode, NonexistentSchemaNode, ListNode, LeafListNode, SchemaError, SemanticError
 from yangson.datamodel import DataModel
-from yangson.enumerations import ContentType
+from yangson.enumerations import ContentType, ValidationScope
+from yangson.schema import (
+    SchemaNode,
+    NonexistentSchemaNode,
+    ListNode,
+    LeafListNode,
+    SchemaError,
+    SemanticError,
+    InternalNode
+)
 from yangson.instance import (
     InstanceNode,
     NonexistentInstance,
@@ -16,13 +24,14 @@ from yangson.instance import (
     MemberName,
     EntryKeys,
     EntryIndex,
-    InstanceIdParser,
-    ResourceIdParser,
-    InstanceRoute
+    InstanceRoute,
+    ArrayEntry
 )
 
 from .helpers import PathFormat, ErrorHelpers, LogHelpers, DataHelpers
 from .config import CONFIG
+from .nacm import NacmConfig, Permission, Action
+from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES
 
 epretty = ErrorHelpers.epretty
 debug_data = LogHelpers.create_module_dbg_logger(__name__)
@@ -184,7 +193,8 @@ class UsrChangeJournal:
                         nr = ds.delete_node_rpc(nr, change.rpc_info)
 
         try:
-            nr.validate(ContentType.config)
+            # Validate syntax and semantics of new data
+            nr.validate(ValidationScope.all, ContentType.config)
             new_data_valid = True
         except (SchemaError, SemanticError) as e:
             error("Data validation error:")
@@ -198,7 +208,7 @@ class UsrChangeJournal:
             # Run schema node handlers
             for cl in self.clists:
                 for change in cl.journal:
-                    ii = ds.parse_ii(change.rpc_info.path, change.rpc_info.path_format)
+                    ii = DataHelpers.parse_ii(change.rpc_info.path, change.rpc_info.path_format)
                     try:
                         ds.run_conf_edit_handler(ii, change)
                     except Exception as e:
@@ -260,17 +270,9 @@ class BaseDatastore:
     def get_schema_node(self, sch_pth: str) -> SchemaNode:
         sn = self._dm.get_schema_node(sch_pth)
         if sn is None:
-            raise NonexistentSchemaNode(sch_pth)
+            # raise NonexistentSchemaNode(sch_pth)
+            debug_data("Cannot find schema node for " + sch_pth)
         return sn
-
-    # Parse Instance Identifier from string
-    def parse_ii(self, path: str, path_format: PathFormat) -> InstanceRoute:
-        if path_format == PathFormat.URL:
-            ii = ResourceIdParser(path).parse()
-        else:
-            ii = InstanceIdParser(path).parse()
-
-        return ii
 
     # Notify data observers about change in datastore
     def run_conf_edit_handler(self, ii: InstanceRoute, ch: DataChange) -> Optional[ConfHandlerResult]:
@@ -308,7 +310,7 @@ class BaseDatastore:
 
     # Get data node, evaluate NACM if required
     def get_node_rpc(self, rpc: RpcInfo, yl_data=False) -> InstanceNode:
-        ii = self.parse_ii(rpc.path, rpc.path_format)
+        ii = DataHelpers.parse_ii(rpc.path, rpc.path_format)
         if yl_data:
             root = self._yang_lib_data
         else:
@@ -335,9 +337,7 @@ class BaseDatastore:
 
         try:
             with_defs = rpc.qs["with-defaults"][0]
-        except KeyError:
-            with_defs = None
-        except IndexError:
+        except (IndexError, KeyError):
             with_defs = None
 
         if with_defs == "report-all":
@@ -345,17 +345,15 @@ class BaseDatastore:
 
         if self.nacm:
             nrpc = self.nacm.get_user_nacm(rpc.username)
-            if nrpc.check_data_node_path(root, ii, Permission.NACM_ACCESS_READ) == Action.DENY:
+            if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_READ) == Action.DENY:
                 raise NacmForbiddenError()
             else:
-                # Prun subtree data
-                n = nrpc.check_data_read_path(n, root, ii)
+                # Prune nodes that should not be accessible to user
+                n = nrpc.prune_data_tree(n, root, ii, Permission.NACM_ACCESS_READ)
 
         try:
             max_depth = int(rpc.qs["depth"][0])
-        except KeyError:
-            max_depth = None
-        except IndexError:
+        except (IndexError, KeyError):
             max_depth = None
         except ValueError:
             raise ValueError("Invalid value of query param \"depth\"")
@@ -367,14 +365,14 @@ class BaseDatastore:
                         node.value = ObjectValue({})
                     else:
                         for child_key in sorted(node.value.keys()):
-                            m = node.member(child_key)
+                            m = node[child_key]
                             node = _tree_limit_depth(m, depth + 1).up()
                 elif isinstance(node.value, ArrayValue):
                     if depth > max_depth:
                         node.value = ArrayValue([])
                     else:
                         for i in range(len(node.value)):
-                            e = node.entry(i)
+                            e = node[i]
                             node = _tree_limit_depth(e, depth + 1).up()
 
                 return node
@@ -384,29 +382,32 @@ class BaseDatastore:
 
     # Get staging data node, evaluate NACM if required
     def get_node_staging_rpc(self, rpc: RpcInfo) -> InstanceNode:
-        ii = self.parse_ii(rpc.path, rpc.path_format)
+        ii = DataHelpers.parse_ii(rpc.path, rpc.path_format)
 
         root = self.get_data_root_staging(rpc.username)
         n = root.goto(ii)
 
         if self.nacm:
             nrpc = self.nacm.get_user_nacm(rpc.username)
-            if nrpc.check_data_node_path(root, ii, Permission.NACM_ACCESS_READ) == Action.DENY:
+            if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_READ) == Action.DENY:
                 raise NacmForbiddenError()
             else:
-                # Prun subtree data
-                n = nrpc.check_data_read_path(root, ii)
+                # Prune nodes that should not be accessible to user
+                n = nrpc.prune_data_tree(n, root, ii, Permission.NACM_ACCESS_READ)
 
         return n
 
     # Create new data node (Restconf draft compliant version)
-    def create_node_rpc(self, root: InstanceNode, rpc: RpcInfo, value: Any, insert=None, point=None) -> InstanceNode:
-        ii = self.parse_ii(rpc.path, rpc.path_format)
+    def create_node_rpc(self, root: InstanceNode, rpc: RpcInfo, value: Any) -> InstanceNode:
+        ii = DataHelpers.parse_ii(rpc.path, rpc.path_format)
         n = root.goto(ii)
+
+        insert = rpc.qs.get("insert", [None])[0]
+        point = rpc.qs.get("point", [None])[0]
 
         if self.nacm:
             nrpc = self.nacm.get_user_nacm(rpc.username)
-            if nrpc.check_data_node_path(root, ii, Permission.NACM_ACCESS_CREATE) == Action.DENY:
+            if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_CREATE) == Action.DENY:
                 raise NacmForbiddenError()
 
         # Get target member name
@@ -420,14 +421,14 @@ class BaseDatastore:
 
         # Check if target member already exists
         try:
-            existing_member = n.member(input_member_name)
+            existing_member = n[input_member_name]
         except NonexistentInstance:
             existing_member = None
 
         # Get target schema node
         n = root.goto(ii)
 
-        sn = n.schema_node
+        sn = n.schema_node  # type: InternalNode
         sch_member_name = sn._iname2qname(input_member_name)
         member_sn = sn.get_data_child(*sch_member_name)
 
@@ -439,24 +440,35 @@ class BaseDatastore:
                 existing_member = n.put_member(input_member_name, ArrayValue([]))
 
             # Convert input data from List/Dict to ArrayValue/ObjectValue
-            new_value_data = member_sn.from_raw([input_member_value])[0]
+            new_value_list = member_sn.from_raw([input_member_value])
+            new_value_item = new_value_list[0]    # type: ObjectValue
 
             list_node_key = member_sn.keys[0][0]
-            if new_value_data[list_node_key] in map(lambda x: x[list_node_key], existing_member.value):
+            if new_value_item[list_node_key] in map(lambda x: x[list_node_key], existing_member.value):
                 raise InstanceAlreadyPresent("Duplicate key")
 
             if insert == "first":
-                new_member = existing_member.update(ArrayValue([new_value_data] + existing_member.value))
+                # Optimization
+                if len(existing_member) > 0:
+                    list_entry_first = existing_member[0]   # type: ArrayEntry
+                    new_member = list_entry_first.insert_after(new_value_item).up()
+                else:
+                    new_member = existing_member.update(new_value_list)
             elif (insert == "last") or insert is None:
-                new_member = existing_member.update(ArrayValue(existing_member.value + [new_value_data]))
+                # Optimization
+                if len(existing_member) > 0:
+                    list_entry_last = existing_member[-1]   # type: ArrayEntry
+                    new_member = list_entry_last.insert_after(new_value_item).up()
+                else:
+                    new_member = existing_member.update(new_value_list)
             elif insert == "before":
                 entry_sel = EntryKeys({list_node_key: point})
-                list_entry = entry_sel.goto_step(existing_member)
-                new_member = list_entry.insert_before(new_value_data).up()
+                list_entry = entry_sel.goto_step(existing_member)   # type: ArrayEntry
+                new_member = list_entry.insert_before(new_value_item).up()
             elif insert == "after":
                 entry_sel = EntryKeys({list_node_key: point})
-                list_entry = entry_sel.goto_step(existing_member)
-                new_member = list_entry.insert_after(new_value_data).up()
+                list_entry = entry_sel.goto_step(existing_member)   # type: ArrayEntry
+                new_member = list_entry.insert_after(new_value_item).up()
             else:
                 raise ValueError("Invalid 'insert' value")
         elif isinstance(member_sn, LeafListNode):
@@ -467,12 +479,12 @@ class BaseDatastore:
                 existing_member = n.put_member(input_member_name, ArrayValue([]))
 
             # Convert input data from List/Dict to ArrayValue/ObjectValue
-            new_value_data = member_sn.from_raw([input_member_value])[0]
+            new_value_item = member_sn.from_raw([input_member_value])[0]
 
             if insert == "first":
-                new_member = existing_member.update(ArrayValue([new_value_data] + existing_member.value))
+                new_member = existing_member.update(ArrayValue([new_value_item] + existing_member.value))
             elif (insert == "last") or insert is None:
-                new_member = existing_member.update(ArrayValue(existing_member.value + [new_value_data]))
+                new_member = existing_member.update(ArrayValue(existing_member.value + [new_value_item]))
             else:
                 raise ValueError("Invalid 'insert' value")
         else:
@@ -480,10 +492,10 @@ class BaseDatastore:
                 # Create new data node
 
                 # Convert input data from List/Dict to ArrayValue/ObjectValue
-                new_value_data = member_sn.from_raw(input_member_value)
+                new_value_item = member_sn.from_raw(input_member_value)
 
                 # Create new node (object member)
-                new_member = n.put_member(input_member_name, new_value_data)
+                new_member = n.put_member(input_member_name, new_value_item)
             else:
                 # Data node already exists
                 raise InstanceAlreadyPresent("Member \"{}\" already present in \"{}\"".format(input_member_name, ii))
@@ -492,12 +504,12 @@ class BaseDatastore:
 
     # PUT data node
     def update_node_rpc(self, root: InstanceNode, rpc: RpcInfo, value: Any) -> InstanceNode:
-        ii = self.parse_ii(rpc.path, rpc.path_format)
+        ii = DataHelpers.parse_ii(rpc.path, rpc.path_format)
         n = root.goto(ii)
 
         if self.nacm:
             nrpc = self.nacm.get_user_nacm(rpc.username)
-            if nrpc.check_data_node_path(root, ii, Permission.NACM_ACCESS_UPDATE) == Action.DENY:
+            if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_UPDATE) == Action.DENY:
                 raise NacmForbiddenError()
 
         new_n = n.update(value, raw=True)
@@ -506,25 +518,25 @@ class BaseDatastore:
 
     # Delete data node
     def delete_node_rpc(self, root: InstanceNode, rpc: RpcInfo) -> InstanceNode:
-        ii = self.parse_ii(rpc.path, rpc.path_format)
+        ii = DataHelpers.parse_ii(rpc.path, rpc.path_format)
         n = root.goto(ii)
         n_parent = n.up()
-        new_n = n_parent
         last_isel = ii[-1]
 
         if self.nacm:
             nrpc = self.nacm.get_user_nacm(rpc.username)
-            if nrpc.check_data_node_path(root, ii, Permission.NACM_ACCESS_DELETE) == Action.DENY:
+            if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_DELETE) == Action.DENY:
                 raise NacmForbiddenError()
 
+        new_n = n_parent
         if isinstance(n_parent.value, ArrayValue):
             if isinstance(last_isel, EntryIndex):
-                new_n = n_parent.delete_entry(last_isel.index)
+                new_n = n_parent.delete_item(last_isel.key)
             elif isinstance(last_isel, EntryKeys):
-                new_n = n_parent.delete_entry(n.index)
+                new_n = n_parent.delete_item(n.index)
         elif isinstance(n_parent.value, ObjectValue):
             if isinstance(last_isel, MemberName):
-                new_n = n_parent.delete_member(last_isel.name)
+                new_n = n_parent.delete_item(last_isel.key)
         else:
             raise InstanceValueError(n, "Invalid target node type")
 
@@ -674,7 +686,3 @@ class JsonDatastore(BaseDatastore):
 
 def test():
     error("Tests moved to tests/tests_jetconf.py")
-
-
-from .nacm import NacmConfig, Permission, Action
-from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES

@@ -7,10 +7,8 @@ from yangson.instance import InstanceRoute, InstanceNode, Value, EntryKeys, None
 from jetconf.knot_api import KnotInternalError
 from .libknot.control import KnotCtl
 from . import knot_api
-from .helpers import DataHelpers
+from .helpers import DataHelpers, JsonNodeT
 from .handler_list import StateDataHandlerList
-
-JsonNodeT = Union[Dict[str, Any], List]
 
 
 class StateNonexistentInstance(NonexistentInstance):

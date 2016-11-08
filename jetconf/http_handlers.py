@@ -228,6 +228,7 @@ def _post(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse
     rpc1 = RpcInfo()
     rpc1.username = username
     rpc1.path = url_path
+    rpc1.qs = query_string
 
     try:
         json_data = json.loads(data) if len(data) > 0 else {}
@@ -237,9 +238,7 @@ def _post(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse
 
     try:
         ds.lock_data(username)
-        ins_pos = (query_string.get("insert") or [None])[0]
-        point = (query_string.get("point") or [None])[0]
-        new_root = ds.create_node_rpc(ds.get_data_root_staging(rpc1.username), rpc1, json_data, insert=ins_pos, point=point)
+        new_root = ds.create_node_rpc(ds.get_data_root_staging(rpc1.username), rpc1, json_data)
         ds.add_to_journal_rpc(ChangeType.CREATE, rpc1, json_data, new_root)
         http_resp = HttpResponse.empty(HttpStatus.Created)
     except DataLockError as e:

@@ -2,7 +2,7 @@ import logging
 
 from colorlog import debug, getLogger
 from enum import Enum
-from typing import Dict, Any, Iterable
+from typing import List, Dict, Union, Any, Iterable
 from datetime import datetime
 from pytz import timezone
 from yangson.instance import InstanceRoute, MemberName, EntryKeys, InstanceIdParser, ResourceIdParser
@@ -10,6 +10,7 @@ from yangson.datamodel import DataModel
 
 from .config import CONFIG_GLOBAL, CONFIG_HTTP
 
+JsonNodeT = Union[Dict[str, Any], List]
 SSLCertT = Dict[str, Any]
 
 
@@ -34,19 +35,14 @@ class CertHelpers:
 class DataHelpers:
     # Create parent data nodes to JSON subtree up to top level
     @staticmethod
-    def node2doc(id: InstanceRoute, val: Any) -> Dict[str, Any]:
+    def node2doc(ii: InstanceRoute, val: Any) -> Dict[str, Any]:
         n = val
-        for isel in reversed(id):
+        for isel in reversed(ii):
             if isinstance(isel, MemberName):
-                new_node = {}
-                new_node[isel.name] = n
-                n = new_node
+                n = {isel.key: n}
             if isinstance(isel, EntryKeys):
-                new_node = []
-                for k in isel.keys:
-                    n[k] = isel.keys[k]
-                new_node.append(n)
-                n = new_node
+                n.update(isel.keys)
+                n = [n]
         return n
 
     @staticmethod

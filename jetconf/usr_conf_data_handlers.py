@@ -3,8 +3,8 @@ from typing import List, Dict, Union, Any
 
 from yangson.instance import InstanceRoute, ObjectValue, EntryKeys, MemberName
 from . import knot_api
-from .data import BaseDataListener, SchemaNode, PathFormat, ChangeType, DataChange, ConfHandlerResult
-from .helpers import ErrorHelpers, LogHelpers
+from .data import BaseDataListener, SchemaNode, ChangeType, DataChange, ConfHandlerResult
+from .helpers import PathFormat, ErrorHelpers, LogHelpers, DataHelpers
 from .knot_api import RRecordBase, SOARecord, ARecord, AAAARecord, NSRecord, MXRecord
 
 JsonNodeT = Union[Dict[str, Any], List]
@@ -17,7 +17,7 @@ class KnotConfServerListener(BaseDataListener):
         debug_confh(self.__class__.__name__ + " triggered")
 
         base_ii_str = self.schema_path
-        base_ii = self.ds.parse_ii(base_ii_str, PathFormat.URL)
+        base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
         base_nv = self.ds.get_node(self.ds.get_data_root(), base_ii).value
 
         knot_api.KNOT.begin()
@@ -26,7 +26,7 @@ class KnotConfServerListener(BaseDataListener):
         knot_api.KNOT.set_item(section="server", item="async-start", data=base_nv.get("knot-dns:async-start"))
         knot_api.KNOT.set_item(section="server", item="nsid", data=base_nv.get("nsid-identity", {}).get("nsid"))
 
-        listen_endpoints = base_nv.get("listen-endpoint") or []
+        listen_endpoints = base_nv.get("listen-endpoint", [])
 
         ep_str_list = []
         for ep in listen_endpoints:
@@ -51,7 +51,7 @@ class KnotConfLogListener(BaseDataListener):
         debug_confh(self.__class__.__name__ + " triggered")
 
         base_ii_str = self.schema_path
-        base_ii = self.ds.parse_ii(base_ii_str, PathFormat.URL)
+        base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
         base_nv = self.ds.get_node(self.ds.get_data_root(), base_ii).value
 
         knot_api.KNOT.begin()
@@ -78,7 +78,7 @@ class KnotConfZoneListener(BaseDataListener):
 
         # ii_str = "".join([str(seg) for seg in ii])
         base_ii_str = self.schema_path
-        base_ii = self.ds.parse_ii(base_ii_str, PathFormat.URL)
+        base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
 
         knot_api.KNOT.begin()
 
@@ -131,7 +131,7 @@ class KnotConfControlListener(BaseDataListener):
         debug_confh(self.__class__.__name__ + " triggered")
 
         base_ii_str = self.schema_path
-        base_ii = self.ds.parse_ii(base_ii_str, PathFormat.URL)
+        base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
         base_nv = self.ds.get_node(self.ds.get_data_root(), base_ii).value
 
         knot_api.KNOT.begin()
@@ -163,7 +163,7 @@ class KnotConfAclListener(BaseDataListener):
         debug_confh(self.__class__.__name__ + " triggered")
 
         base_ii_str = self.schema_path
-        base_ii = self.ds.parse_ii(base_ii_str, PathFormat.URL)
+        base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
         base_nv = self.ds.get_node(self.ds.get_data_root(), base_ii).value
 
         knot_api.KNOT.begin()
@@ -218,7 +218,7 @@ class KnotZoneDataListener(BaseDataListener):
         debug_confh(self.__class__.__name__ + " triggered")
 
         base_ii_str = "/dns-zones:zone-data"
-        base_ii = self.ds.parse_ii(base_ii_str, PathFormat.URL)
+        base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
         base_ii_len = len(base_ii)
         ii_str = "".join([str(seg) for seg in ii])
 
@@ -251,7 +251,7 @@ class KnotZoneDataListener(BaseDataListener):
         # Add resource record to particular zone
         elif (
                 len(ii) == (base_ii_len + 2)) \
-                and isinstance(ii[base_ii_len], MemberName) and (ii[base_ii_len].name == "zone") \
+                and isinstance(ii[base_ii_len], MemberName) and (ii[base_ii_len].key == "zone") \
                 and isinstance(ii[base_ii_len + 1], EntryKeys) \
                 and (ch.change_type == ChangeType.CREATE) \
                 and (ch.data.get("rrset") is not None):
@@ -275,9 +275,9 @@ class KnotZoneDataListener(BaseDataListener):
         # Add resource record to particular zone (only specific "rdata" item)
         elif (
                 len(ii) == (base_ii_len + 4)) \
-                and isinstance(ii[base_ii_len], MemberName) and (ii[base_ii_len].name == "zone") \
+                and isinstance(ii[base_ii_len], MemberName) and (ii[base_ii_len].key == "zone") \
                 and isinstance(ii[base_ii_len + 1], EntryKeys) \
-                and isinstance(ii[base_ii_len + 2], MemberName) and (ii[base_ii_len + 2].name == "rrset") \
+                and isinstance(ii[base_ii_len + 2], MemberName) and (ii[base_ii_len + 2].key == "rrset") \
                 and isinstance(ii[base_ii_len + 3], EntryKeys) \
                 and (ch.change_type == ChangeType.CREATE) \
                 and (ch.data.get("rdata") is not None):
@@ -304,9 +304,9 @@ class KnotZoneDataListener(BaseDataListener):
         # Delete resource record from particular zone
         elif (
                 len(ii) == (base_ii_len + 4)) \
-                and isinstance(ii[base_ii_len], MemberName) and (ii[base_ii_len].name == "zone") \
+                and isinstance(ii[base_ii_len], MemberName) and (ii[base_ii_len].key == "zone") \
                 and isinstance(ii[base_ii_len + 1], EntryKeys) \
-                and isinstance(ii[base_ii_len + 2], MemberName) and (ii[base_ii_len + 2].name == "rrset") \
+                and isinstance(ii[base_ii_len + 2], MemberName) and (ii[base_ii_len + 2].key == "rrset") \
                 and isinstance(ii[base_ii_len + 3], EntryKeys) \
                 and (ch.change_type == ChangeType.DELETE):
             domain_name = ii[base_ii_len + 1].keys["name"]
@@ -322,11 +322,11 @@ class KnotZoneDataListener(BaseDataListener):
         # Delete resource record from particular zone (only specific "rdata" item)
         elif (
                 len(ii) == (base_ii_len + 6)) \
-                and isinstance(ii[base_ii_len], MemberName) and (ii[base_ii_len].name == "zone") \
+                and isinstance(ii[base_ii_len], MemberName) and (ii[base_ii_len].key == "zone") \
                 and isinstance(ii[base_ii_len + 1], EntryKeys) \
-                and isinstance(ii[base_ii_len + 2], MemberName) and (ii[base_ii_len + 2].name == "rrset") \
+                and isinstance(ii[base_ii_len + 2], MemberName) and (ii[base_ii_len + 2].key == "rrset") \
                 and isinstance(ii[base_ii_len + 3], EntryKeys) \
-                and isinstance(ii[base_ii_len + 4], MemberName) and (ii[base_ii_len + 4].name == "rdata") \
+                and isinstance(ii[base_ii_len + 4], MemberName) and (ii[base_ii_len + 4].key == "rdata") \
                 and isinstance(ii[base_ii_len + 5], EntryKeys) \
                 and (ch.change_type == ChangeType.DELETE):
             domain_name = ii[base_ii_len + 1].keys["name"]

@@ -15,7 +15,7 @@ HTTP_SERVER:
     SERVER_SSL_CERT: "jetconf/server.crt"
     SERVER_SSL_PRIVKEY: "jetconf/server.key"
     CA_CERT: "jetconf/ca.pem"
-    DBG_DISABLE_CERTS: true
+    DBG_DISABLE_CERTS: false
 
 NACM:
     ALLOWED_USERS: ["lojza@mail.cz"]

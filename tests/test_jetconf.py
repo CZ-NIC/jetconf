@@ -99,8 +99,8 @@ def test_nacm(datastore_1, nacm_datastore_1):
             # debug("Node contents: {}".format(datanode.value))
             test_ii = data.parse_ii(test_path[0], PathFormat.XPATH)
             rule = []
-            action = nacm_conf.get_user_nacm(test_user).check_data_node_path(data.get_data_root(), test_ii, test_path[1],
-                                                                        out_matching_rule=rule)
+            action = nacm_conf.get_user_nacm(test_user).check_data_node_permission(data.get_data_root(), test_ii, test_path[1],
+                                                                                   out_matching_rule=rule)
             assert action == test_path[2]
             """
             if action == test_path[2]:
@@ -114,7 +114,7 @@ def test_nacm(datastore_1, nacm_datastore_1):
     test_ii2 = data.parse_ii("/dns-server:dns-server/zones/zone[domain='example.com']", PathFormat.XPATH)
 
     # info("Reading: " + str(test_ii2))
-    res = nacm_conf.get_user_nacm(test_user).check_data_read_path(data.get_data_root(), test_ii2)
+    res = nacm_conf.get_user_nacm(test_user).prun_data_tree(data.get_data_root(), test_ii2)
     res = json.dumps(res.value, indent=4, sort_keys=True)
 
     res_expected = """
