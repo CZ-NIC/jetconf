@@ -18,7 +18,7 @@ class KnotConfServerListener(BaseDataListener):
 
         base_ii_str = self.schema_path
         base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
-        base_nv = self.ds.get_node(self.ds.get_data_root(), base_ii).value
+        base_nv = self.ds.get_data_root().goto(base_ii).value
 
         knot_api.KNOT.begin()
 
@@ -52,7 +52,7 @@ class KnotConfLogListener(BaseDataListener):
 
         base_ii_str = self.schema_path
         base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
-        base_nv = self.ds.get_node(self.ds.get_data_root(), base_ii).value
+        base_nv = self.ds.get_data_root().goto(base_ii).value
 
         knot_api.KNOT.begin()
         knot_api.KNOT.set_item(section="log", data=None)
@@ -98,7 +98,7 @@ class KnotConfZoneListener(BaseDataListener):
             debug_confh("Editing config of zone \"{}\"".format(domain))
 
             # Write whole zone config to Knot
-            zone_nv = self.ds.get_node(self.ds.get_data_root(), ii[0:(len(base_ii) + 1)]).value
+            zone_nv = self.ds.get_data_root().goto(ii[0:(len(base_ii) + 1)]).value
             knot_api.KNOT.set_item(section="zone", zone=domain, item="comment", data=zone_nv.get("description"))
             knot_api.KNOT.set_item(section="zone", zone=domain, item="file", data=zone_nv.get("file"))
             knot_api.KNOT.set_item_list(section="zone", zone=domain, item="master", data=zone_nv.get("master"))
@@ -132,7 +132,7 @@ class KnotConfControlListener(BaseDataListener):
 
         base_ii_str = self.schema_path
         base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
-        base_nv = self.ds.get_node(self.ds.get_data_root(), base_ii).value
+        base_nv = self.ds.get_data_root().goto(base_ii).value
 
         knot_api.KNOT.begin()
         knot_api.KNOT.set_item(section="control", item="listen", data=base_nv.get("unix"))
@@ -164,14 +164,14 @@ class KnotConfAclListener(BaseDataListener):
 
         base_ii_str = self.schema_path
         base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
-        base_nv = self.ds.get_node(self.ds.get_data_root(), base_ii).value
+        base_nv = self.ds.get_data_root().goto(base_ii).value
 
         knot_api.KNOT.begin()
         knot_api.KNOT.set_item(section="acl", data=None)
 
         if (len(ii) > len(base_ii)) and isinstance(ii[len(base_ii)], EntryKeys):
             # Write only changed list item
-            acl_nv = self.ds.get_node(self.ds.get_data_root(), ii[0:(len(base_ii) + 1)]).value
+            acl_nv = self.ds.get_data_root().goto(ii[0:(len(base_ii) + 1)]).value
             print("acl nv={}".format(acl_nv))
             self._process_list_item(acl_nv)
         else:

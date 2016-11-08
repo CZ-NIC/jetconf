@@ -303,11 +303,6 @@ class BaseDatastore:
 
         return h_res
 
-    # Just get the node, do not evaluate NACM (needed for NACM)
-    def get_node(self, root: InstanceNode, ii: InstanceRoute) -> InstanceNode:
-        n = root.goto(ii)
-        return n
-
     # Get data node, evaluate NACM if required
     def get_node_rpc(self, rpc: RpcInfo, yl_data=False) -> InstanceNode:
         ii = DataHelpers.parse_ii(rpc.path, rpc.path_format)
