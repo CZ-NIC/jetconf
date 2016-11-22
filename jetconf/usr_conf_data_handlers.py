@@ -20,8 +20,6 @@ class KnotConfServerListener(BaseDataListener):
         base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
         base_nv = self.ds.get_data_root().goto(base_ii).value
 
-        knot_api.KNOT.begin()
-
         knot_api.KNOT.set_item(section="server", item="comment", data=base_nv.get("description"))
         knot_api.KNOT.set_item(section="server", item="async-start", data=base_nv.get("knot-dns:async-start"))
         knot_api.KNOT.set_item(section="server", item="nsid", data=base_nv.get("nsid-identity", {}).get("nsid"))
@@ -42,7 +40,6 @@ class KnotConfServerListener(BaseDataListener):
         knot_api.KNOT.set_item(section="server", item="udp-workers", data=base_nv.get("resources", {}).get("knot-dns:udp-workers"))
         knot_api.KNOT.set_item(section="server", item="rate-limit-table-size", data=base_nv.get("response-rate-limiting", {}).get("table-size"))
 
-        knot_api.KNOT.commit()
         return ConfHandlerResult.OK
 
 
@@ -54,7 +51,6 @@ class KnotConfLogListener(BaseDataListener):
         base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
         base_nv = self.ds.get_data_root().goto(base_ii).value
 
-        knot_api.KNOT.begin()
         knot_api.KNOT.set_item(section="log", data=None)
 
         for logitem in base_nv:
@@ -68,7 +64,6 @@ class KnotConfLogListener(BaseDataListener):
             knot_api.KNOT.set_item(section="log", identifier=tgt, item="zone", data=logitem.get("zone"))
             knot_api.KNOT.set_item(section="log", identifier=tgt, item="any", data=logitem.get("any"))
 
-        knot_api.KNOT.commit()
         return ConfHandlerResult.OK
 
 
@@ -79,8 +74,6 @@ class KnotConfZoneListener(BaseDataListener):
         # ii_str = "".join([str(seg) for seg in ii])
         base_ii_str = self.schema_path
         base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
-
-        knot_api.KNOT.begin()
 
         # Create new zone
         if (ii == base_ii) and (ch.change_type == ChangeType.CREATE):
@@ -122,7 +115,6 @@ class KnotConfZoneListener(BaseDataListener):
             knot_api.KNOT.set_item_list(section="zone", zone=domain, item="module", data=qm_str_list)
             knot_api.KNOT.set_item(section="zone", zone=domain, item="semantic-checks", data=zone_nv.get("knot-dns:semantic-checks"))
 
-        knot_api.KNOT.commit()
         return ConfHandlerResult.OK
 
 
@@ -134,9 +126,7 @@ class KnotConfControlListener(BaseDataListener):
         base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
         base_nv = self.ds.get_data_root().goto(base_ii).value
 
-        knot_api.KNOT.begin()
         knot_api.KNOT.set_item(section="control", item="listen", data=base_nv.get("unix"))
-        knot_api.KNOT.commit()
         return ConfHandlerResult.OK
 
 
@@ -166,7 +156,6 @@ class KnotConfAclListener(BaseDataListener):
         base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
         base_nv = self.ds.get_data_root().goto(base_ii).value
 
-        knot_api.KNOT.begin()
         knot_api.KNOT.set_item(section="acl", data=None)
 
         if (len(ii) > len(base_ii)) and isinstance(ii[len(base_ii)], EntryKeys):
@@ -182,7 +171,6 @@ class KnotConfAclListener(BaseDataListener):
                 print("acl nv={}".format(acl_nv))
                 self._process_list_item(acl_nv)
 
-        knot_api.KNOT.commit()
         return ConfHandlerResult.OK
 
 
@@ -244,9 +232,7 @@ class KnotZoneDataListener(BaseDataListener):
             soarr.minimum = soa["minimum"]
 
             debug_confh("KnotApi: adding new SOA RR to zone \"{}\"".format(domain_name))
-            knot_api.KNOT.begin_zone()
             knot_api.KNOT.zone_add_record(domain_name, soarr)
-            knot_api.KNOT.commit_zone()
 
         # Add resource record to particular zone
         elif (
@@ -268,9 +254,7 @@ class KnotZoneDataListener(BaseDataListener):
                 new_rr = self._rr_from_rdata_item(domain_name, rr_owner, rr_ttl, rr_type, rdata_item)
                 if new_rr is not None:
                     debug_confh("KnotApi: adding new {} RR to zone \"{}\"".format(rr_type, domain_name))
-                    knot_api.KNOT.begin_zone()
                     knot_api.KNOT.zone_add_record(domain_name, new_rr)
-                    knot_api.KNOT.commit_zone()
 
         # Add resource record to particular zone (only specific "rdata" item)
         elif (
@@ -297,9 +281,7 @@ class KnotZoneDataListener(BaseDataListener):
 
             if new_rr is not None:
                 debug_confh("KnotApi: adding new {} RR to zone \"{}\"".format(rr_type, domain_name))
-                knot_api.KNOT.begin_zone()
                 knot_api.KNOT.zone_add_record(domain_name, new_rr)
-                knot_api.KNOT.commit_zone()
 
         # Delete resource record from particular zone
         elif (
@@ -315,9 +297,7 @@ class KnotZoneDataListener(BaseDataListener):
             rr_type = keys_ii_seg.keys["type"][0]
 
             debug_confh("KnotApi: deleting {} RR from zone \"{}\"".format(rr_type, domain_name))
-            knot_api.KNOT.begin_zone()
             knot_api.KNOT.zone_del_record(domain_name, rr_owner, rr_type)
-            knot_api.KNOT.commit_zone()
 
         # Delete resource record from particular zone (only specific "rdata" item)
         elif (
@@ -338,9 +318,7 @@ class KnotZoneDataListener(BaseDataListener):
             rr_sel = self._rr_from_rdata_item(domain_name, rr_owner, 0, rr_type, rdata_item)
 
             debug_confh("KnotApi: deleting {} RR from zone \"{}\"".format(rr_type, domain_name))
-            knot_api.KNOT.begin_zone()
             knot_api.KNOT.zone_del_record(domain_name, rr_owner, rr_type, selector=rr_sel.rrdata_format())
-            knot_api.KNOT.commit_zone()
 
         else:
             return ConfHandlerResult.ERROR

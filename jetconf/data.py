@@ -28,7 +28,7 @@ from yangson.instance import (
     ArrayEntry
 )
 
-from .helpers import PathFormat, ErrorHelpers, LogHelpers, DataHelpers
+from .helpers import PathFormat, ErrorHelpers, LogHelpers, DataHelpers, JsonNodeT
 from .config import CONFIG
 from .nacm import NacmConfig, Permission, Action
 from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES
@@ -141,8 +141,9 @@ class ChangeList:
 
 
 class UsrChangeJournal:
-    def __init__(self, root_origin: InstanceNode):
+    def __init__(self, root_origin: InstanceNode, transaction_opts: Optional[JsonNodeT]):
         self.root_origin = root_origin
+        self.transaction_opts = transaction_opts
         self.clists = []    # type: List[ChangeList]
 
     def cl_new(self, cl_name: str):
@@ -175,7 +176,6 @@ class UsrChangeJournal:
         return chl_json
 
     def commit(self, ds: "BaseDatastore"):
-        # Set new data root
         if hash(ds.get_data_root()) == hash(self.root_origin):
             info("Commiting new configuration (swapping roots)")
             # Set new root
@@ -202,6 +202,10 @@ class UsrChangeJournal:
             new_data_valid = False
 
         if new_data_valid:
+            # Call commit begin hook
+            if ds.commit_begin_callback is not None:
+                ds.commit_begin_callback(self.transaction_opts)
+
             # Set new data root
             ds.set_data_root(nr)
 
@@ -217,6 +221,10 @@ class UsrChangeJournal:
 
             # Clear user changelists
             self.clists.clear()
+
+            # Call commit end hook
+            if ds.commit_end_callback is not None:
+                ds.commit_end_callback(self.transaction_opts)
 
 
 class BaseDatastore:
@@ -429,14 +437,14 @@ class BaseDatastore:
 
             if insert == "first":
                 # Optimization
-                if len(existing_member) > 0:
+                if len(existing_member.value) > 0:
                     list_entry_first = existing_member[0]   # type: ArrayEntry
-                    new_member = list_entry_first.insert_after(new_value_item).up()
+                    new_member = list_entry_first.insert_before(new_value_item).up()
                 else:
                     new_member = existing_member.update(new_value_list)
             elif (insert == "last") or insert is None:
                 # Optimization
-                if len(existing_member) > 0:
+                if len(existing_member.value) > 0:
                     list_entry_last = existing_member[-1]   # type: ArrayEntry
                     new_member = list_entry_last.insert_after(new_value_item).up()
                 else:
@@ -529,16 +537,16 @@ class BaseDatastore:
             if nrpc.check_rpc_name(rpc.op_name) == Action.DENY:
                 raise NacmForbiddenError("Op \"{}\" invocation denied for user \"{}\"".format(rpc.op_name, rpc.username))
 
-        ret_data = {}
-
         if rpc.op_name == "conf-start":
-            if self._usr_journals.get(rpc.username) is None:
-                self._usr_journals[rpc.username] = UsrChangeJournal(self._data)
-
             try:
                 cl_name = rpc.op_input_args["name"]
             except (TypeError, KeyError):
                 raise ValueError("This operation expects \"name\" input parameter")
+
+            transaction_opts = rpc.op_input_args.get("options")
+
+            if self._usr_journals.get(rpc.username) is None:
+                self._usr_journals[rpc.username] = UsrChangeJournal(self._data, transaction_opts)
 
             self._usr_journals[rpc.username].cl_new(cl_name)
             ret_data = {"status": "OK"}
@@ -564,23 +572,17 @@ class BaseDatastore:
         elif rpc.op_name == "conf-commit":
             usr_journal = self._usr_journals.get(rpc.username)
             if usr_journal is not None:
-                if self.commit_begin_callback is not None:
-                    self.commit_begin_callback()
-
                 try:
                     self.lock_data(rpc.username)
-                    old_root = self._data
                     usr_journal.commit(self)
                     if CONFIG["GLOBAL"]["PERSISTENT_CHANGES"] is True:
                         self.save()
                 finally:
                     self.unlock_data()
 
-                if self.commit_end_callback is not None:
-                    self.commit_end_callback()
                 del self._usr_journals[rpc.username]
             else:
-                warn("Nothing to commit")
+                info("[{}]: Nothing to commit".format(rpc.username))
 
             ret_data = \
                 {

@@ -8,7 +8,7 @@ from .config import CONFIG
 from .helpers import LogHelpers
 
 KNOT = None     # type: KnotConfig
-JsonNodeT = Union[Dict[str, Any], List]
+JsonNodeT = Union[Dict[str, Any], List[Any], str, int]
 debug_knot = LogHelpers.create_module_dbg_logger(__name__)
 
 
@@ -48,7 +48,7 @@ class RRecordBase:
         raise NotImplementedError("Not implemented in base class")
 
     @property
-    def ttl_str(self):
+    def ttl_str(self) -> Optional[str]:
         return str(self.ttl) if self.ttl is not None else None
 
 
@@ -266,12 +266,26 @@ class KnotConfig(KnotCtl):
         return resp
 
 
-def knot_connect():
+def knot_connect(transaction_opts: Optional[JsonNodeT]):
     debug_knot("Connecting to KNOT socket")
     KNOT.knot_connect()
 
+    if transaction_opts in ("config", None):
+        debug_knot("Starting new KNOT config transaction")
+        KNOT.begin()
+    elif transaction_opts == "zone":
+        debug_knot("Starting new KNOT zone transaction")
+        KNOT.begin_zone()
 
-def knot_disconnect():
+
+def knot_disconnect(transaction_opts: Optional[JsonNodeT]):
+    if transaction_opts in ("config", None):
+        debug_knot("Commiting KNOT config transaction")
+        KNOT.commit()
+    elif transaction_opts == "zone":
+        debug_knot("Commiting KNOT zone transaction")
+        KNOT.commit_zone()
+
     debug_knot("Disonnecting from KNOT socket")
     KNOT.knot_disconnect()
 
