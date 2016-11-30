@@ -25,8 +25,8 @@ from yangson.instance import (
     EntryKeys,
     EntryIndex,
     InstanceRoute,
-    ArrayEntry
-)
+    ArrayEntry,
+    RootNode)
 
 from .helpers import PathFormat, ErrorHelpers, LogHelpers, DataHelpers, JsonNodeT
 from .config import CONFIG
@@ -80,6 +80,10 @@ class NoHandlerError(HandlerError):
     pass
 
 
+class ConfHandlerFailedError(HandlerError):
+    pass
+
+
 class NoHandlerForOpError(NoHandlerError):
     def __init__(self, op_name: str):
         self.op_name = op_name
@@ -92,19 +96,13 @@ class NoHandlerForStateDataError(NoHandlerError):
     pass
 
 
-class ConfHandlerResult(Enum):
-    PASS = 0,
-    OK = 1,
-    ERROR = 2
-
-
 class BaseDataListener:
     def __init__(self, ds: "BaseDatastore", sch_pth: str):
         self.ds = ds
         self.schema_path = sch_pth                          # type: str
         self.schema_node = ds.get_schema_node(sch_pth)      # type: SchemaNode
 
-    def process(self, sn: SchemaNode, ii: InstanceRoute, ch: "DataChange") -> ConfHandlerResult:
+    def process(self, sn: SchemaNode, ii: InstanceRoute, ch: "DataChange"):
         raise NotImplementedError("Not implemented in base class")
 
     def __str__(self):
@@ -202,33 +200,61 @@ class UsrChangeJournal:
             new_data_valid = False
 
         if new_data_valid:
-            # Call commit begin hook
-            if ds.commit_begin_callback is not None:
-                ds.commit_begin_callback(self.transaction_opts)
-
             # Set new data root
             ds.set_data_root(nr)
 
+            # Call commit begin hook
+            begin_hook_failed = False
+            try:
+                ds.commit_begin_callback(self.transaction_opts)
+            except Exception as e:
+                error("Exception occured in commit_begin handler: {}".format(epretty(e)))
+                begin_hook_failed = True
+
             # Run schema node handlers
-            for cl in self.clists:
-                for change in cl.journal:
-                    ii = DataHelpers.parse_ii(change.rpc_info.path, change.rpc_info.path_format)
-                    try:
-                        ds.run_conf_edit_handler(ii, change)
-                    except Exception as e:
-                        ds.data_root_rollback(1, False)
-                        raise e
+            conf_handler_failed = False
+            if not begin_hook_failed:
+                try:
+                    for cl in self.clists:
+                        for change in cl.journal:
+                            ii = DataHelpers.parse_ii(change.rpc_info.path, change.rpc_info.path_format)
+                            ds.run_conf_edit_handler(ii, change)
+                except Exception as e:
+                    error("Exception occured in edit handler: {}".format(epretty(e)))
+                    conf_handler_failed = True
+
+            # Call commit end hook
+            end_hook_failed = False
+            end_hook_abort_failed = False
+            if not (begin_hook_failed or conf_handler_failed):
+                try:
+                    ds.commit_end_callback(self.transaction_opts, failed=False)
+                except Exception as e:
+                    error("Exception occured in commit_end handler: {}".format(epretty(e)))
+                    end_hook_failed = True
+
+            if begin_hook_failed or conf_handler_failed or end_hook_failed:
+                try:
+                    # Call commit_end callback again with "failed" argument set to True
+                    ds.commit_end_callback(self.transaction_opts, failed=True)
+                except Exception as e:
+                    error("Exception occured in commit_end handler (abort): {}".format(epretty(e)))
+                    end_hook_abort_failed = True
 
             # Clear user changelists
             self.clists.clear()
 
-            # Call commit end hook
-            if ds.commit_end_callback is not None:
-                ds.commit_end_callback(self.transaction_opts)
+            # Return to previous version of data and raise an exception if something went wrong
+            if begin_hook_failed or conf_handler_failed or end_hook_failed or end_hook_abort_failed:
+                ds.data_root_rollback(history_steps=1, store_current=False)
+                raise ConfHandlerFailedError("(see logged)")
 
 
 class BaseDatastore:
     def __init__(self, dm: DataModel, name: str="", with_nacm: bool=False):
+        def _blankfn(*args, **kwargs):
+            pass
+
         self.name = name
         self.nacm = None    # type: NacmConfig
         self._data = None   # type: InstanceNode
@@ -238,8 +264,8 @@ class BaseDatastore:
         self._data_lock = Lock()
         self._lock_username = None  # type: str
         self._usr_journals = {}     # type: Dict[str, UsrChangeJournal]
-        self.commit_begin_callback = None   # type: Callable[..., None]
-        self.commit_end_callback = None     # type: Callable[..., None]
+        self.commit_begin_callback = _blankfn   # type: Callable[..., bool]
+        self.commit_end_callback = _blankfn     # type: Callable[..., bool]
 
         if with_nacm:
             self.nacm = NacmConfig(self)
@@ -283,9 +309,7 @@ class BaseDatastore:
         return sn
 
     # Notify data observers about change in datastore
-    def run_conf_edit_handler(self, ii: InstanceRoute, ch: DataChange) -> Optional[ConfHandlerResult]:
-        h_res = None
-
+    def run_conf_edit_handler(self, ii: InstanceRoute, ch: DataChange):
         try:
             sch_pth_list = filter(lambda n: isinstance(n, MemberName), ii)
             sch_pth = DataHelpers.ii2str(sch_pth_list)
@@ -294,22 +318,10 @@ class BaseDatastore:
             while sn is not None:
                 h = CONF_DATA_HANDLES.get_handler(str(id(sn)))
                 if h is not None:
-                    h_res = h.process(sn, ii, ch)
-                    if h_res == ConfHandlerResult.OK:
-                        # Edit successfully handled
-                        break
-                    elif h_res == ConfHandlerResult.ERROR:
-                        # Error occured in handler
-                        warn("Error occured in handler for sch_node \"{}\"".format(sch_pth))
-                        break
-                    else:
-                        # Pass edit to superior handler
-                        pass
+                    h.process(sn, ii, ch)
                 sn = sn.parent
         except NonexistentInstance:
             warn("Cannnot notify {}, parent container removed".format(ii))
-
-        return h_res
 
     # Get data node, evaluate NACM if required
     def get_node_rpc(self, rpc: RpcInfo, yl_data=False, staging=False) -> InstanceNode:
@@ -500,7 +512,15 @@ class BaseDatastore:
             if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_UPDATE) == Action.DENY:
                 raise NacmForbiddenError()
 
-        new_n = n.update(value, raw=True)
+            sn = n.schema_node
+            new_val = sn.from_raw([value])[0]
+            new_node = RootNode(new_val, sn, new_val.timestamp)
+            new_node_prunned = nrpc.prune_data_tree(new_node, self._data, ii, Permission.NACM_ACCESS_UPDATE).raw_value()
+            print(json.dumps(new_node_prunned, indent=4))
+
+            new_n = n.update(new_node_prunned, raw=True)
+        else:
+            new_n = n.update(value, raw=True)
 
         return new_n.top()
 

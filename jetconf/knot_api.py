@@ -134,69 +134,107 @@ class KnotConfig(KnotCtl):
         self.connected = False
         self.socket_lock.release()
 
+    def flush_socket(self):
+        self.set_timeout(1)
+        while True:
+            try:
+                self.receive_block()
+            except Exception as e:
+                if str(e) == "connection timeout":
+                    debug_knot("socket flushed")
+                    break
+
+    # Starts a new transaction for configuration data
     def begin(self):
         if self.conf_state == KnotConfState.NONE:
             self.send_block("conf-begin")
             try:
                 self.receive_block()
-                # print(">>> CONF BEGIN")
                 self.conf_state = KnotConfState.CONF
             except Exception as e:
                 raise KnotInternalError(str(e))
 
+    # Starts a new transaction for zone data
     def begin_zone(self):
         if self.conf_state == KnotConfState.NONE:
             self.send_block("zone-begin")
             try:
                 self.receive_block()
-                # print(">>> ZONE BEGIN")
                 self.conf_state = KnotConfState.ZONE
             except Exception as e:
                 raise KnotInternalError(str(e))
 
+    # Commits the internal KnotDNS transaction
     def commit(self):
         if self.conf_state == KnotConfState.CONF:
             self.send_block("conf-commit")
-            try:
-                self.receive_block()
-                self.conf_state = KnotConfState.NONE
-            except Exception as e:
-                raise KnotInternalError(str(e))
-        else:
-            raise KnotApiStateError()
-
-    def commit_zone(self):
-        if self.conf_state == KnotConfState.ZONE:
+        elif self.conf_state == KnotConfState.ZONE:
             self.send_block("zone-commit")
-            try:
-                self.receive_block()
-                self.conf_state = KnotConfState.NONE
-            except Exception as e:
-                raise KnotInternalError(str(e))
         else:
             raise KnotApiStateError()
 
-    def set_item(self, item=None, section=None, identifier=None, zone=None, data: str=None):
+        try:
+            self.receive_block()
+            self.conf_state = KnotConfState.NONE
+        except Exception as e:
+            raise KnotInternalError(str(e))
+
+    # Aborts the internal KnotDNS transaction
+    def abort(self):
+        if self.conf_state == KnotConfState.CONF:
+            self.send_block("conf-abort")
+        elif self.conf_state == KnotConfState.ZONE:
+            self.send_block("zone-abort")
+        else:
+            raise KnotApiStateError()
+
+        try:
+            self.receive_block()
+            self.conf_state = KnotConfState.NONE
+        except Exception as e:
+            raise KnotInternalError(str(e))
+
+    def unset_section(self, section: str, identifier: str=None):
+        if not self.connected:
+            raise KnotApiError("Knot socket is closed")
+
+        self.send_block("conf-unset", section=section, identifier=identifier)
+        try:
+            resp = self.receive_block()
+        except Exception as e:
+            resp = {}
+            err_str = str(e)
+            if err_str != "not exists":
+                raise KnotInternalError(err_str)
+
+    def set_item(self, section=None, identifier=None, item=None, data: str=None) -> JsonNodeT:
         if not self.connected:
             raise KnotApiError("Knot socket is closed")
 
         if data is not None:
             if isinstance(data, (int, bool)):
                 data = str(data).lower()
-            self.send_block("conf-set", section=section, identifier=identifier, item=item, zone=zone, data=data)
+            self.send_block("conf-set", section=section, identifier=identifier, item=item, data=data)
+            try:
+                resp = self.receive_block()
+            except Exception as e:
+                raise KnotInternalError(str(e))
         else:
-            self.send_block("conf-unset", section=section, identifier=identifier, item=item, zone=zone)
+            resp = {}
 
-    def set_item_list(self, item=None, section=None, identifier=None, zone=None, data: List[str]=None):
+        return resp
+
+    def set_item_list(self, section=None, identifier=None, item=None, data: List[str]=None):
         if not self.connected:
             raise KnotApiError("Knot socket is closed")
 
-        self.send_block("conf-unset", section=section, identifier=identifier, item=item, zone=zone)
-        if data is None:
-            return
-
-        for data_item in data:
-            self.send_block("conf-set", section=section, identifier=identifier, item=item, zone=zone, data=data_item)
+        if data is not None:
+            for data_item in data:
+                self.send_block("conf-set", section=section, identifier=identifier, item=item, data=data_item)
+                try:
+                    resp = self.receive_block()
+                except Exception as e:
+                    raise KnotInternalError(str(e))
 
     # Returns a status data of all or one specific DNS zone
     def zone_status(self, domain_name: str=None) -> JsonNodeT:
@@ -266,7 +304,8 @@ class KnotConfig(KnotCtl):
         return resp
 
 
-def knot_connect(transaction_opts: Optional[JsonNodeT]):
+# Connects to Knot control socket and begins a new transaction (config or zone)
+def knot_connect(transaction_opts: Optional[JsonNodeT]) -> bool:
     debug_knot("Connecting to KNOT socket")
     KNOT.knot_connect()
 
@@ -277,20 +316,29 @@ def knot_connect(transaction_opts: Optional[JsonNodeT]):
         debug_knot("Starting new KNOT zone transaction")
         KNOT.begin_zone()
 
+    return True
 
-def knot_disconnect(transaction_opts: Optional[JsonNodeT]):
-    if transaction_opts in ("config", None):
-        debug_knot("Commiting KNOT config transaction")
+
+# Commits current Knot internal transaction and disconnects from control socket
+def knot_disconnect(transaction_opts: Optional[JsonNodeT], failed: bool=False) -> bool:
+    KNOT.flush_socket()
+
+    if failed:
+        debug_knot("Aborting KNOT transaction")
+        KNOT.abort()
+        retval = True
+    else:
+        debug_knot("Commiting KNOT transaction")
         KNOT.commit()
-    elif transaction_opts == "zone":
-        debug_knot("Commiting KNOT zone transaction")
-        KNOT.commit_zone()
+        retval = True
 
     debug_knot("Disonnecting from KNOT socket")
     KNOT.knot_disconnect()
 
+    return retval
 
-def knot_api_init():
+
+def knot_global_init():
     global KNOT
     if KNOT is None:
         KNOT = KnotConfig(CONFIG["KNOT"]["SOCKET"])

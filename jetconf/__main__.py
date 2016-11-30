@@ -14,7 +14,7 @@ from .config import CONFIG, load_config, print_config
 from .data import JsonDatastore
 from .helpers import DataHelpers
 from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES
-from .knot_api import knot_api_init, knot_connect, knot_disconnect
+from .knot_api import knot_global_init, knot_connect, knot_disconnect
 from .usr_conf_data_handlers import (
     KnotConfServerListener,
     KnotConfLogListener,
@@ -115,7 +115,7 @@ def main():
     datamodel = DataHelpers.load_data_model("data/", "data/yang-library-data.json")
 
     # Datastore init
-    datastore = JsonDatastore(datamodel, "jetconf/example-data.json", "DNS data", with_nacm=True)
+    datastore = JsonDatastore(datamodel, "jetconf/example-data.json", "DNS data", with_nacm=False)
     datastore.load()
     datastore.load_yl_data("data/yang-library-data.json")
 
@@ -136,7 +136,7 @@ def main():
     usr_state_data_handlers.create_zone_state_handlers(STATE_DATA_HANDLES, datamodel)
 
     # Initialize Knot control interface
-    knot_api_init()
+    knot_global_init()
     datastore.commit_begin_callback = knot_connect
     datastore.commit_end_callback = knot_disconnect
 

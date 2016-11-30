@@ -12,7 +12,6 @@ from yangson.schema import NonexistentSchemaNode
 from yangson.instance import NonexistentInstance, InstanceValueError
 from yangson.datatype import YangTypeError
 
-from .knot_api import KnotError
 from .config import CONFIG_GLOBAL, CONFIG_HTTP, NACM_ADMINS, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops
 from .helpers import CertHelpers, DataHelpers, DateTimeHelpers, ErrorHelpers, LogHelpers, SSLCertT
 from .data import (
@@ -23,8 +22,8 @@ from .data import (
     NoHandlerError,
     NoHandlerForOpError,
     InstanceAlreadyPresent,
-    ChangeType
-)
+    ChangeType,
+    ConfHandlerFailedError)
 
 QueryStrT = Dict[str, List[str]]
 epretty = ErrorHelpers.epretty
@@ -120,7 +119,7 @@ def _get(ds: BaseDatastore, pth: str, username: str, yl_data: bool=False, stagin
         except InstanceValueError as e:
             warn(epretty(e))
             http_resp = HttpResponse.empty(HttpStatus.BadRequest)
-        except KnotError as e:
+        except ConfHandlerFailedError as e:
             error(epretty(e))
             http_resp = HttpResponse.empty(HttpStatus.InternalServerError)
         finally:
@@ -455,7 +454,7 @@ def create_api_op(ds: BaseDatastore):
         except (InstanceAlreadyPresent, NoHandlerForOpError, ValueError) as e:
             warn(epretty(e))
             http_resp = HttpResponse.empty(HttpStatus.BadRequest)
-        except KnotError as e:
+        except ConfHandlerFailedError as e:
             error(epretty(e))
             http_resp = HttpResponse.empty(HttpStatus.InternalServerError)
 

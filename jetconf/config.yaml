@@ -2,9 +2,9 @@ GLOBAL:
     TIMEZONE: "Europe/Prague"
     LOGFILE: "-"
     PIDFILE: "/tmp/jetconf.pid"
-    PERSISTENT_CHANGES: true
+    PERSISTENT_CHANGES: false
     LOG_LEVEL: "debug"
-    LOG_DBG_MODULES: ["usr_conf_data_handlers", "knot_api", "nacm"]
+    LOG_DBG_MODULES: ["usr_conf_data_handlers", "knot_api", "nacm", "data"]
 
 HTTP_SERVER:
     DOC_ROOT: "jetconf/doc-root"
