@@ -51,7 +51,7 @@
       },
       {
         "name": "ietf-yang-library",
-        "revision": "2016-02-01",
+        "revision": "2016-06-21",
         "namespace": "urn:ietf:params:xml:ns:yang:ietf-yang-library",
         "conformance-type": "implement"
       },

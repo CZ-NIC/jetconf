@@ -1,41 +1,59 @@
 import os
 import yaml
-from colorlog import warning as warn, info
+
+from yaml.parser import ParserError
+from colorlog import error, warning as warn, info
 
 CONFIG_GLOBAL = {
-    "TIMEZONE": "GMT"
+    "TIMEZONE": "GMT",
+    "LOGFILE": "-",
+    "PIDFILE": "/tmp/jetconf.pid",
+    "PERSISTENT_CHANGES": True,
+    "LOG_LEVEL": "info",
+    "LOG_DBG_MODULES": ["*"]
 }
 
 CONFIG_HTTP = {
     "DOC_ROOT": "doc-root",
     "DOC_DEFAULT_NAME": "index.html",
     "API_ROOT": "/restconf",
+    "API_ROOT_STAGING": "/restconf_staging",
     "SERVER_NAME": "hyper-h2",
+    "UPLOAD_SIZE_LIMIT": 1,
+    "LISTEN_LOCALHOST_ONLY": False,
     "PORT": 8443,
 
     "SERVER_SSL_CERT": "server.crt",
     "SERVER_SSL_PRIVKEY": "server.key",
-    "CA_CERT": "ca.pem"
+    "CA_CERT": "ca.pem",
+    "DBG_DISABLE_CERTS": False
 }
 
 CONFIG_NACM = {
     "ALLOWED_USERS": "lojza@mail.cz"
 }
 
+CONFIG_KNOT = {
+    "SOCKET": "/tmp/knot.sock"
+}
+
 CONFIG = {
     "GLOBAL": CONFIG_GLOBAL,
     "HTTP_SERVER": CONFIG_HTTP,
-    "NACM": CONFIG_NACM
+    "NACM": CONFIG_NACM,
+    "KNOT": CONFIG_KNOT
 }
 
 NACM_ADMINS = CONFIG["NACM"]["ALLOWED_USERS"]
 API_ROOT_data = os.path.join(CONFIG_HTTP["API_ROOT"], "data")
+API_ROOT_STAGING_data = os.path.join(CONFIG_HTTP["API_ROOT_STAGING"], "data")
 API_ROOT_ops = os.path.join(CONFIG_HTTP["API_ROOT"], "operations")
 
 
 def load_config(filename: str):
     global NACM_ADMINS
     global API_ROOT_data
+    global API_ROOT_STAGING_data
     global API_ROOT_ops
 
     try:
@@ -49,10 +67,14 @@ def load_config(filename: str):
 
     except FileNotFoundError:
         warn("Configuration file does not exist")
+    except ParserError as e:
+        error("Configuration syntax error: " + str(e))
+        exit()
 
     # Shortcuts
     NACM_ADMINS = CONFIG["NACM"]["ALLOWED_USERS"]
     API_ROOT_data = os.path.join(CONFIG_HTTP["API_ROOT"], "data")
+    API_ROOT_STAGING_data = os.path.join(CONFIG_HTTP["API_ROOT_STAGING"], "data")
     API_ROOT_ops = os.path.join(CONFIG_HTTP["API_ROOT"], "operations")
 
 

@@ -9,24 +9,28 @@ with codecs.open(os.path.join(here, 'README.rst'), encoding='utf-8') as readme:
 setup(
     name = "jetconf",
     packages = ["jetconf"],
-    version = "0.1.0",
-    description = "RESTCONF over HTTP/2",
+    use_scm_version = True,
+    setup_requires=["setuptools_scm"],
+    description = "Pure Python implementation of RESTCONF server",
     long_description = long_description,
     url = "https://gitlab.labs.nic.cz/labs/jetconf",
-    author = "Pavel Špírek",
+    author = "Pavel Spirek",
     author_email = "pavel.spirek@nic.cz",
-    license = "GPLv3",
-    install_requires = ["yangson"],
+    entry_points = {
+        "console_scripts": ["jetconf=jetconf.__main__:main"]
+    },
+    install_requires = ["yangson", "h2", "colorlog"],
     tests_require = ["pytest"],
-    keywords = ["RESTCONF", "configuration", "json"],
+    keywords = ["RESTCONF", "yang", "data model", "configuration", "json"],
     classifiers = [
         "Programming Language :: Python",
         "Programming Language :: Python :: 3.5",
-        "Development Status :: 2 - Pre-Alpha",
+        "Development Status :: 3 - Alpha",
         "Intended Audience :: System Administrators",
         "Intended Audience :: Telecommunications Industry",
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Operating System :: OS Independent",
         "Topic :: System :: Monitoring",
-        "Topic :: System :: Systems Administration"]
-    )
+        "Topic :: System :: Systems Administration"
+    ]
+)
