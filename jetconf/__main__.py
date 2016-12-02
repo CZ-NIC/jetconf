@@ -6,7 +6,6 @@ import sys
 import signal
 
 from colorlog import error, info
-from importlib import import_module
 from yangson.enumerations import ContentType, ValidationScope
 from . import usr_op_handlers, usr_state_data_handlers
 from .rest_server import RestServer
@@ -26,9 +25,23 @@ from .usr_conf_data_handlers import (
 
 
 def main():
-    # Load configuration
-    load_config("jetconf/config.yaml")
+    config_file = "jetconf/config.yaml"
 
+    # Parse command line arguments
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], "c:")
+    except getopt.GetoptError:
+        print("Invalid argument detected. Possibles are: -c (config file)")
+        sys.exit(1)
+
+    for opt, arg in opts:
+        if opt == '-c':
+            config_file = arg
+
+    # Load configuration
+    load_config(config_file)
+
+    # Set logging level
     log_level = {
         "error": logging.ERROR,
         "warning": logging.WARNING,
@@ -150,25 +163,4 @@ def main():
 
 
 if __name__ == "__main__":
-    opts, args = (None, None)
-    test_module = None
-
-    try:
-        opts, args = getopt.getopt(sys.argv[1:], "t:")
-    except getopt.GetoptError:
-        print("Invalid argument detected. Possibles are: -t (test module)")
-        exit()
-
-    for opt, arg in opts:
-        if opt == '-t':
-            test_module = arg
-
-    if test_module is not None:
-        try:
-            tm = import_module("." + test_module, "jetconf")
-            tm.test()
-        except ImportError as e:
-            print(e.msg)
-
-    else:
-        main()
+    main()

@@ -684,7 +684,3 @@ class JsonDatastore(BaseDatastore):
     def save(self):
         with open(self.json_file, "w") as jfd:
             json.dump(self._data.raw_value(), jfd, indent=4)
-
-
-def test():
-    error("Tests moved to tests/tests_jetconf.py")

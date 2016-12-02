@@ -395,7 +395,3 @@ class UserNacm:
                     return rpc_rule.action
 
         return self.default_exec
-
-
-def test():
-    error("Tests moved to tests/tests_jetconf.py")
