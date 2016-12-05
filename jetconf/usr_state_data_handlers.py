@@ -1,12 +1,10 @@
 from colorlog import error
-from datetime import datetime
 from typing import Dict, Any, List, Union
 
 from yangson.datamodel import DataModel
 from yangson.instance import InstanceRoute, InstanceNode, EntryKeys, NonexistentInstance
 
 from jetconf.knot_api import KnotInternalError
-from .libknot.control import KnotCtl
 from . import knot_api
 from .helpers import DataHelpers, JsonNodeT
 from .handler_list import StateDataHandlerList
@@ -22,11 +20,10 @@ class StateNonexistentInstance(NonexistentInstance):
 
 
 class StateNodeHandlerBase:
-    def __init__(self, data_model: DataModel, ctl: KnotCtl):
+    def __init__(self, data_model: DataModel):
         self.data_model = data_model
         self.sch_pth = None
         self.schema_node = None
-        self.knotctl = ctl
         self.member_handlers = {}  # type: Dict[str, StateNodeHandlerBase]
 
     def add_member_handler(self, member: str, handler: "StateNodeHandlerBase"):
@@ -40,8 +37,8 @@ class StateNodeHandlerBase:
 
 
 class ZoneSigningStateHandler(StateNodeHandlerBase):
-    def __init__(self, data_model: DataModel, ctl: KnotCtl):
-        super().__init__(data_model, ctl)
+    def __init__(self, data_model: DataModel):
+        super().__init__(data_model)
         self.sch_pth = "/dns-server:dns-server-state/zone/dnssec-signing:dnssec-signing"
         self.schema_node = data_model.get_data_node(self.sch_pth)
 
@@ -76,8 +73,8 @@ class ZoneSigningStateHandler(StateNodeHandlerBase):
 
 
 class ZoneStateHandler(StateNodeHandlerBase):
-    def __init__(self, data_model: DataModel, ctl: KnotCtl):
-        super().__init__(data_model, ctl)
+    def __init__(self, data_model: DataModel):
+        super().__init__(data_model)
         self.sch_pth = "/dns-server:dns-server-state/zone"
         self.schema_node = data_model.get_data_node(self.sch_pth)
 
@@ -142,9 +139,9 @@ class ZoneStateHandler(StateNodeHandlerBase):
 
 # Create handler hierarchy
 def create_zone_state_handlers(handler_list: "StateDataHandlerList", dm: DataModel):
-    zssh = ZoneSigningStateHandler(dm, knot_api.KNOT)
-    handler_list.register_handler(zssh)
+    # zssh = ZoneSigningStateHandler(dm)
+    # handler_list.register_handler(zssh)
 
-    zsh = ZoneStateHandler(dm, knot_api.KNOT)
+    zsh = ZoneStateHandler(dm)
     # zsh.add_member_handler("dnssec-signing:dnssec-signing", zssh)
     handler_list.register_handler(zsh)

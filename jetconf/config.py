@@ -1,8 +1,7 @@
 import os
 import yaml
 
-from yaml.parser import ParserError
-from colorlog import error, warning as warn, info
+from colorlog import info
 
 CONFIG_GLOBAL = {
     "TIMEZONE": "GMT",
@@ -10,7 +9,8 @@ CONFIG_GLOBAL = {
     "PIDFILE": "/tmp/jetconf.pid",
     "PERSISTENT_CHANGES": True,
     "LOG_LEVEL": "info",
-    "LOG_DBG_MODULES": ["*"]
+    "LOG_DBG_MODULES": ["*"],
+    "YANG_LIB_DIR": "yang-data/"
 }
 
 CONFIG_HTTP = {
@@ -50,26 +50,19 @@ API_ROOT_STAGING_data = os.path.join(CONFIG_HTTP["API_ROOT_STAGING"], "data")
 API_ROOT_ops = os.path.join(CONFIG_HTTP["API_ROOT"], "operations")
 
 
-def load_config(filename: str):
+def load_config(filename: str) -> bool:
     global NACM_ADMINS
     global API_ROOT_data
     global API_ROOT_STAGING_data
     global API_ROOT_ops
 
-    try:
-        with open(filename) as conf_fd:
-            conf_yaml = yaml.load(conf_fd)
-            for conf_key in CONFIG.keys():
-                try:
-                    CONFIG[conf_key].update(conf_yaml[conf_key])
-                except KeyError:
-                    pass
-
-    except FileNotFoundError:
-        warn("Configuration file does not exist")
-    except ParserError as e:
-        error("Configuration syntax error: " + str(e))
-        exit()
+    with open(filename) as conf_fd:
+        conf_yaml = yaml.load(conf_fd)
+        for conf_key in CONFIG.keys():
+            try:
+                CONFIG[conf_key].update(conf_yaml[conf_key])
+            except KeyError:
+                pass
 
     # Shortcuts
     NACM_ADMINS = CONFIG["NACM"]["ALLOWED_USERS"]

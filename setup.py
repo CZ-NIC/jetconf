@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 import codecs
 import os
 
@@ -8,7 +8,7 @@ with codecs.open(os.path.join(here, 'README.rst'), encoding='utf-8') as readme:
 
 setup(
     name = "jetconf",
-    packages = ["jetconf"],
+    packages = find_packages(),
     use_scm_version = True,
     setup_requires=["setuptools_scm"],
     description = "Pure Python implementation of RESTCONF server",

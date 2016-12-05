@@ -6,10 +6,11 @@ import sys
 import signal
 
 from colorlog import error, info
+from yaml.parser import ParserError
 from yangson.enumerations import ContentType, ValidationScope
 from . import usr_op_handlers, usr_state_data_handlers
 from .rest_server import RestServer
-from .config import CONFIG, load_config, print_config
+from .config import CONFIG_GLOBAL, load_config, print_config
 from .data import JsonDatastore
 from .helpers import DataHelpers
 from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES
@@ -39,7 +40,14 @@ def main():
             config_file = arg
 
     # Load configuration
-    load_config(config_file)
+    try:
+        load_config(config_file)
+    except FileNotFoundError:
+        print("Configuration file does not exist")
+        sys.exit(1)
+    except ParserError as e:
+        print("Configuration syntax error: " + str(e))
+        sys.exit(1)
 
     # Set logging level
     log_level = {
@@ -47,16 +55,16 @@ def main():
         "warning": logging.WARNING,
         "info": logging.INFO,
         "debug": logging.INFO
-    }.get(CONFIG["GLOBAL"]["LOG_LEVEL"], logging.INFO)
+    }.get(CONFIG_GLOBAL["LOG_LEVEL"], logging.INFO)
     logging.root.handlers.clear()
 
     # Daemonize
-    if CONFIG["GLOBAL"]["LOGFILE"] not in ("-", "stdout"):
+    if CONFIG_GLOBAL["LOGFILE"] not in ("-", "stdout"):
         # Setup basic logging
         logging.basicConfig(
             format="%(asctime)s %(levelname)-8s %(message)s",
             level=log_level,
-            filename=CONFIG["GLOBAL"]["LOGFILE"]
+            filename=CONFIG_GLOBAL["LOGFILE"]
         )
 
         # Go to background
@@ -105,7 +113,7 @@ def main():
     print_config()
 
     # Create pidfile
-    fl = os.open(CONFIG["GLOBAL"]["PIDFILE"], os.O_WRONLY + os.O_CREAT, 0o666)
+    fl = os.open(CONFIG_GLOBAL["PIDFILE"], os.O_WRONLY + os.O_CREAT, 0o666)
     try:
         os.lockf(fl, os.F_TLOCK, 0)
         os.write(fl, str(os.getpid()).encode())
@@ -117,7 +125,7 @@ def main():
     # Set signal handlers
     def sig_exit_handler(signum, frame):
         os.close(fl)
-        os.unlink(CONFIG["GLOBAL"]["PIDFILE"])
+        os.unlink(CONFIG_GLOBAL["PIDFILE"])
         info("Exiting.")
         sys.exit(0)
 
@@ -125,7 +133,7 @@ def main():
     signal.signal(signal.SIGINT, sig_exit_handler)
 
     # Load data model
-    datamodel = DataHelpers.load_data_model("data/", "data/yang-library-data.json")
+    datamodel = DataHelpers.load_data_model(CONFIG_GLOBAL["YANG_LIB_DIR"], CONFIG_GLOBAL["YANG_LIB_DIR"] + "yang-library-data.json")
 
     # Datastore init
     datastore = JsonDatastore(datamodel, "jetconf/example-data.json", "DNS data", with_nacm=False)
