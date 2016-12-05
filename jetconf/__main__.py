@@ -136,9 +136,9 @@ def main():
     datamodel = DataHelpers.load_data_model(CONFIG_GLOBAL["YANG_LIB_DIR"], CONFIG_GLOBAL["YANG_LIB_DIR"] + "yang-library-data.json")
 
     # Datastore init
-    datastore = JsonDatastore(datamodel, "jetconf/example-data.json", "DNS data", with_nacm=False)
+    datastore = JsonDatastore(datamodel, CONFIG_GLOBAL["DATA_JSON_FILE"], "DNS data", with_nacm=False)
     datastore.load()
-    datastore.load_yl_data("data/yang-library-data.json")
+    datastore.load_yl_data(CONFIG_GLOBAL["YANG_LIB_DIR"] + "yang-library-data.json")
 
     datastore.get_data_root().validate(ValidationScope.all, ContentType.config)
 

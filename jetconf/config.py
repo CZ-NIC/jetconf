@@ -10,7 +10,8 @@ CONFIG_GLOBAL = {
     "PERSISTENT_CHANGES": True,
     "LOG_LEVEL": "info",
     "LOG_DBG_MODULES": ["*"],
-    "YANG_LIB_DIR": "yang-data/"
+    "YANG_LIB_DIR": "yang-data/",
+    "DATA_JSON_FILE": "data.json"
 }
 
 CONFIG_HTTP = {
