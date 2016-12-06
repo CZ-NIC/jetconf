@@ -19,9 +19,9 @@ class KnotConfServerListener(BaseDataListener):
         base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
         base_nv = self.ds.get_data_root().goto(base_ii).value
 
-        knot_api.KNOT.set_item(section="server", item="comment", data=base_nv.get("description"))
-        knot_api.KNOT.set_item(section="server", item="async-start", data=base_nv.get("knot-dns:async-start"))
-        knot_api.KNOT.set_item(section="server", item="nsid", data=base_nv.get("nsid-identity", {}).get("nsid"))
+        knot_api.KNOT.set_item(section="server", identifier=None, item="comment", value=base_nv.get("description"))
+        knot_api.KNOT.set_item(section="server", identifier=None, item="async-start", value=base_nv.get("knot-dns:async-start"))
+        knot_api.KNOT.set_item(section="server", identifier=None, item="nsid", value=base_nv.get("nsid-identity", {}).get("nsid"))
 
         listen_endpoints = base_nv.get("listen-endpoint", [])
 
@@ -31,13 +31,13 @@ class KnotConfServerListener(BaseDataListener):
             if ep.get("port"):
                 ep_str += "@" + str(ep["port"])
             ep_str_list.append(ep_str)
-        knot_api.KNOT.set_item_list(section="server", item="listen", data=ep_str_list)
+        knot_api.KNOT.set_item_list(section="server", identifier=None, item="listen", value=ep_str_list)
 
-        knot_api.KNOT.set_item(section="server", item="rundir", data=base_nv.get("filesystem-paths", {}).get("run-time-dir"))
-        knot_api.KNOT.set_item(section="server", item="pidfile", data=base_nv.get("filesystem-paths", {}).get("pid-file"))
-        knot_api.KNOT.set_item(section="server", item="tcp-workers", data=base_nv.get("resources", {}).get("knot-dns:tcp-workers"))
-        knot_api.KNOT.set_item(section="server", item="udp-workers", data=base_nv.get("resources", {}).get("knot-dns:udp-workers"))
-        knot_api.KNOT.set_item(section="server", item="rate-limit-table-size", data=base_nv.get("response-rate-limiting", {}).get("table-size"))
+        knot_api.KNOT.set_item(section="server", identifier=None, item="rundir", value=base_nv.get("filesystem-paths", {}).get("run-time-dir"))
+        knot_api.KNOT.set_item(section="server", identifier=None, item="pidfile", value=base_nv.get("filesystem-paths", {}).get("pid-file"))
+        knot_api.KNOT.set_item(section="server", identifier=None, item="tcp-workers", value=base_nv.get("resources", {}).get("knot-dns:tcp-workers"))
+        knot_api.KNOT.set_item(section="server", identifier=None, item="udp-workers", value=base_nv.get("resources", {}).get("knot-dns:udp-workers"))
+        knot_api.KNOT.set_item(section="server", identifier=None, item="rate-limit-table-size", value=base_nv.get("response-rate-limiting", {}).get("table-size"))
 
 
 class KnotConfLogListener(BaseDataListener):
@@ -48,18 +48,18 @@ class KnotConfLogListener(BaseDataListener):
         base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
         base_nv = self.ds.get_data_root().goto(base_ii).value
 
-        knot_api.KNOT.set_item(section="log", data=None)
+        knot_api.KNOT.unset_section(section="log")
 
         for logitem in base_nv:
             tgt = logitem.get("target")
             if tgt is None:
                 continue
 
-            knot_api.KNOT.set_item(section="log", item="target", data=tgt)
-            knot_api.KNOT.set_item(section="log", identifier=tgt, item="comment", data=logitem.get("description"))
-            knot_api.KNOT.set_item(section="log", identifier=tgt, item="server", data=logitem.get("server"))
-            knot_api.KNOT.set_item(section="log", identifier=tgt, item="zone", data=logitem.get("zone"))
-            knot_api.KNOT.set_item(section="log", identifier=tgt, item="any", data=logitem.get("any"))
+            knot_api.KNOT.set_item(section="log", identifier=None, item="target", value=tgt)
+            knot_api.KNOT.set_item(section="log", identifier=tgt, item="comment", value=logitem.get("description"))
+            knot_api.KNOT.set_item(section="log", identifier=tgt, item="server", value=logitem.get("server"))
+            knot_api.KNOT.set_item(section="log", identifier=tgt, item="zone", value=logitem.get("zone"))
+            knot_api.KNOT.set_item(section="log", identifier=tgt, item="any", value=logitem.get("any"))
 
 
 class KnotConfZoneListener(BaseDataListener):
@@ -87,29 +87,29 @@ class KnotConfZoneListener(BaseDataListener):
             # Write whole zone config to Knot
             zone_nv = self.ds.get_data_root().goto(ii[0:4]).value
             knot_api.KNOT.unset_section(section="zone", identifier=domain)
-            knot_api.KNOT.set_item(section="zone", item="domain", data=domain)
-            knot_api.KNOT.set_item(section="zone", identifier=domain, item="comment", data=zone_nv.get("description"))
-            knot_api.KNOT.set_item(section="zone", identifier=domain, item="file", data=zone_nv.get("file"))
-            knot_api.KNOT.set_item_list(section="zone", identifier=domain, item="master", data=zone_nv.get("master"))
-            knot_api.KNOT.set_item_list(section="zone", identifier=domain, item="notify", data=zone_nv.get("notify", {}).get("recipient"))
-            knot_api.KNOT.set_item_list(section="zone", identifier=domain, item="acl", data=zone_nv.get("access-control-list"))
-            knot_api.KNOT.set_item(section="zone", identifier=domain, item="serial-policy", data=zone_nv.get("serial-update-method"))
+            knot_api.KNOT.set_item(section="zone", identifier=None, item="domain", value=domain)
+            knot_api.KNOT.set_item(section="zone", identifier=domain, item="comment", value=zone_nv.get("description"))
+            knot_api.KNOT.set_item(section="zone", identifier=domain, item="file", value=zone_nv.get("file"))
+            knot_api.KNOT.set_item_list(section="zone", identifier=domain, item="master", value=zone_nv.get("master", []))
+            knot_api.KNOT.set_item_list(section="zone", identifier=domain, item="notify", value=zone_nv.get("notify", {}).get("recipient", []))
+            knot_api.KNOT.set_item_list(section="zone", identifier=domain, item="acl", value=zone_nv.get("access-control-list", []))
+            knot_api.KNOT.set_item(section="zone", identifier=domain, item="serial-policy", value=zone_nv.get("serial-update-method"))
 
             anytotcp = zone_nv.get("any-to-tcp")
             disable_any_str = str(not anytotcp) if isinstance(anytotcp, bool) else None
-            knot_api.KNOT.set_item(section="zone", identifier=domain, item="disable-any", data=disable_any_str)
+            knot_api.KNOT.set_item(section="zone", identifier=domain, item="disable-any", value=disable_any_str)
 
-            knot_api.KNOT.set_item(section="zone", identifier=domain, item="max-journal-size", data=zone_nv.get("journal", {}).get("maximum-journal-size"))
-            knot_api.KNOT.set_item(section="zone", identifier=domain, item="zonefile-sync", data=zone_nv.get("journal", {}).get("zone-file-sync-delay"))
-            knot_api.KNOT.set_item(section="zone", identifier=domain, item="ixfr-from-differences", data=zone_nv.get("journal", {}).get("from-differences"))
+            knot_api.KNOT.set_item(section="zone", identifier=domain, item="max-journal-size", value=zone_nv.get("journal", {}).get("maximum-journal-size"))
+            knot_api.KNOT.set_item(section="zone", identifier=domain, item="zonefile-sync", value=zone_nv.get("journal", {}).get("zone-file-sync-delay"))
+            knot_api.KNOT.set_item(section="zone", identifier=domain, item="ixfr-from-differences", value=zone_nv.get("journal", {}).get("from-differences"))
 
             qm_list = zone_nv.get("query-module")
             if qm_list is not None:
                 qm_str_list = list(map(lambda n: n["name"] + "/" + n["type"][0], qm_list))
             else:
-                qm_str_list = None
-            knot_api.KNOT.set_item_list(section="zone", identifier=domain, item="module", data=qm_str_list)
-            knot_api.KNOT.set_item(section="zone", identifier=domain, item="semantic-checks", data=zone_nv.get("knot-dns:semantic-checks"))
+                qm_str_list = []
+            knot_api.KNOT.set_item_list(section="zone", identifier=domain, item="module", value=qm_str_list)
+            knot_api.KNOT.set_item(section="zone", identifier=domain, item="semantic-checks", value=zone_nv.get("knot-dns:semantic-checks"))
 
 
 class KnotConfControlListener(BaseDataListener):
@@ -120,27 +120,27 @@ class KnotConfControlListener(BaseDataListener):
         base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
         base_nv = self.ds.get_data_root().goto(base_ii).value
 
-        knot_api.KNOT.set_item(section="control", item="listen", data=base_nv.get("unix"))
+        knot_api.KNOT.set_item(section="control", identifier=None, item="listen", value=base_nv.get("unix"))
 
 
 class KnotConfAclListener(BaseDataListener):
     def _process_list_item(self, acl_nv: ObjectValue):
         name = acl_nv.get("name")
         debug_confh("ACL name={}".format(name))
-        knot_api.KNOT.set_item(section="acl", identifier=name, data=None)
-        knot_api.KNOT.set_item(section="acl", item="id", data=name)
-        knot_api.KNOT.set_item(section="acl", identifier=name, item="comment", data=acl_nv.get("description"))
-        knot_api.KNOT.set_item_list(section="acl", identifier=name, item="key", data=acl_nv.get("key"))
-        knot_api.KNOT.set_item_list(section="acl", identifier=name, item="action", data=acl_nv.get("operation"))
+        knot_api.KNOT.unset_section(section="acl", identifier=name)
+        knot_api.KNOT.set_item(section="acl", identifier=None, item="id", value=name)
+        knot_api.KNOT.set_item(section="acl", identifier=name, item="comment", value=acl_nv.get("description"))
+        knot_api.KNOT.set_item_list(section="acl", identifier=name, item="key", value=acl_nv.get("key", []))
+        knot_api.KNOT.set_item_list(section="acl", identifier=name, item="action", value=acl_nv.get("operation", []))
 
         netws = acl_nv.get("network")
         if netws is not None:
             addrs = list(map(lambda n: n["ip-prefix"], netws))
-            knot_api.KNOT.set_item_list(section="acl", identifier=name, item="address", data=addrs)
+            knot_api.KNOT.set_item_list(section="acl", identifier=name, item="address", value=addrs)
 
         action = acl_nv.get("action")
         deny = "true" if action == "deny" else "false"
-        knot_api.KNOT.set_item(section="acl", identifier=name, item="deny", data=deny)
+        knot_api.KNOT.set_item(section="acl", identifier=name, item="deny", value=deny)
 
     def process(self, sn: SchemaNode, ii: InstanceRoute, ch: DataChange):
         debug_confh(self.__class__.__name__ + " triggered")
@@ -149,7 +149,7 @@ class KnotConfAclListener(BaseDataListener):
         base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
         base_nv = self.ds.get_data_root().goto(base_ii).value
 
-        knot_api.KNOT.set_item(section="acl", data=None)
+        knot_api.KNOT.unset_section(section="acl")
 
         if (len(ii) > len(base_ii)) and isinstance(ii[len(base_ii)], EntryKeys):
             # Write only changed list item
@@ -158,7 +158,7 @@ class KnotConfAclListener(BaseDataListener):
             self._process_list_item(acl_nv)
         else:
             # Delete all list items from KNOT
-            knot_api.KNOT.set_item(section="acl", data=None)
+            knot_api.KNOT.unset_section(section="acl")
             # Write whole list
             for acl_nv in base_nv:
                 print("acl nv={}".format(acl_nv))

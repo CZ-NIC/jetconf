@@ -193,7 +193,8 @@ class KnotConfig(KnotCtl):
         except Exception as e:
             raise KnotInternalError(str(e))
 
-    def unset_section(self, section: str, identifier: str=None):
+    # Deletes a whole section from Knot configuration
+    def unset_section(self, section: str, identifier: str=None) -> JsonNodeT:
         if not self.connected:
             raise KnotApiError("Knot socket is closed")
 
@@ -206,14 +207,17 @@ class KnotConfig(KnotCtl):
             if err_str != "not exists":
                 raise KnotInternalError(err_str)
 
-    def set_item(self, section=None, identifier=None, item=None, data: str=None) -> JsonNodeT:
+        return resp
+
+    # Low-level methods for setting and deleting values from Knot configuration
+    def set_item(self, section: str, identifier: Optional[str], item: str, value: str) -> JsonNodeT:
         if not self.connected:
             raise KnotApiError("Knot socket is closed")
 
-        if data is not None:
-            if isinstance(data, (int, bool)):
-                data = str(data).lower()
-            self.send_block("conf-set", section=section, identifier=identifier, item=item, data=data)
+        if value is not None:
+            if isinstance(value, (int, bool)):
+                value = str(value).lower()
+            self.send_block("conf-set", section=section, identifier=identifier, item=item, data=value)
             try:
                 resp = self.receive_block()
             except Exception as e:
@@ -223,17 +227,33 @@ class KnotConfig(KnotCtl):
 
         return resp
 
-    def set_item_list(self, section=None, identifier=None, item=None, data: List[str]=None):
+    def unset_item(self, section: str, identifier: Optional[str], item: str, zone: str=None) -> JsonNodeT:
         if not self.connected:
             raise KnotApiError("Knot socket is closed")
 
-        if data is not None:
-            for data_item in data:
+        self.send_block("conf-unset", section=section, identifier=identifier, item=item, zone=zone)
+        try:
+            resp = self.receive_block()
+        except Exception as e:
+            raise KnotInternalError(str(e))
+
+        return resp
+
+    def set_item_list(self, section: str, identifier: Optional[str], item: str, value: List[str]) -> List[JsonNodeT]:
+        if not self.connected:
+            raise KnotApiError("Knot socket is closed")
+
+        resp_list = []
+        if value is not None:
+            for data_item in value:
                 self.send_block("conf-set", section=section, identifier=identifier, item=item, data=data_item)
                 try:
                     resp = self.receive_block()
+                    resp_list.append(resp)
                 except Exception as e:
                     raise KnotInternalError(str(e))
+
+        return resp_list
 
     # Returns a status data of all or one specific DNS zone
     def zone_status(self, domain_name: str=None) -> JsonNodeT:
@@ -247,28 +267,14 @@ class KnotConfig(KnotCtl):
             raise KnotInternalError(str(e))
         return resp
 
-    # Adds a new DNS zone
+    # Adds a new DNS zone to configuration section
     def zone_new(self, domain_name: str) -> JsonNodeT:
-        if not self.connected:
-            raise KnotApiError("Knot socket is closed")
-
-        try:
-            self.set_item(section="zone", item="domain", data=domain_name)
-            resp = self.receive_block()
-        except Exception as e:
-            raise KnotInternalError(str(e))
+        resp = self.set_item(section="zone", identifier=None, item="domain", value=domain_name)
         return resp
 
-    # Removes a DNS zone
+    # Removes a DNS zone from configuration section
     def zone_remove(self, domain_name: str) -> JsonNodeT:
-        if not self.connected:
-            raise KnotApiError("Knot socket is closed")
-
-        try:
-            self.send_block("conf-unset", section="zone", item="domain", zone=domain_name)
-            resp = self.receive_block()
-        except Exception as e:
-            raise KnotInternalError(str(e))
+        resp = self.unset_item(section="zone", identifier=None, item="domain", zone=domain_name)
         return resp
 
     # Adds a resource record to DNS zone
