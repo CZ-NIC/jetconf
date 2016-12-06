@@ -2,7 +2,6 @@ import collections
 from io import StringIO
 from threading import Lock
 from enum import Enum
-
 from colorlog import error, info
 from typing import List, Set, Optional
 

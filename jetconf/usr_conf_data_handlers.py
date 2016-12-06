@@ -1,4 +1,3 @@
-from colorlog import info, warning as warn, error
 from typing import List, Dict, Union, Any
 
 from yangson.instance import InstanceRoute, ObjectValue, EntryKeys, MemberName

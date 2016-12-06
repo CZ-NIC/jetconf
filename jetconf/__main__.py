@@ -7,12 +7,16 @@ import signal
 
 from colorlog import error, info
 from yaml.parser import ParserError
+
 from yangson.enumerations import ContentType, ValidationScope
+from yangson.exception import YangsonException
+from yangson.schema import SchemaError, SemanticError
+
 from . import usr_op_handlers, usr_state_data_handlers
 from .rest_server import RestServer
 from .config import CONFIG_GLOBAL, load_config, print_config
 from .data import JsonDatastore
-from .helpers import DataHelpers
+from .helpers import DataHelpers, ErrorHelpers
 from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES
 from .knot_api import knot_global_init, knot_connect, knot_disconnect
 from .usr_conf_data_handlers import (
@@ -26,17 +30,17 @@ from .usr_conf_data_handlers import (
 
 
 def main():
-    config_file = "jetconf/config.yaml"
+    config_file = "config.yaml"
 
     # Parse command line arguments
     try:
         opts, args = getopt.getopt(sys.argv[1:], "c:")
     except getopt.GetoptError:
-        print("Invalid argument detected. Possibles are: -c (config file)")
+        print("Invalid argument detected. Possible options are: -c (config file)")
         sys.exit(1)
 
     for opt, arg in opts:
-        if opt == '-c':
+        if opt == "-c":
             config_file = arg
 
     # Load configuration
@@ -133,16 +137,29 @@ def main():
     signal.signal(signal.SIGINT, sig_exit_handler)
 
     # Load data model
-    datamodel = DataHelpers.load_data_model(CONFIG_GLOBAL["YANG_LIB_DIR"], CONFIG_GLOBAL["YANG_LIB_DIR"] + "yang-library-data.json")
+    datamodel = DataHelpers.load_data_model(
+        CONFIG_GLOBAL["YANG_LIB_DIR"],
+        CONFIG_GLOBAL["YANG_LIB_DIR"] + "yang-library-data.json"
+    )
 
     # Datastore init
     datastore = JsonDatastore(datamodel, CONFIG_GLOBAL["DATA_JSON_FILE"], "DNS data", with_nacm=False)
-    datastore.load()
-    datastore.load_yl_data(CONFIG_GLOBAL["YANG_LIB_DIR"] + "yang-library-data.json")
+    try:
+        datastore.load()
+        datastore.load_yl_data(CONFIG_GLOBAL["YANG_LIB_DIR"] + "yang-library-data.json")
+    except (FileNotFoundError, YangsonException) as e:
+        error("Could not load JSON datastore " + CONFIG_GLOBAL["DATA_JSON_FILE"])
+        error(ErrorHelpers.epretty(e))
+        sig_exit_handler(0, None)
 
-    datastore.get_data_root().validate(ValidationScope.all, ContentType.config)
+    try:
+        datastore.get_data_root().validate(ValidationScope.all, ContentType.config)
+    except (SchemaError, SemanticError) as e:
+        error("Validation of datastore failed")
+        error(ErrorHelpers.epretty(e))
+        sig_exit_handler(0, None)
 
-    # Register schema listeners
+    # Register configuration data node listeners
     CONF_DATA_HANDLES.register_handler(KnotConfServerListener(datastore, "/dns-server:dns-server/server-options"))
     CONF_DATA_HANDLES.register_handler(KnotConfLogListener(datastore, "/dns-server:dns-server/knot-dns:log"))
     CONF_DATA_HANDLES.register_handler(KnotConfZoneListener(datastore, "/dns-server:dns-server/zones"))
@@ -153,7 +170,7 @@ def main():
     # Register op handlers
     OP_HANDLERS.register_handler("generate-key", usr_op_handlers.sign_op_handler)
 
-    # Create and register state data handlers
+    # Create and register state data node listeners
     usr_state_data_handlers.create_zone_state_handlers(STATE_DATA_HANDLES, datamodel)
 
     # Initialize Knot control interface

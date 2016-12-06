@@ -1,4 +1,5 @@
 import json
+
 from threading import Lock
 from enum import Enum
 from colorlog import error, warning as warn, info
@@ -192,7 +193,8 @@ class UsrChangeJournal:
 
         try:
             # Validate syntax and semantics of new data
-            # nr.validate(ValidationScope.all, ContentType.config)
+            if CONFIG["GLOBAL"]["VALIDATE_TRANSACTIONS"] is True:
+                nr.validate(ValidationScope.all, ContentType.config)
             new_data_valid = True
         except (SchemaError, SemanticError) as e:
             error("Data validation error:")

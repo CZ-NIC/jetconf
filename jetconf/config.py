@@ -11,7 +11,8 @@ CONFIG_GLOBAL = {
     "LOG_LEVEL": "info",
     "LOG_DBG_MODULES": ["*"],
     "YANG_LIB_DIR": "yang-data/",
-    "DATA_JSON_FILE": "data.json"
+    "DATA_JSON_FILE": "data.json",
+    "VALIDATE_TRANSACTIONS": True
 }
 
 CONFIG_HTTP = {

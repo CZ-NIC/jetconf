@@ -1,7 +1,6 @@
 from enum import Enum
 from typing import List, Union, Dict, Any, Optional
 from threading import Lock
-from colorlog import info
 
 from .libknot.control import KnotCtl, KnotCtlType
 from .config import CONFIG
