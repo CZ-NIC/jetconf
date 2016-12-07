@@ -611,7 +611,10 @@ class BaseDatastore:
                     "status": "OK",
                     "conf-changed": True
                 }
+        elif rpc.op_name == "schema-digest":
+            ret_data = self._dm.schema_digest()
         else:
+            # User-defined operation
             op_handler = OP_HANDLERS.get_handler(rpc.op_name)
             if op_handler is None:
                 raise NoHandlerForOpError(rpc.op_name)

@@ -2,22 +2,25 @@ import asyncio
 import ssl
 from io import BytesIO
 from collections import OrderedDict
+
 from colorlog import error, warning as warn, info
 from typing import List, Tuple, Dict, Any, Callable, Optional
 
 from h2.connection import H2Connection
 from h2.errors import PROTOCOL_ERROR, ENHANCE_YOUR_CALM
-from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged, StreamEnded
+from h2.exceptions import ProtocolError
+from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged, StreamEnded, WindowUpdated
 
 from . import http_handlers as handlers
 from .http_handlers import HttpResponse, HttpStatus
 from .config import CONFIG_HTTP, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops
 from .data import BaseDatastore
-from .helpers import SSLCertT
+from .helpers import SSLCertT, LogHelpers
 
 
 HandlerConditionT = Callable[[str, str], bool]  # Function(method, path) -> bool
 HttpHandlerT = Callable[[OrderedDict, Optional[str], SSLCertT], handlers.HttpResponse]
+debug_srv = LogHelpers.create_module_dbg_logger(__name__)
 
 h2_handlers = None  # type: HttpHandlerList
 
@@ -27,6 +30,11 @@ class RequestData:
         self.headers = headers
         self.data = data
         self.data_overflow = False
+
+class ResponseData:
+    def __init__(self, data: bytes):
+        self.data = data
+        self.bytes_sent = 0
 
 
 class HttpHandlerList:
@@ -53,6 +61,7 @@ class H2Protocol(asyncio.Protocol):
         self.conn = H2Connection(client_side=False)
         self.transport = None
         self.stream_data = {}       # type: Dict[int, RequestData]
+        self.resp_stream_data = {}  # type: Dict[int, ResponseData]
         self.client_cert = None     # type: SSLCertT
 
     def connection_made(self, transport: asyncio.Transport):
@@ -103,11 +112,18 @@ class H2Protocol(asyncio.Protocol):
                         else:
                             warn("Unknown http method \"{}\"".format(headers[":method"]))
                             self.send_response(HttpResponse.empty(HttpStatus.MethodNotAllowed), event.stream_id)
-            # elif isinstance(event, RemoteSettingsChanged):
-            #     changed_settings = {}
-            #     for s in event.changed_settings.items():
-            #         changed_settings[s[0]] = s[1].new_value
-            #     self.conn.update_settings(changed_settings)
+            elif isinstance(event, RemoteSettingsChanged):
+                changed_settings = {}
+                for s in event.changed_settings.items():
+                    changed_settings[s[0]] = s[1].new_value
+                self.conn.update_settings(changed_settings)
+            elif isinstance(event, WindowUpdated):
+                try:
+                    debug_srv("str {} nw={}".format(event.stream_id, self.conn.local_flow_control_window(event.stream_id)))
+                    self.send_response_continue(event.stream_id)
+                except (ProtocolError, KeyError) as e:
+                    # debug_srv("wupdexception strid={}: {}".format(event.stream_id, str(e)))
+                    pass
             # else:
             #     print(type(event))
 
@@ -127,12 +143,15 @@ class H2Protocol(asyncio.Protocol):
             resp = h(headers, data, self.client_cert)
             self.send_response(resp, stream_id)
 
+    def max_chunk_size(self, stream_id: int):
+        return min(self.conn.max_outbound_frame_size, self.conn.local_flow_control_window(stream_id))
+
     def send_response(self, resp: HttpResponse, stream_id: int):
         resp_headers = (
-            (':status', resp.status_code),
-            ('content-type', resp.content_type),
-            ('content-length', len(resp.data)),
-            ('server', CONFIG_HTTP["SERVER_NAME"]),
+            (":status", resp.status_code),
+            ("content-type", resp.content_type),
+            ("content-length", str(len(resp.data))),
+            ("server", CONFIG_HTTP["SERVER_NAME"]),
         )
 
         if resp.extra_headers:
@@ -143,16 +162,38 @@ class H2Protocol(asyncio.Protocol):
         self.conn.send_headers(stream_id, resp_headers)
 
         # Do this for optimization
-        if len(resp.data) > self.conn.max_outbound_frame_size:
-            def split_arr(arr, chunk_size):
-                for i in range(0, len(arr), chunk_size):
-                    yield arr[i:i + chunk_size]
-
-            for data_chunk in split_arr(resp.data, self.conn.max_outbound_frame_size):
-                self.conn.send_data(stream_id, data_chunk, end_stream=False)
-            self.conn.send_data(stream_id, bytes(), end_stream=True)
-        else:
+        if len(resp.data) <= self.max_chunk_size(stream_id):
             self.conn.send_data(stream_id, resp.data, end_stream=True)
+        else:
+            self.resp_stream_data[stream_id] = ResponseData(resp.data)
+            self.send_response_continue(stream_id)
+
+    def send_response_continue(self, stream_id: int):
+        resp_data = self.resp_stream_data[stream_id]
+        debug_srv("Continuing...")
+
+        while self.max_chunk_size(stream_id) != 0:
+            if resp_data.bytes_sent >= len(resp_data.data):
+                self.send_response_end(stream_id)
+                return
+
+            # Get available window
+            chunk_size = self.max_chunk_size(stream_id)
+            data_chunk = resp_data.data[resp_data.bytes_sent:resp_data.bytes_sent + chunk_size]
+            resp_data.bytes_sent += chunk_size
+            debug_srv("len = {}, max = {}, sent={}, dlen={}, strid={}".format(
+                len(data_chunk),
+                chunk_size,
+                resp_data.bytes_sent,
+                len(resp_data.data),
+                stream_id
+            ))
+            self.conn.send_data(stream_id, data_chunk, end_stream=False)
+
+    def send_response_end(self, stream_id: int):
+        debug_srv("Ending stream {}...".format(stream_id))
+        self.conn.send_data(stream_id, bytes(), end_stream=True)
+        del self.resp_stream_data[stream_id]
 
 
 class RestServer:

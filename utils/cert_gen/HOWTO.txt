@@ -28,4 +28,5 @@ Now you should have the following files:
 output_filename.pem	- the client certificate
 output_filename.key - the client private key
 output_filename_curl.pem - the combination of previous 2 files containing both
-certificate and key
+certificate and key. Some utilities like CURL expect the client certificate
+to be in this combined form.

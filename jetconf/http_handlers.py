@@ -443,7 +443,10 @@ def create_api_op(ds: BaseDatastore):
             if ret_data is None:
                 http_resp = HttpResponse.empty(HttpStatus.NoContent, status_in_body=False)
             else:
-                response = json.dumps(ret_data, indent=4)
+                if not isinstance(ret_data, str):
+                    response = json.dumps(ret_data, indent=4)
+                else:
+                    response = ret_data
                 http_resp = HttpResponse(HttpStatus.Ok, response.encode(), CT_YANG_JSON)
         except NacmForbiddenError as e:
             warn(epretty(e))
