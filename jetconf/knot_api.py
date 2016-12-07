@@ -244,14 +244,13 @@ class KnotConfig(KnotCtl):
             raise KnotApiError("Knot socket is closed")
 
         resp_list = []
-        if value is not None:
-            for data_item in value:
-                self.send_block("conf-set", section=section, identifier=identifier, item=item, data=data_item)
-                try:
-                    resp = self.receive_block()
-                    resp_list.append(resp)
-                except Exception as e:
-                    raise KnotInternalError(str(e))
+        for data_item in value:
+            self.send_block("conf-set", section=section, identifier=identifier, item=item, data=data_item)
+            try:
+                resp = self.receive_block()
+                resp_list.append(resp)
+            except Exception as e:
+                raise KnotInternalError(str(e))
 
         return resp_list
 
