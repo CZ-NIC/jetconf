@@ -273,7 +273,7 @@ class KnotConfig(KnotCtl):
 
     # Removes a DNS zone from configuration section
     def zone_remove(self, domain_name: str) -> JsonNodeT:
-        resp = self.unset_item(section="zone", identifier=None, item="domain", zone=domain_name)
+        resp = self.unset_item(section="zone", identifier=domain_name, item="domain")
         return resp
 
     # Adds a resource record to DNS zone
