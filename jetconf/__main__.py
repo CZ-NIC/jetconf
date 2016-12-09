@@ -9,7 +9,7 @@ from colorlog import error, info
 from yaml.parser import ParserError
 
 from yangson.enumerations import ContentType, ValidationScope
-from yangson.exception import YangsonException
+from yangson.exceptions import YangsonException
 from yangson.schema import SchemaError, SemanticError
 
 from . import usr_op_handlers, usr_state_data_handlers

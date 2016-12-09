@@ -27,7 +27,8 @@ from yangson.instance import (
     EntryIndex,
     InstanceRoute,
     ArrayEntry,
-    RootNode)
+    RootNode
+)
 
 from .helpers import PathFormat, ErrorHelpers, LogHelpers, DataHelpers, JsonNodeT
 from .config import CONFIG
