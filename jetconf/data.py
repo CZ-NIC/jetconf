@@ -554,11 +554,6 @@ class BaseDatastore:
 
     # Invoke an operation
     def invoke_op_rpc(self, rpc: RpcInfo) -> ObjectValue:
-        if self.nacm and (not rpc.skip_nacm_check):
-            nrpc = self.nacm.get_user_nacm(rpc.username)
-            if nrpc.check_rpc_name(rpc.op_name) == Action.DENY:
-                raise NacmForbiddenError("Op \"{}\" invocation denied for user \"{}\"".format(rpc.op_name, rpc.username))
-
         if rpc.op_name == "conf-start":
             try:
                 cl_name = rpc.op_input_args["name"]
@@ -611,10 +606,17 @@ class BaseDatastore:
                     "status": "OK",
                     "conf-changed": True
                 }
-        elif rpc.op_name == "schema-digest":
+        elif rpc.op_name == "get-schema-digest":
             ret_data = self._dm.schema_digest()
         else:
             # User-defined operation
+            if self.nacm and (not rpc.skip_nacm_check):
+                nrpc = self.nacm.get_user_nacm(rpc.username)
+                if nrpc.check_rpc_name(rpc.op_name) == Action.DENY:
+                    raise NacmForbiddenError(
+                        "Op \"{}\" invocation denied for user \"{}\"".format(rpc.op_name, rpc.username)
+                    )
+
             op_handler = OP_HANDLERS.get_handler(rpc.op_name)
             if op_handler is None:
                 raise NoHandlerForOpError(rpc.op_name)
