@@ -129,7 +129,7 @@ def _get(ds: BaseDatastore, pth: str, username: str, yl_data: bool=False, stagin
             response = json.dumps(n.raw_value(), indent=4)
 
             add_headers = OrderedDict()
-            add_headers["ETag"] = hash(n.value)
+            add_headers["ETag"] = str(hash(n.value))
             try:
                 lm_time = DateTimeHelpers.to_httpdate_str(n.value.timestamp, CONFIG_GLOBAL["TIMEZONE"])
                 add_headers["Last-Modified"] = lm_time
