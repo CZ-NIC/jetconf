@@ -1,5 +1,6 @@
 PROJECT = jetconf
-.PHONY = tags deps install-deps
+VERSION = 0.1.1
+.PHONY = tags deps install-deps test
 
 tags:
 	find $(PROJECT) -name "*.py" | etags -
@@ -9,3 +10,15 @@ deps:
 
 install-deps:
 	pip install -r requirements.txt
+
+test:
+	@py.test tests
+
+release:
+	git tag -a -m "Jetconf release $(VERSION)" $(VERSION)
+	rm -f dist/*
+	python setup.py sdist
+	python setup.py bdist_wheel
+
+upload:
+	twine upload dist/*
