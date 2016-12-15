@@ -32,7 +32,7 @@ CONFIG_HTTP = {
 }
 
 CONFIG_NACM = {
-    "ALLOWED_USERS": "lojza@mail.cz"
+    "ALLOWED_USERS": ["lojza@mail.tld"]
 }
 
 CONFIG_KNOT = {

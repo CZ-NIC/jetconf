@@ -19,7 +19,7 @@ HTTP_SERVER:
     DBG_DISABLE_CERTS: false
 
 NACM:
-    ALLOWED_USERS: ["lojza@mail.cz"]
+    ALLOWED_USERS: ["lojza@mail.tld"]
 
 KNOT:
     SOCKET: "/home/user/knot-conf/knot.sock"
