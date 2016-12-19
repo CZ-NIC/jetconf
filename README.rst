@@ -23,7 +23,7 @@ Installation
 
 ::
 
-   python -m pip install yangson
+   python -m pip install jetconf
 
 Note that *JetConf* requires Python 3.5.
 
