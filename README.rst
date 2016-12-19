@@ -22,6 +22,7 @@ Installation
 ============
 
 ::
+
    python -m pip install yangson
 
 Links
