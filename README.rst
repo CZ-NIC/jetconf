@@ -25,6 +25,8 @@ Installation
 
    python -m pip install yangson
 
+Note that *JetConf* requires Python 3.5.
+
 Links
 =====
 
