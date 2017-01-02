@@ -6,10 +6,10 @@ tags:
 	find $(PROJECT) -name "*.py" | etags -
 
 deps:
-	pip freeze > requirements.txt
+	pip3 freeze > requirements.txt
 
 install-deps:
-	pip install -r requirements.txt
+	pip3 install -r requirements.txt
 
 test:
 	@py.test tests
@@ -17,8 +17,8 @@ test:
 release:
 	git tag -a -m "Jetconf release $(VERSION)" $(VERSION)
 	rm -f dist/*
-	python setup.py sdist
-	python setup.py bdist_wheel
+	python3 setup.py sdist
+	python3 setup.py bdist_wheel
 
 upload:
 	twine upload dist/*

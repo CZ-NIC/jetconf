@@ -20,7 +20,7 @@ CONFIG_HTTP = {
     "DOC_DEFAULT_NAME": "index.html",
     "API_ROOT": "/restconf",
     "API_ROOT_STAGING": "/restconf_staging",
-    "SERVER_NAME": "hyper-h2",
+    "SERVER_NAME": "jetconf-h2",
     "UPLOAD_SIZE_LIMIT": 1,
     "LISTEN_LOCALHOST_ONLY": False,
     "PORT": 8443,
