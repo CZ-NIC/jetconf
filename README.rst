@@ -7,14 +7,34 @@ JetConf
 :Author: Pavel Špírek <pavel.spirek@nic.cz>
 :Date: |date|
 
-HTTP/2 RESTCONF implementation.
+*JetConf* is an implementation of the RESTCONF_ protocol written in
+Python 3. Main features:
 
-Development
-===========
+* HTTP/2 over TLS, certificate-based authentication of clients
 
-* devinstall_ – installation of the development environment,
+* JSON data encoding
 
-* `tools-rules`_ – development tools and rules.
+* Per-user candidate datastores with transactions
 
-.. _devinstall: https://gitlab.labs.nic.cz/labs/jetconf/wikis/devinstall
-.. _tools-rules: https://gitlab.labs.nic.cz/labs/jetconf/wikis/tools-rules
+* Support for NACM_
+
+Installation
+============
+
+::
+
+   python -m pip install jetconf
+
+Note that *JetConf* requires Python 3.5.
+
+Links
+=====
+
+* `Git repository`_
+
+* `Documentation`_
+
+.. _RESTCONF: https://tools.ietf.org/html/draft-ietf-netconf-restconf-18
+.. _NACM: https://datatracker.ietf.org/doc/rfc6536/
+.. _Git repository: https://github.com/CZ-NIC/jetconf
+.. _Documentation: https://gitlab.labs.nic.cz/labs/jetconf/wikis/home
