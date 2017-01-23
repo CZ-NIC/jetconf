@@ -8,7 +8,7 @@ from colorlog import error, warning as warn, info
 from urllib.parse import parse_qs
 from typing import Dict, List, Optional
 
-from yangson.schema import NonexistentSchemaNode
+from yangson.schema import NonexistentSchemaNode, ContainerNode, ListNode, GroupNode
 from yangson.instance import NonexistentInstance, InstanceValueError
 from yangson.datatype import YangTypeError
 
@@ -32,6 +32,10 @@ debug_httph = LogHelpers.create_module_dbg_logger(__name__)
 
 CT_PLAIN = "text/plain"
 CT_YANG_JSON = "application/yang.api+json"
+
+
+class HttpRequestError(Exception):
+    pass
 
 
 class HttpStatus(Enum):
@@ -126,7 +130,33 @@ def _get(ds: BaseDatastore, pth: str, username: str, yl_data: bool=False, stagin
             ds.unlock_data()
 
         if n is not None:
-            response = json.dumps(n.raw_value(), indent=4)
+            n_value = n.raw_value()
+
+            try:
+                env_n = n.up()
+                env_sn = env_n.schema_node
+                print(n.schema_node)
+                print(env_sn)
+                if isinstance(env_sn, (ContainerNode, GroupNode)):
+                    sn = n.schema_node
+                    restconf_env = "{}:{}".format(sn.qual_name[1], sn.qual_name[0])
+                    restconf_n_value = {restconf_env: n_value}
+                elif isinstance(env_sn, ListNode):
+                    sn = n.schema_node
+                    restconf_env = "{}:{}".format(sn.qual_name[1], sn.qual_name[0])
+                    if isinstance(n_value, list):
+                        # List and list item points to the same schema node
+                        restconf_n_value = {restconf_env: n_value}
+                    else:
+                        restconf_n_value = {restconf_env: [n_value]}
+                else:
+                    raise HttpRequestError()
+            except NonexistentInstance:
+                # Getting root node (cannot go up)
+                restconf_env = "ietf-restconf:data"
+                restconf_n_value = {restconf_env: n_value}
+
+            response = json.dumps(restconf_n_value, indent=4)
 
             add_headers = OrderedDict()
             add_headers["ETag"] = str(hash(n.value))
@@ -142,6 +172,9 @@ def _get(ds: BaseDatastore, pth: str, username: str, yl_data: bool=False, stagin
     except DataLockError as e:
         warn(epretty(e))
         http_resp = HttpResponse.empty(HttpStatus.InternalServerError)
+    except HttpRequestError as e:
+        warn(epretty(e))
+        http_resp = HttpResponse.empty(HttpStatus.BadRequest)
 
     return http_resp
 

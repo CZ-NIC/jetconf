@@ -1,8 +1,56 @@
 from typing import List, Tuple, Callable, Any
 from yangson.context import Context
 from yangson.schema import SchemaNode
+from yangson.instance import InstanceRoute
 
 HandlerSelectorT = Any
+
+
+class ConfDataObjectHandler:
+    def __init__(self, ds: "BaseDatastore", sch_pth: str):
+        self.ds = ds
+        self.schema_path = sch_pth                          # type: str
+        self.schema_node = ds.get_schema_node(sch_pth)      # type: SchemaNode
+
+    def create(self, ii: InstanceRoute, ch: "DataChange"):
+        pass
+
+    def replace(self, ii: InstanceRoute, ch: "DataChange"):
+        pass
+
+    def delete(self, ii: InstanceRoute, ch: "DataChange"):
+        pass
+
+    def __str__(self):
+        return self.__class__.__name__ + ": listening at " + self.schema_path
+
+
+class ConfDataListHandler:
+    def __init__(self, ds: "BaseDatastore", sch_pth: str):
+        self.ds = ds
+        self.schema_path = sch_pth                          # type: str
+        self.schema_node = ds.get_schema_node(sch_pth)      # type: SchemaNode
+
+    def create_item(self, ii: InstanceRoute, ch: "DataChange"):
+        pass
+
+    def replace_item(self, ii: InstanceRoute, ch: "DataChange"):
+        pass
+
+    def delete_item(self, ii: InstanceRoute, ch: "DataChange"):
+        pass
+
+    def create_list(self, ii: InstanceRoute, ch: "DataChange"):
+        pass
+
+    def replace_list(self, ii: InstanceRoute, ch: "DataChange"):
+        pass
+
+    def delete_list(self, ii: InstanceRoute, ch: "DataChange"):
+        pass
+
+    def __str__(self):
+        return self.__class__.__name__ + ": listening at " + self.schema_path
 
 
 class BaseHandlerList:
@@ -16,7 +64,7 @@ class BaseHandlerList:
     def register_default_handler(self, handler: Callable):
         self.default_handler = handler
 
-    def get_handler(self, identifier: str) -> Callable:
+    def get_handler(self, identifier: str) -> Any:
         raise NotImplementedError("Not implemented in base class")
 
 
@@ -41,7 +89,7 @@ class ConfDataHandlerList:
         sch_node_id = str(id(schema_node))
         self.handlers.append((sch_node_id, handler))
 
-    def get_handler(self, sch_node_id: str) -> Callable:
+    def get_handler(self, sch_node_id: str) -> "BaseDataListener":
         for h in self.handlers:
             if h[0] == sch_node_id:
                 return h[1]

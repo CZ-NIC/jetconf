@@ -2,9 +2,10 @@ from typing import List, Dict, Union, Any
 
 from yangson.instance import InstanceRoute, ObjectValue, EntryKeys, MemberName
 from . import knot_api
-from .data import BaseDataListener, SchemaNode, ChangeType, DataChange
+from .data import BaseDatastore, SchemaNode, ChangeType, DataChange
 from .helpers import PathFormat, ErrorHelpers, LogHelpers, DataHelpers
 from .knot_api import RRecordBase, SOARecord, ARecord, AAAARecord, NSRecord, MXRecord
+from .handler_list import ConfDataObjectHandler, ConfDataListHandler
 
 JsonNodeT = Union[Dict[str, Any], List]
 epretty = ErrorHelpers.epretty
@@ -12,12 +13,11 @@ debug_confh = LogHelpers.create_module_dbg_logger(__name__)
 
 
 # Config handler for "server" section
-class KnotConfServerListener(BaseDataListener):
-    def process(self, sn: SchemaNode, ii: InstanceRoute, ch: DataChange):
-        debug_confh(self.__class__.__name__ + " triggered")
+class KnotConfServerListener(ConfDataObjectHandler):
+    def replace(self, ii: InstanceRoute, ch: DataChange):
+        debug_confh(self.__class__.__name__ + " replace triggered")
 
-        base_ii_str = self.schema_path
-        base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
+        base_ii = ii[0:2]
         base_nv = self.ds.get_data_root().goto(base_ii).value
 
         knot_api.KNOT.unset_section(section="server")
@@ -88,14 +88,21 @@ class KnotConfServerListener(BaseDataListener):
             value=base_nv.get("response-rate-limiting", {}).get("table-size")
         )
 
+    def delete(self, ii: InstanceRoute, ch: DataChange):
+        debug_confh(self.__class__.__name__ + " delete triggered")
+        knot_api.KNOT.unset_section(section="server")
+
 
 # Config handler for "log" section
-class KnotConfLogListener(BaseDataListener):
-    def process(self, sn: SchemaNode, ii: InstanceRoute, ch: DataChange):
-        debug_confh(self.__class__.__name__ + " triggered")
+class KnotConfLogListener(ConfDataListHandler):
+    def replace_item(self, ii: InstanceRoute, ch: "DataChange"):
+        # No big data expected, can rewrite whole list
+        self.replace_list(ii, ch)
 
-        base_ii_str = self.schema_path
-        base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
+    def replace_list(self, ii: InstanceRoute, ch: DataChange):
+        debug_confh(self.__class__.__name__ + " replace_list triggered")
+
+        base_ii = ii[0:2]
         base_nv = self.ds.get_data_root().goto(base_ii).value
 
         knot_api.KNOT.unset_section(section="log")
@@ -111,27 +118,29 @@ class KnotConfLogListener(BaseDataListener):
             knot_api.KNOT.set_item(section="log", identifier=tgt, item="zone", value=logitem.get("zone"))
             knot_api.KNOT.set_item(section="log", identifier=tgt, item="any", value=logitem.get("any"))
 
+    def delete_list(self, ii: InstanceRoute, ch: DataChange):
+        debug_confh(self.__class__.__name__ + " delete_list triggered")
+        knot_api.KNOT.unset_section(section="log")
+
 
 # Config handler for "zone" section
-class KnotConfZoneListener(BaseDataListener):
-    def process(self, sn: SchemaNode, ii: InstanceRoute, ch: DataChange):
-        debug_confh(self.__class__.__name__ + " triggered")
+class KnotConfZoneListener(ConfDataObjectHandler):
+    def create(self, ii: InstanceRoute, ch: DataChange):
+        debug_confh(self.__class__.__name__ + " create triggered")
 
-        base_ii_str = self.schema_path
-        base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
+        base_ii = ii[0:2]
 
         # Create new zone
         if (ii == base_ii) and (ch.change_type == ChangeType.CREATE):
             domain = ch.data["zone"]["domain"]
             debug_confh("Creating new zone \"{}\"".format(domain))
             knot_api.KNOT.zone_new(domain)
-        # Delete zone
-        elif (len(ii) == 4) and isinstance(ii[3], EntryKeys) and (ch.change_type == ChangeType.DELETE):
-            domain = ii[3].keys["domain"]
-            debug_confh("Deleting zone \"{}\"".format(domain))
-            knot_api.KNOT.zone_remove(domain)
+
+    def replace(self, ii: InstanceRoute, ch: DataChange):
+        debug_confh(self.__class__.__name__ + " replace triggered")
+
         # Edit particular zone
-        elif (len(ii) >= 4) and isinstance(ii[2], MemberName) and isinstance(ii[3], EntryKeys):
+        if (len(ii) >= 4) and isinstance(ii[2], MemberName) and isinstance(ii[3], EntryKeys):
             domain = ii[3].keys["domain"]
             debug_confh("Editing config of zone \"{}\"".format(domain))
 
@@ -221,16 +230,25 @@ class KnotConfZoneListener(BaseDataListener):
                 value=zone_nv.get("knot-dns:semantic-checks")
             )
 
+    def delete(self, ii: InstanceRoute, ch: DataChange):
+        debug_confh(self.__class__.__name__ + " delete triggered")
+
+        # Delete zone
+        if (len(ii) == 4) and isinstance(ii[3], EntryKeys) and (ch.change_type == ChangeType.DELETE):
+            domain = ii[3].keys["domain"]
+            debug_confh("Deleting zone \"{}\"".format(domain))
+            knot_api.KNOT.zone_remove(domain, False)
+
 
 # Config handler for "control" section
-class KnotConfControlListener(BaseDataListener):
-    def process(self, sn: SchemaNode, ii: InstanceRoute, ch: DataChange):
-        debug_confh(self.__class__.__name__ + " triggered")
+class KnotConfControlListener(ConfDataObjectHandler):
+    def replace(self, ii: InstanceRoute, ch: DataChange):
+        debug_confh(self.__class__.__name__ + " replace triggered")
 
-        base_ii_str = self.schema_path
-        base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
+        base_ii = ii[0:2]
         base_nv = self.ds.get_data_root().goto(base_ii).value
 
+        knot_api.KNOT.unset_section(section="control")
         knot_api.KNOT.set_item(
             section="control",
             identifier=None,
@@ -238,12 +256,16 @@ class KnotConfControlListener(BaseDataListener):
             value=base_nv.get("unix")
         )
 
+    def delete(self, ii: InstanceRoute, ch: DataChange):
+        debug_confh(self.__class__.__name__ + " delete triggered")
+        knot_api.KNOT.unset_section(section="control")
+
 
 # Config handler for "acl" section
-class KnotConfAclListener(BaseDataListener):
+class KnotConfAclListener(ConfDataListHandler):
     @staticmethod
-    def _process_list_item(acl_nv: ObjectValue):
-        name = acl_nv.get("name")
+    def _write_list_item(acl_nv: ObjectValue):
+        name = acl_nv["name"]
         debug_confh("ACL name={}".format(name))
 
         knot_api.KNOT.set_item(
@@ -287,23 +309,35 @@ class KnotConfAclListener(BaseDataListener):
             value={"deny": "true", "allow": "false"}.get(action)
         )
 
-    def process(self, sn: SchemaNode, ii: InstanceRoute, ch: DataChange):
-        debug_confh(self.__class__.__name__ + " triggered")
+    def replace_item(self, ii: InstanceRoute, ch: "DataChange"):
+        debug_confh(self.__class__.__name__ + " replace triggered")
 
-        base_ii_str = self.schema_path
-        base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
+        base_ii = ii[0:3]   # type: InstanceRoute
+        base_nv = self.ds.get_data_root().goto(base_ii).value   # type: ObjectValue
+
+        acl_name = base_nv["name"]
+        knot_api.KNOT.unset_section(section="acl", identifier=acl_name)
+        self._write_list_item(base_nv)
+
+    def replace_list(self, ii: InstanceRoute, ch: DataChange):
+        debug_confh(self.__class__.__name__ + " replace triggered")
+
+        base_ii = ii[0:2]
         base_nv = self.ds.get_data_root().goto(base_ii).value
 
         knot_api.KNOT.unset_section(section="acl")
         for acl_nv in base_nv:
-            self._process_list_item(acl_nv)
+            self._write_list_item(acl_nv)
+
+    def delete_list(self, ii: InstanceRoute, ch: DataChange):
+        debug_confh(self.__class__.__name__ + " delete triggered")
+        knot_api.KNOT.unset_section(section="acl")
 
 
-# Zone data handler
-class KnotZoneDataListener(BaseDataListener):
+class RRHelpers:
     # Create RR object from "rdata" json node
     @staticmethod
-    def _rr_from_rdata_item(domain_name: str, rr_owner: str, rr_ttl: int, rr_type: str, rdata_item: JsonNodeT) -> RRecordBase:
+    def rr_from_rdata_item(domain_name: str, rr_owner: str, rr_ttl: int, rr_type: str, rdata_item: JsonNodeT) -> RRecordBase:
         try:
             if rr_type == "A":
                 new_rr = ARecord(domain_name, rr_ttl)
@@ -328,118 +362,107 @@ class KnotZoneDataListener(BaseDataListener):
 
         return new_rr
 
-    def process(self, sn: SchemaNode, ii: InstanceRoute, ch: DataChange):
+
+# Zone data handler
+class KnotZoneDataListener(ConfDataObjectHandler):
+    def process(self, ii: InstanceRoute, ch: DataChange):
         debug_confh(self.__class__.__name__ + " triggered")
 
-        base_ii_str = "/dns-zones:zone-data"
-        base_ii = DataHelpers.parse_ii(base_ii_str, PathFormat.URL)
-        base_ii_len = len(base_ii)
-        ii_str = "".join([str(seg) for seg in ii])
+        domain_name = ii[2].keys["name"]
 
-        debug_confh("ZoneDataHandler: Change at sn \"{}\", dn \"{}\"".format(sn.name, ii_str))
+        base_ii = ii[0:3]
+        base_data = self.ds.get_data_root().goto(base_ii).value
+
+        # Remove the whole zone from Knot
+        knot_api.KNOT.zone_remove(domain_name, purge_data=True)
 
         # Create new zone with SOA in zone data section
-        if (ii == base_ii) and (ch.change_type == ChangeType.CREATE):
-            domain_name = ch.data["zone"]["name"]
-            def_ttl = ch.data["zone"]["default-ttl"]
+        def_ttl = base_data["default-ttl"]
 
-            soa = ch.data.get("zone", {}).get("SOA")
+        soa = base_data.get("zone", {}).get("SOA")
 
-            soarr = SOARecord()
-            soarr.ttl = def_ttl
-            soarr.mname = soa["mname"]
-            soarr.rname = soa["rname"]
-            soarr.serial = soa["serial"]
-            soarr.refresh = soa["refresh"]
-            soarr.retry = soa["retry"]
-            soarr.expire = soa["expire"]
-            soarr.minimum = soa["minimum"]
+        soarr = SOARecord()
+        soarr.ttl = def_ttl
+        soarr.mname = soa["mname"]
+        soarr.rname = soa["rname"]
+        soarr.serial = soa["serial"]
+        soarr.refresh = soa["refresh"]
+        soarr.retry = soa["retry"]
+        soarr.expire = soa["expire"]
+        soarr.minimum = soa["minimum"]
 
-            debug_confh("KnotApi: adding new SOA RR to zone \"{}\"".format(domain_name))
-            knot_api.KNOT.zone_add_record(domain_name, soarr)
+        debug_confh("KnotApi: adding new SOA RR to zone \"{}\"".format(domain_name))
+        knot_api.KNOT.zone_add_record(domain_name, soarr)
 
-        # Add resource record to particular zone
-        elif (
-                len(ii) == (base_ii_len + 2)) \
-                and isinstance(ii[base_ii_len], MemberName) and (ii[base_ii_len].key == "zone") \
-                and isinstance(ii[base_ii_len + 1], EntryKeys) \
-                and (ch.change_type == ChangeType.CREATE) \
-                and (ch.data.get("rrset") is not None):
-            domain_name = ii[base_ii_len + 1].keys["name"]
-            rr = ch.data.get("rrset", {})
+        for rr in base_data.get("rrset", []):
+            # Add resource record to particular zone
             rr_owner = rr["owner"]
             rr_type = rr.get("type").split(":")[-1]
             rr_ttl = rr.get("ttl")
             if rr_ttl is None:
                 # Obtain default ttl from datastore if not specified explicitly
-                rr_ttl = self.ds.get_data_root().goto(ii[0:3]).value["default-ttl"]
+                rr_ttl = base_data["default-ttl"]
 
             for rdata_item in rr["rdata"]:
-                new_rr = self._rr_from_rdata_item(domain_name, rr_owner, rr_ttl, rr_type, rdata_item)
+                new_rr = RRHelpers.rr_from_rdata_item(domain_name, rr_owner, rr_ttl, rr_type, rdata_item)
                 if new_rr is not None:
                     debug_confh("KnotApi: adding new {} RR to zone \"{}\"".format(rr_type, domain_name))
                     knot_api.KNOT.zone_add_record(domain_name, new_rr)
 
-        # Add resource record to particular zone (only specific "rdata" item)
-        elif (
-                len(ii) == (base_ii_len + 4)) \
-                and isinstance(ii[base_ii_len], MemberName) and (ii[base_ii_len].key == "zone") \
-                and isinstance(ii[base_ii_len + 1], EntryKeys) \
-                and isinstance(ii[base_ii_len + 2], MemberName) and (ii[base_ii_len + 2].key == "rrset") \
-                and isinstance(ii[base_ii_len + 3], EntryKeys) \
-                and (ch.change_type == ChangeType.CREATE) \
-                and (ch.data.get("rdata") is not None):
-            domain_name = ii[base_ii_len + 1].keys["name"]
-            rdata_item = ch.data.get("rdata", {})
-            keys_ii_seg = ii[len(base_ii) + 3]
-            rr_owner = keys_ii_seg.keys["owner"]
-            rr_type = keys_ii_seg.keys["type"][0].split(":")[-1]
 
-            # Try to use record-specific ttl first
-            rr_ttl = self.ds.get_data_root().goto(ii).value.get("ttl")
+class KnotZoneDataRRListener(ConfDataObjectHandler):
+    def process(self, ii: InstanceRoute, ch: DataChange):
+        debug_confh(self.__class__.__name__ + " triggered")
+
+        domain_name = ii[2].keys["name"]
+        rr_owner = ii[4].keys["owner"]
+        rr_type = ii[4].keys["type"][0]
+
+        base_ii = ii[0:5]
+        base_data_persistent = self.ds.get_data_root().goto(base_ii)
+        base_data = base_data_persistent.value
+
+        # Delete resource record from particular zone
+        debug_confh("KnotApi: deleting {} RR from zone \"{}\"".format(rr_type, domain_name))
+        knot_api.KNOT.zone_del_record(domain_name, rr_owner, rr_type)
+
+        # Write new resource record(s)
+        for rdata_item in base_data["rdata"]:
+            rr_ttl = base_data.get("ttl")
             if rr_ttl is None:
                 # Obtain default ttl from datastore if not specified explicitly
-                rr_ttl = self.ds.get_data_root().goto(ii[0:3]).value["default-ttl"]
+                rr_ttl = base_data_persistent.up().value["default-ttl"]
 
-            new_rr = self._rr_from_rdata_item(domain_name, rr_owner, rr_ttl, rr_type, rdata_item)
-
+            new_rr = RRHelpers.rr_from_rdata_item(domain_name, rr_owner, rr_ttl, rr_type, rdata_item)
             if new_rr is not None:
                 debug_confh("KnotApi: adding new {} RR to zone \"{}\"".format(rr_type, domain_name))
                 knot_api.KNOT.zone_add_record(domain_name, new_rr)
 
+
+class KnotZoneDataRdataListener(ConfDataObjectHandler):
+    def process(self, ii: InstanceRoute, ch: DataChange):
+        debug_confh(self.__class__.__name__ + " triggered")
+
+        domain_name = ii[2].keys["name"]
+        rr_owner = ii[4].keys["owner"]
+        rr_type = ii[4].keys["type"][0]
+
+        base_ii = ii[0:7]
+        base_data_persistent = self.ds.get_data_root().goto(base_ii)
+        base_data = base_data_persistent.value
+
         # Delete resource record from particular zone
-        elif (
-                len(ii) == (base_ii_len + 4)) \
-                and isinstance(ii[base_ii_len], MemberName) and (ii[base_ii_len].key == "zone") \
-                and isinstance(ii[base_ii_len + 1], EntryKeys) \
-                and isinstance(ii[base_ii_len + 2], MemberName) and (ii[base_ii_len + 2].key == "rrset") \
-                and isinstance(ii[base_ii_len + 3], EntryKeys) \
-                and (ch.change_type == ChangeType.DELETE):
-            domain_name = ii[base_ii_len + 1].keys["name"]
-            keys_ii_seg = ii[len(base_ii) + 3]
-            rr_owner = keys_ii_seg.keys["owner"]
-            rr_type = keys_ii_seg.keys["type"][0]
+        rr_sel = RRHelpers.rr_from_rdata_item(domain_name, rr_owner, 0, rr_type, base_data)
+        debug_confh("KnotApi: deleting {} RR from zone \"{}\"".format(rr_type, domain_name))
+        knot_api.KNOT.zone_del_record(domain_name, rr_owner, rr_type, selector=rr_sel.rrdata_format())
 
-            debug_confh("KnotApi: deleting {} RR from zone \"{}\"".format(rr_type, domain_name))
-            knot_api.KNOT.zone_del_record(domain_name, rr_owner, rr_type)
+        # Write new resource record
+        rr_ttl = base_data_persistent.up().value.get("ttl")
+        if rr_ttl is None:
+            # Obtain default ttl from datastore if not specified explicitly
+            rr_ttl = base_data_persistent.up().up().value["default-ttl"]
 
-        # Delete resource record from particular zone (only specific "rdata" item)
-        elif (
-                len(ii) == (base_ii_len + 6)) \
-                and isinstance(ii[base_ii_len], MemberName) and (ii[base_ii_len].key == "zone") \
-                and isinstance(ii[base_ii_len + 1], EntryKeys) \
-                and isinstance(ii[base_ii_len + 2], MemberName) and (ii[base_ii_len + 2].key == "rrset") \
-                and isinstance(ii[base_ii_len + 3], EntryKeys) \
-                and isinstance(ii[base_ii_len + 4], MemberName) and (ii[base_ii_len + 4].key == "rdata") \
-                and isinstance(ii[base_ii_len + 5], EntryKeys) \
-                and (ch.change_type == ChangeType.DELETE):
-            domain_name = ii[base_ii_len + 1].keys["name"]
-            keys_ii_seg = ii[len(base_ii) + 3]
-            rr_owner = keys_ii_seg.keys["owner"]
-            rr_type = keys_ii_seg.keys["type"][0]
-            rdata_item = self.ds.get_data_root(previous_version=1).goto(ii).value
-
-            rr_sel = self._rr_from_rdata_item(domain_name, rr_owner, 0, rr_type, rdata_item)
-
-            debug_confh("KnotApi: deleting {} RR from zone \"{}\"".format(rr_type, domain_name))
-            knot_api.KNOT.zone_del_record(domain_name, rr_owner, rr_type, selector=rr_sel.rrdata_format())
+        new_rr = RRHelpers.rr_from_rdata_item(domain_name, rr_owner, rr_ttl, rr_type, base_data)
+        if new_rr is not None:
+            debug_confh("KnotApi: adding new {} RR to zone \"{}\"".format(rr_type, domain_name))
+            knot_api.KNOT.zone_add_record(domain_name, new_rr)

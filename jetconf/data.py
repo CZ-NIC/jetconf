@@ -9,13 +9,12 @@ from yangson.datamodel import DataModel
 from yangson.enumerations import ContentType, ValidationScope
 from yangson.schema import (
     SchemaNode,
-    NonexistentSchemaNode,
     ListNode,
     LeafListNode,
     SchemaError,
     SemanticError,
-    InternalNode
-)
+    InternalNode,
+    ContainerNode)
 from yangson.instance import (
     InstanceNode,
     NonexistentInstance,
@@ -33,7 +32,7 @@ from yangson.instance import (
 from .helpers import PathFormat, ErrorHelpers, LogHelpers, DataHelpers, JsonNodeT
 from .config import CONFIG
 from .nacm import NacmConfig, Permission, Action
-from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES
+from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES, ConfDataObjectHandler, ConfDataListHandler
 
 epretty = ErrorHelpers.epretty
 debug_data = LogHelpers.create_module_dbg_logger(__name__)
@@ -96,19 +95,6 @@ class NoHandlerForOpError(NoHandlerError):
 
 class NoHandlerForStateDataError(NoHandlerError):
     pass
-
-
-class BaseDataListener:
-    def __init__(self, ds: "BaseDatastore", sch_pth: str):
-        self.ds = ds
-        self.schema_path = sch_pth                          # type: str
-        self.schema_node = ds.get_schema_node(sch_pth)      # type: SchemaNode
-
-    def process(self, sn: SchemaNode, ii: InstanceRoute, ch: "DataChange"):
-        raise NotImplementedError("Not implemented in base class")
-
-    def __str__(self):
-        return self.__class__.__name__ + ": listening at " + self.schema_path
 
 
 class RpcInfo:
@@ -305,7 +291,7 @@ class BaseDatastore:
 
     # Get schema node with particular schema address
     def get_schema_node(self, sch_pth: str) -> SchemaNode:
-        sn = self._dm.get_schema_node(sch_pth)
+        sn = self._dm.get_data_node(sch_pth)
         if sn is None:
             # raise NonexistentSchemaNode(sch_pth)
             debug_data("Cannot find schema node for " + sch_pth)
@@ -314,21 +300,50 @@ class BaseDatastore:
     # Notify data observers about change in datastore
     def run_conf_edit_handler(self, ii: InstanceRoute, ch: DataChange):
         try:
-            sch_pth_list = filter(lambda n: isinstance(n, MemberName), ii)
+            sch_pth_list = list(filter(lambda n: isinstance(n, MemberName), ii))
+
+            if ch.change_type == ChangeType.CREATE:
+                # Get target member name
+                input_member_name = tuple(ch.data.keys())[0]
+                # Append it to ii
+                sch_pth_list.append(MemberName(input_member_name))
+
             sch_pth = DataHelpers.ii2str(sch_pth_list)
             sn = self.get_schema_node(sch_pth)
 
-            while sn is not None:
-                h = CONF_DATA_HANDLES.get_handler(str(id(sn)))
-                if h is not None:
-                    h.process(sn, ii, ch)
+            if sn is None:
+                return
+
+            h = CONF_DATA_HANDLES.get_handler(str(id(sn)))
+            if h is not None:
+                info("handler for actual data node triggered")
+                if ch.change_type == ChangeType.CREATE:
+                    h.create(ii, ch)
+                elif ch.change_type == ChangeType.REPLACE:
+                    h.replace(ii, ch)
+                elif ch.change_type == ChangeType.DELETE:
+                    h.delete(ii, ch)
+            else:
                 sn = sn.parent
+                while sn is not None:
+                    h = CONF_DATA_HANDLES.get_handler(str(id(sn)))
+                    if h is not None and isinstance(h, ConfDataObjectHandler):
+                        info("handler for superior data node triggered, replace")
+                        h.replace(ii, ch)
+                    if h is not None and isinstance(h, ConfDataListHandler):
+                        info("handler for superior data node triggered, replace_item")
+                        h.replace_item(ii, ch)
+                    sn = sn.parent
         except NonexistentInstance:
             warn("Cannnot notify {}, parent container removed".format(ii))
 
     # Get data node, evaluate NACM if required
     def get_node_rpc(self, rpc: RpcInfo, yl_data=False, staging=False) -> InstanceNode:
-        ii = DataHelpers.parse_ii(rpc.path, rpc.path_format)
+        if rpc.path == "":
+            ii = []
+        else:
+            ii = DataHelpers.parse_ii(rpc.path, rpc.path_format)
+
         if yl_data:
             root = self._yang_lib_data
         else:

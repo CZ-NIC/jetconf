@@ -266,14 +266,29 @@ class KnotConfig(KnotCtl):
             raise KnotInternalError(str(e))
         return resp
 
+    # Purges all zone data
+    def zone_purge(self, domain_name: str = None) -> JsonNodeT:
+        if not self.connected:
+            raise KnotApiError("Knot socket is closed")
+
+        self.send_block("zone-purge", zone=domain_name)
+        try:
+            resp = self.receive_block()
+        except Exception as e:
+            raise KnotInternalError(str(e))
+
+        return resp
+
     # Adds a new DNS zone to configuration section
     def zone_new(self, domain_name: str) -> JsonNodeT:
         resp = self.set_item(section="zone", identifier=None, item="domain", value=domain_name)
         return resp
 
     # Removes a DNS zone from configuration section
-    def zone_remove(self, domain_name: str) -> JsonNodeT:
+    def zone_remove(self, domain_name: str, purge_data: bool) -> JsonNodeT:
         resp = self.unset_item(section="zone", identifier=domain_name, item="domain")
+        if purge_data:
+            self.zone_purge(domain_name)
         return resp
 
     # Adds a resource record to DNS zone
