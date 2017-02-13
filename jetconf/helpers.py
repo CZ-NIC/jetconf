@@ -5,7 +5,7 @@ from enum import Enum
 from typing import List, Dict, Union, Any, Iterable
 from datetime import datetime
 from pytz import timezone
-from yangson.instance import InstanceRoute, MemberName, EntryKeys, InstanceIdParser, ResourceIdParser
+from yangson.instance import InstanceRoute, MemberName, EntryKeys
 from yangson.datamodel import DataModel
 
 from .config import CONFIG_GLOBAL, CONFIG_HTTP
@@ -57,14 +57,14 @@ class DataHelpers:
         return dm
 
     # Parse Instance Identifier from string
-    @staticmethod
-    def parse_ii(path: str, path_format: PathFormat) -> InstanceRoute:
-        if path_format == PathFormat.URL:
-            ii = ResourceIdParser(path).parse()
-        else:
-            ii = InstanceIdParser(path).parse()
-
-        return ii
+    # @staticmethod
+    # def parse_ii(path: str, path_format: PathFormat) -> InstanceRoute:
+    #     if path_format == PathFormat.URL:
+    #         ii = ResourceIdParser(path).parse()
+    #     else:
+    #         ii = InstanceIdParser(path).parse()
+    #
+    #     return ii
 
     # Convert InstanceRoute or List[InstanceSelector] to string
     @staticmethod

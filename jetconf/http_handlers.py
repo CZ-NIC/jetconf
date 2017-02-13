@@ -8,8 +8,8 @@ from colorlog import error, warning as warn, info
 from urllib.parse import parse_qs
 from typing import Dict, List, Optional
 
-from yangson.schema import NonexistentSchemaNode, ContainerNode, ListNode, GroupNode
-from yangson.instance import NonexistentInstance, InstanceValueError
+from yangson.schemanode import NonexistentSchemaNode, ContainerNode, ListNode, GroupNode, LeafListNode, LeafNode
+from yangson.instance import NonexistentInstance, InstanceValueError, RootNode
 from yangson.datatype import YangTypeError
 
 from .config import CONFIG_GLOBAL, CONFIG_HTTP, NACM_ADMINS, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops
@@ -123,7 +123,7 @@ def _get(ds: BaseDatastore, pth: str, username: str, yl_data: bool=False, stagin
         except InstanceValueError as e:
             warn(epretty(e))
             http_resp = HttpResponse.empty(HttpStatus.BadRequest)
-        except ConfHandlerFailedError as e:
+        except (ConfHandlerFailedError, NoHandlerError) as e:
             error(epretty(e))
             http_resp = HttpResponse.empty(HttpStatus.InternalServerError)
         finally:
@@ -132,17 +132,16 @@ def _get(ds: BaseDatastore, pth: str, username: str, yl_data: bool=False, stagin
         if n is not None:
             n_value = n.raw_value()
 
-            try:
-                env_n = n.up()
-                env_sn = env_n.schema_node
-                print(n.schema_node)
-                print(env_sn)
-                if isinstance(env_sn, (ContainerNode, GroupNode)):
-                    sn = n.schema_node
+            if isinstance(n, RootNode):
+                # Getting top-level node
+                restconf_env = "ietf-restconf:data"
+                restconf_n_value = {restconf_env: n_value}
+            else:
+                sn = n.schema_node
+                if isinstance(sn, (ContainerNode, GroupNode, LeafNode)):
                     restconf_env = "{}:{}".format(sn.qual_name[1], sn.qual_name[0])
                     restconf_n_value = {restconf_env: n_value}
-                elif isinstance(env_sn, ListNode):
-                    sn = n.schema_node
+                elif isinstance(sn, ListNode):
                     restconf_env = "{}:{}".format(sn.qual_name[1], sn.qual_name[0])
                     if isinstance(n_value, list):
                         # List and list item points to the same schema node
@@ -151,10 +150,6 @@ def _get(ds: BaseDatastore, pth: str, username: str, yl_data: bool=False, stagin
                         restconf_n_value = {restconf_env: [n_value]}
                 else:
                     raise HttpRequestError()
-            except NonexistentInstance:
-                # Getting root node (cannot go up)
-                restconf_env = "ietf-restconf:data"
-                restconf_n_value = {restconf_env: n_value}
 
             response = json.dumps(restconf_n_value, indent=4)
 
@@ -464,7 +459,7 @@ def create_api_op(ds: BaseDatastore):
         rpc1 = RpcInfo()
         rpc1.username = username
         rpc1.path = api_pth
-        rpc1.op_name = op_name
+        rpc1.op_name = op_name_fq
         rpc1.op_input_args = input_args
 
         # Skip NACM check for privileged users

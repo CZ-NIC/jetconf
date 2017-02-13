@@ -6,7 +6,6 @@ from .libknot.control import KnotCtl, KnotCtlType
 from .config import CONFIG
 from .helpers import LogHelpers
 
-KNOT = None     # type: KnotConfig
 JsonNodeT = Union[Dict[str, Any], List[Any], str, int]
 debug_knot = LogHelpers.create_module_dbg_logger(__name__)
 
@@ -106,12 +105,15 @@ class MXRecord(RRecordBase):
 
 
 class KnotConfig(KnotCtl):
-    def __init__(self, sock_path: str):
+    def __init__(self):
         super().__init__()
-        self.sock_path = sock_path
+        self.sock_path = ""
         self.connected = False
         self.socket_lock = Lock()
         self.conf_state = KnotConfState.NONE
+
+    def set_socket(self, sock_path: str):
+        self.sock_path = sock_path
 
     def knot_connect(self):
         if self.connected:
@@ -134,14 +136,7 @@ class KnotConfig(KnotCtl):
         self.socket_lock.release()
 
     def flush_socket(self):
-        self.set_timeout(1)
-        while True:
-            try:
-                self.receive_block()
-            except Exception as e:
-                if str(e) == "connection timeout":
-                    debug_knot("socket flushed")
-                    break
+        pass
 
     # Starts a new transaction for configuration data
     def begin(self):
@@ -322,6 +317,123 @@ class KnotConfig(KnotCtl):
             raise KnotInternalError(str(e))
         return resp
 
+    # Reads zone data and converts them to YANG model compliant data tree
+    def zone_read(self, domain_name: str) -> JsonNodeT:
+        if not self.connected:
+            raise KnotApiError("Knot socket is closed")
+
+        try:
+            self.send_block("zone-read", zone=domain_name)
+            resp = self.receive_block()
+        except Exception as e:
+            raise KnotInternalError(str(e))
+
+        resp = resp[domain_name]
+
+        zone_template = {
+            "dns-zones:zone-data": {
+                "zone": [
+                    {
+                        "name": domain_name,
+                        "class": "IN",
+                        "default-ttl": 3600,
+                        "SOA": {},
+                        "rrset": []
+                    }
+                ]
+            }
+        }
+
+        zone_out = zone_template["dns-zones:zone-data"]["zone"][0]
+        soa_out = zone_out["SOA"]
+
+        soa = resp[domain_name]["SOA"]
+        soa_data = soa["data"][0].split()
+
+        try:
+            soa_out["ttl"] = int(soa["ttl"])
+            soa_out["mname"] = soa_data[0]
+            soa_out["rname"] = soa_data[1]
+            soa_out["serial"] = int(soa_data[2])
+            soa_out["refresh"] = int(soa_data[3])
+            soa_out["retry"] = int(soa_data[4])
+            soa_out["expire"] = int(soa_data[5])
+            soa_out["minimum"] = int(soa_data[6])
+        except (IndexError, ValueError) as e:
+            print(str(e))
+
+        rrset_out = zone_out["rrset"]
+
+        for owner, rrs in resp.items():
+            # print("rrs={}".format(rrs))
+            for rr_type, rr in rrs.items():
+                # print("rr={}".format(rr))
+                if rr_type not in ("A", "AAAA", "NS", "MX", "TXT", "TLSA", "CNAME"):
+                    continue
+
+                ttl = int(rr["ttl"])
+                rr_data_list = rr["data"]
+
+                new_rr_out_rdata_list = []
+                new_rr_out = {
+                    "owner": owner,
+                    "type": "iana-dns-parameters:" + rr_type,
+                    "ttl": ttl,
+                    "rdata": new_rr_out_rdata_list
+                }
+
+                id_int = 0
+                for rr_data in rr_data_list:
+                    new_rr_out_rdata_values = {}
+                    new_rr_out_rdata = {
+                        "id": str(id_int),
+                        rr_type: new_rr_out_rdata_values
+                    }
+
+                    if rr_type in ("A", "AAAA"):
+                        new_rr_out_rdata_values["address"] = rr_data
+                    elif rr_type == "NS":
+                        new_rr_out_rdata_values["nsdname"] = rr_data
+                    elif rr_type == "MX":
+                        rr_data = rr_data.split()
+                        new_rr_out_rdata_values["preference"] = rr_data[0]
+                        new_rr_out_rdata_values["exchange"] = rr_data[1]
+                    elif rr_type == "TXT":
+                        new_rr_out_rdata_values["txt-data"] = rr_data.strip(" \"")
+                    elif rr_type == "TLSA":
+                        cert_usage_enum = {
+                            "0": "PKIX-TA",
+                            "1": "PKIX-EE",
+                            "2": "DANE-TA",
+                            "3": "DANE-EE",
+                            "255": "PrivCert"
+                        }
+                        sel_enum = {
+                            "0": "Cert",
+                            "1": "SPKI",
+                            "255": "PrivSel"
+                        }
+                        match_type_enum = {
+                            "0": "Full",
+                            "1": "SHA2-256",
+                            "2": "SHA2-512",
+                            "255": "PrivMatch"
+                        }
+                        rr_data = rr_data.split()
+                        new_rr_out_rdata_values["certificate-usage"] = cert_usage_enum[rr_data[0]]
+                        new_rr_out_rdata_values["selector"] = sel_enum[rr_data[1]]
+                        new_rr_out_rdata_values["matching-type"] = match_type_enum[rr_data[2]]
+                        new_rr_out_rdata_values["certificate-association-data"] = rr_data[3]
+                    elif rr_type == "CNAME":
+                        new_rr_out_rdata_values["cname"] = rr_data
+
+                    new_rr_out_rdata_list.append(new_rr_out_rdata)
+                    id_int += 1
+
+                rrset_out.append(new_rr_out)
+
+        return zone_template
+
 
 # Connects to Knot control socket and begins a new transaction (config or zone)
 def knot_connect(transaction_opts: Optional[JsonNodeT]) -> bool:
@@ -357,9 +469,4 @@ def knot_disconnect(transaction_opts: Optional[JsonNodeT], failed: bool=False) -
     return retval
 
 
-def knot_global_init():
-    global KNOT
-    if KNOT is None:
-        KNOT = KnotConfig(CONFIG["KNOT"]["SOCKET"])
-    else:
-        raise ValueError("Knot API already instantiated")
+KNOT = KnotConfig()

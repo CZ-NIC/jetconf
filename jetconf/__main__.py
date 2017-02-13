@@ -10,22 +10,22 @@ from yaml.parser import ParserError
 
 from yangson.enumerations import ContentType, ValidationScope
 from yangson.exceptions import YangsonException
-from yangson.schema import SchemaError, SemanticError
+from yangson.schemanode import SchemaError, SemanticError
 
-from . import usr_op_handlers, usr_state_data_handlers
+from . import usr_state_data_handlers
 from .rest_server import RestServer
-from .config import CONFIG_GLOBAL, load_config, print_config
+from .config import CONFIG_GLOBAL, CONFIG_KNOT, load_config, print_config
 from .data import JsonDatastore
 from .helpers import DataHelpers, ErrorHelpers
 from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES
-from .knot_api import knot_global_init, knot_connect, knot_disconnect
+from .knot_api import KNOT, knot_connect, knot_disconnect
+from .usr_op_handlers import OP_HANDLERS_IMPL
 from .usr_conf_data_handlers import (
     KnotConfServerListener,
     KnotConfLogListener,
     KnotConfZoneListener,
     KnotConfControlListener,
-    KnotConfAclListener,
-    KnotZoneDataListener
+    KnotConfAclListener
 )
 
 
@@ -162,19 +162,22 @@ def main():
     # Register configuration data node listeners
     CONF_DATA_HANDLES.register_handler(KnotConfServerListener(datastore, "/dns-server:dns-server/server-options"))
     CONF_DATA_HANDLES.register_handler(KnotConfLogListener(datastore, "/dns-server:dns-server/knot-dns:log"))
-    CONF_DATA_HANDLES.register_handler(KnotConfZoneListener(datastore, "/dns-server:dns-server/zones"))
+    CONF_DATA_HANDLES.register_handler(KnotConfZoneListener(datastore, "/dns-server:dns-server/zones/zone"))
     CONF_DATA_HANDLES.register_handler(KnotConfControlListener(datastore, "/dns-server:dns-server/knot-dns:control-socket"))
     CONF_DATA_HANDLES.register_handler(KnotConfAclListener(datastore, "/dns-server:dns-server/access-control-list"))
-    CONF_DATA_HANDLES.register_handler(KnotZoneDataListener(datastore, "/dns-zones:zone-data"))
 
     # Register op handlers
-    OP_HANDLERS.register_handler("generate-key", usr_op_handlers.sign_op_handler)
+    OP_HANDLERS.register_handler("dns-zone-rpcs:begin-transaction", OP_HANDLERS_IMPL.zone_begin_transaction)
+    OP_HANDLERS.register_handler("dns-zone-rpcs:commit-transaction", OP_HANDLERS_IMPL.zone_commit_transaction)
+    OP_HANDLERS.register_handler("dns-zone-rpcs:abort-transaction", OP_HANDLERS_IMPL.zone_abort_transaction)
+    OP_HANDLERS.register_handler("dns-zone-rpcs:zone-set", OP_HANDLERS_IMPL.zone_set)
+    OP_HANDLERS.register_handler("dns-zone-rpcs:zone-unset", OP_HANDLERS_IMPL.zone_unset)
 
     # Create and register state data node listeners
     usr_state_data_handlers.create_zone_state_handlers(STATE_DATA_HANDLES, datamodel)
 
     # Initialize Knot control interface
-    knot_global_init()
+    KNOT.set_socket(CONFIG_KNOT["SOCKET"])
     datastore.commit_begin_callback = knot_connect
     datastore.commit_end_callback = knot_disconnect
 

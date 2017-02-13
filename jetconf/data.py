@@ -7,7 +7,7 @@ from typing import List, Any, Dict, Callable, Optional
 
 from yangson.datamodel import DataModel
 from yangson.enumerations import ContentType, ValidationScope
-from yangson.schema import (
+from yangson.schemanode import (
     SchemaNode,
     ListNode,
     LeafListNode,
@@ -26,13 +26,14 @@ from yangson.instance import (
     EntryIndex,
     InstanceRoute,
     ArrayEntry,
-    RootNode
-)
+    RootNode,
+    ObjectMember)
 
 from .helpers import PathFormat, ErrorHelpers, LogHelpers, DataHelpers, JsonNodeT
 from .config import CONFIG
 from .nacm import NacmConfig, Permission, Action
 from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES, ConfDataObjectHandler, ConfDataListHandler
+from .usr_state_data_handlers import ContainerNodeHandlerBase, ListNodeHandlerBase
 
 epretty = ErrorHelpers.epretty
 debug_data = LogHelpers.create_module_dbg_logger(__name__)
@@ -206,9 +207,9 @@ class UsrChangeJournal:
                 try:
                     for cl in self.clists:
                         for change in cl.journal:
-                            ii = DataHelpers.parse_ii(change.rpc_info.path, change.rpc_info.path_format)
+                            ii = ds.parse_ii(change.rpc_info.path, change.rpc_info.path_format)
                             ds.run_conf_edit_handler(ii, change)
-                except Exception as e:
+                except IndexError as e: ## Exception
                     error("Exception occured in edit handler: {}".format(epretty(e)))
                     conf_handler_failed = True
 
@@ -257,7 +258,7 @@ class BaseDatastore:
         self.commit_end_callback = _blankfn     # type: Callable[..., bool]
 
         if with_nacm:
-            self.nacm = NacmConfig(self)
+            self.nacm = NacmConfig(self, self._dm)
 
     # Returns the root node of data tree
     def get_data_root(self, previous_version: int=0) -> InstanceNode:
@@ -289,6 +290,14 @@ class BaseDatastore:
 
         self._data = self._data_history[-history_steps]
 
+    def parse_ii(self, path: str, path_format: PathFormat) -> InstanceRoute:
+        if path_format == PathFormat.URL:
+            ii = self._dm.parse_resource_id(path)
+        else:
+            ii = self._dm.parse_instance_id(path)
+
+        return ii
+
     # Get schema node with particular schema address
     def get_schema_node(self, sch_pth: str) -> SchemaNode:
         sn = self._dm.get_data_node(sch_pth)
@@ -304,11 +313,13 @@ class BaseDatastore:
 
             if ch.change_type == ChangeType.CREATE:
                 # Get target member name
-                input_member_name = tuple(ch.data.keys())[0]
+                input_member_name_fq = tuple(ch.data.keys())[0]
+                input_member_name_ns, input_member_name = input_member_name_fq.split(":", maxsplit=1)
                 # Append it to ii
-                sch_pth_list.append(MemberName(input_member_name))
+                sch_pth_list.append(MemberName(input_member_name, None))
 
             sch_pth = DataHelpers.ii2str(sch_pth_list)
+            print(sch_pth)
             sn = self.get_schema_node(sch_pth)
 
             if sn is None:
@@ -317,18 +328,28 @@ class BaseDatastore:
             h = CONF_DATA_HANDLES.get_handler(str(id(sn)))
             if h is not None:
                 info("handler for actual data node triggered")
-                if ch.change_type == ChangeType.CREATE:
-                    h.create(ii, ch)
-                elif ch.change_type == ChangeType.REPLACE:
-                    h.replace(ii, ch)
-                elif ch.change_type == ChangeType.DELETE:
-                    h.delete(ii, ch)
+                if isinstance(h, ConfDataObjectHandler):
+                    if ch.change_type == ChangeType.CREATE:
+                        h.create(ii, ch)
+                    elif ch.change_type == ChangeType.REPLACE:
+                        h.replace(ii, ch)
+                    elif ch.change_type == ChangeType.DELETE:
+                        h.delete(ii, ch)
+                if isinstance(h, ConfDataListHandler):
+                    if ch.change_type == ChangeType.CREATE:
+                        h.create_item(ii, ch)
+                    elif ch.change_type == ChangeType.REPLACE:
+                        h.replace_item(ii, ch)
+                    elif ch.change_type == ChangeType.DELETE:
+                        h.delete_item(ii, ch)
             else:
                 sn = sn.parent
                 while sn is not None:
                     h = CONF_DATA_HANDLES.get_handler(str(id(sn)))
                     if h is not None and isinstance(h, ConfDataObjectHandler):
                         info("handler for superior data node triggered, replace")
+                        print(h.schema_path)
+                        print(h.__class__.__name__)
                         h.replace(ii, ch)
                     if h is not None and isinstance(h, ConfDataListHandler):
                         info("handler for superior data node triggered, replace_item")
@@ -342,7 +363,7 @@ class BaseDatastore:
         if rpc.path == "":
             ii = []
         else:
-            ii = DataHelpers.parse_ii(rpc.path, rpc.path_format)
+            ii = self.parse_ii(rpc.path, rpc.path_format)
 
         if yl_data:
             root = self._yang_lib_data
@@ -352,23 +373,50 @@ class BaseDatastore:
             else:
                 root = self._data
 
+        # Resolve schema node of the desired data node
         sch_pth_list = filter(lambda isel: isinstance(isel, MemberName), ii)
         sch_pth = DataHelpers.ii2str(sch_pth_list)
         sn = self.get_schema_node(sch_pth)
+
         state_roots = sn.state_roots()
 
-        if not yl_data and state_roots:
-            self.commit_begin_callback()
-            for state_node_pth in state_roots:
-                sdh = STATE_DATA_HANDLES.get_handler(state_node_pth)
-                if sdh is not None:
-                    root_val = sdh.update_node(ii, root, True)
-                    root = self._data.update(root_val, raw=True)
-                else:
-                    raise NoHandlerForStateDataError()
-            self.commit_end_callback()
+        if state_roots and not yl_data:
+            print("state roots: {}".format(state_roots))
+            for state_root_sch_pth in state_roots:
+                state_root_sn = self._dm.get_data_node(state_root_sch_pth)
 
-        n = root.goto(ii)
+                # Check if desired node is child of state root
+                sni = sn
+                is_child = False
+                while sni:
+                    if sni == state_root_sn:
+                        is_child = True
+                        break
+                    sni = sni.parent
+
+                if is_child:
+                    # Direct request for the state data
+                    sdh = STATE_DATA_HANDLES.get_handler(state_root_sch_pth)
+                    if sdh is not None:
+                        if isinstance(sdh, ContainerNodeHandlerBase):
+                            state_handler_val = sdh.generate_node(ii, root)
+                            state_root_n = sdh.schema_node.orphan_instance(state_handler_val)
+                        elif isinstance(sdh, ListNodeHandlerBase):
+                            state_handler_val = sdh.generate_item(ii, root)
+                            state_root_n = sdh.schema_node.orphan_entry(state_handler_val)
+
+                        # Select desired subnode from handler-generated content
+                        ii_prefix, ii_rel = sdh.schema_node.split_instance_route(ii)
+                        n = state_root_n.goto(ii_rel)
+                    else:
+                        raise NoHandlerForStateDataError(rpc.path)
+                else:
+                    # Request for config data containing state data
+                    # TODO
+                    n = root
+                    pass
+        else:
+            n = root.goto(ii)
 
         try:
             with_defs = rpc.qs["with-defaults"][0]
@@ -417,7 +465,7 @@ class BaseDatastore:
 
     # Create new data node (Restconf draft compliant version)
     def create_node_rpc(self, root: InstanceNode, rpc: RpcInfo, value: Any) -> InstanceNode:
-        ii = DataHelpers.parse_ii(rpc.path, rpc.path_format)
+        ii = self.parse_ii(rpc.path, rpc.path_format)
         n = root.goto(ii)
 
         insert = rpc.qs.get("insert", [None])[0]
@@ -433,9 +481,10 @@ class BaseDatastore:
         if len(input_member_name) != 1:
             raise ValueError("Received json object must contain exactly one member")
         else:
-            input_member_name = input_member_name[0]
+            input_member_name_fq = input_member_name[0]
+            input_member_name = input_member_name_fq.split(":", maxsplit=1)[-1]
 
-        input_member_value = value[input_member_name]
+        input_member_value = value[input_member_name_fq]
 
         # Check if target member already exists
         try:
@@ -447,8 +496,9 @@ class BaseDatastore:
         n = root.goto(ii)
 
         sn = n.schema_node  # type: InternalNode
-        sch_member_name = sn._iname2qname(input_member_name)
-        member_sn = sn.get_data_child(*sch_member_name)
+        # sch_member_name = sn._iname2qname(input_member_name)
+        # member_sn = sn.get_data_child(*sch_member_name)
+        member_sn = sn.get_child(input_member_name)
 
         if isinstance(member_sn, ListNode):
             # Append received node to list
@@ -518,11 +568,12 @@ class BaseDatastore:
                 # Data node already exists
                 raise InstanceAlreadyPresent("Member \"{}\" already present in \"{}\"".format(input_member_name, ii))
 
+        print(json.dumps(new_member.top().value, indent=4))
         return new_member.top()
 
     # PUT data node
     def update_node_rpc(self, root: InstanceNode, rpc: RpcInfo, value: Any) -> InstanceNode:
-        ii = DataHelpers.parse_ii(rpc.path, rpc.path_format)
+        ii = self.parse_ii(rpc.path, rpc.path_format)
         n = root.goto(ii)
 
         if self.nacm:
@@ -544,7 +595,7 @@ class BaseDatastore:
 
     # Delete data node
     def delete_node_rpc(self, root: InstanceNode, rpc: RpcInfo) -> InstanceNode:
-        ii = DataHelpers.parse_ii(rpc.path, rpc.path_format)
+        ii = self.parse_ii(rpc.path, rpc.path_format)
         n = root.goto(ii)
         n_parent = n.up()
         last_isel = ii[-1]
@@ -570,7 +621,7 @@ class BaseDatastore:
 
     # Invoke an operation
     def invoke_op_rpc(self, rpc: RpcInfo) -> ObjectValue:
-        if rpc.op_name == "conf-start":
+        if rpc.op_name == "jetconf:conf-start":
             try:
                 cl_name = rpc.op_input_args["name"]
             except (TypeError, KeyError):
@@ -583,7 +634,7 @@ class BaseDatastore:
 
             self._usr_journals[rpc.username].cl_new(cl_name)
             ret_data = {"status": "OK"}
-        elif rpc.op_name == "conf-list":
+        elif rpc.op_name == "jetconf:conf-list":
             usr_journal = self._usr_journals.get(rpc.username)
             if usr_journal is not None:
                 chl_json = usr_journal.list()
@@ -595,14 +646,14 @@ class BaseDatastore:
                     "status": "OK",
                     "changelists": chl_json
                 }
-        elif rpc.op_name == "conf-drop":
+        elif rpc.op_name == "jetconf:conf-drop":
             usr_journal = self._usr_journals.get(rpc.username)
             if usr_journal is not None:
                 if not usr_journal.cl_drop():
                     del self._usr_journals[rpc.username]
 
             ret_data = {"status": "OK"}
-        elif rpc.op_name == "conf-commit":
+        elif rpc.op_name == "jetconf:conf-commit":
             usr_journal = self._usr_journals.get(rpc.username)
             if usr_journal is not None:
                 try:
@@ -622,7 +673,7 @@ class BaseDatastore:
                     "status": "OK",
                     "conf-changed": True
                 }
-        elif rpc.op_name == "get-schema-digest":
+        elif rpc.op_name == "jetconf:get-schema-digest":
             ret_data = self._dm.schema_digest()
         else:
             # User-defined operation
@@ -638,13 +689,19 @@ class BaseDatastore:
                 raise NoHandlerForOpError(rpc.op_name)
 
             # Print operation input schema
-            # sn = self.get_schema_node(rpc.path)
-            # sn_input = sn.get_child("input")
+            sn = self._dm.get_schema_node(rpc.path)
+            sn_input = sn.get_child("input")
             # if sn_input is not None:
             #     print("RPC input schema:")
             #     print(sn_input._ascii_tree(""))
 
-            ret_data = op_handler(rpc.op_input_args)
+            if sn_input.children:
+                # Input arguments are expected
+                op_input_args = sn_input.from_raw(rpc.op_input_args)
+                ret_data = op_handler(op_input_args, rpc.username)
+            else:
+                # Operation with no input
+                ret_data = op_handler(None, rpc.username)
 
         return ret_data
 

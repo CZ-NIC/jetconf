@@ -5,13 +5,13 @@ from enum import Enum
 from colorlog import error, info
 from typing import List, Set, Optional
 
+from yangson.datamodel import DataModel
 from yangson.instance import (
     InstanceNode,
     NonexistentSchemaNode,
     NonexistentInstance,
     ArrayValue,
     ObjectValue,
-    InstanceSelector,
     InstanceRoute,
     MemberName,
     EntryIndex,
@@ -76,7 +76,7 @@ class NacmRule:
 
 
 class RuleTreeNode:
-    def __init__(self, isel: InstanceSelector=None, up: "RuleTreeNode"=None):
+    def __init__(self, isel: "InstanceSelector"=None, up: "RuleTreeNode"=None):
         self.isel = isel
         self.rule = None    # type: NacmRule
         self.up = up
@@ -104,13 +104,13 @@ class NacmRuleList:
 
 
 class DataRuleTree:
-    def __init__(self, rule_lists: List[NacmRuleList]):
+    def __init__(self, dm: DataModel, rule_lists: List[NacmRuleList]):
         self.root = []  # type: List[RuleTreeNode]
 
         for rl in rule_lists:
             for rule in filter(lambda r: r.type == NacmRuleType.NACM_RULE_DATA, rl.rules):
                 try:
-                    ii = DataHelpers.parse_ii(rule.type_data.path, PathFormat.XPATH)
+                    ii = dm.parse_instance_id(rule.type_data.path)
                 except NonexistentSchemaNode as e:
                     error(epretty(e, __name__))
                     ii = []
@@ -161,8 +161,9 @@ class DataRuleTree:
 
 
 class NacmConfig:
-    def __init__(self, nacm_ds: "BaseDatastore"):
+    def __init__(self, nacm_ds: "BaseDatastore", dm: DataModel):
         self.nacm_ds = nacm_ds
+        self.dm = dm
         self.enabled = False
         self.default_read = Action.PERMIT
         self.default_write = Action.PERMIT
@@ -273,7 +274,7 @@ class NacmConfig:
             return
 
         info("Creating personalized rule list for user \"{}\"".format(username))
-        self._user_nacm_rpc[username] = UserNacm(self, username)
+        self._user_nacm_rpc[username] = UserNacm(self.dm, self, username)
 
         self.internal_data_lock.release()
 
@@ -288,7 +289,7 @@ class NacmConfig:
 
 # Rules for particular user
 class UserNacm:
-    def __init__(self, config: NacmConfig, username: str):
+    def __init__(self, dm: DataModel, config: NacmConfig, username: str):
         self.nacm_enabled = config.enabled
         self.default_read = config.default_read
         self.default_write = config.default_write
@@ -299,7 +300,7 @@ class UserNacm:
         user_groups_names = list(map(lambda x: x.name, user_groups))
         self.rule_lists = list(filter(lambda x: (set(user_groups_names) & set(x.groups)), config.rule_lists))
 
-        self.rule_tree = DataRuleTree(self.rule_lists)
+        self.rule_tree = DataRuleTree(dm, self.rule_lists)
         debug_nacm("Rule tree for user \"{}\":\n{}".format(username, self.rule_tree.print_rule_tree()))
 
     def check_data_node_permission(self, root: InstanceNode, ii: InstanceRoute, access: Permission) -> Action:

@@ -3,8 +3,8 @@
 CLIENT_CERT="/home/pspirek/sslclient/pavel_curl.pem"
 
 echo "--- conf-start 1"
-POST_DATA='{ "dns-server:input": {"name": "Edit 1", "options": "config"} }'
-URL="https://127.0.0.1:8443/restconf/operations/dns-server:conf-start"
+POST_DATA='{ "jetconf:input": {"name": "Edit 1", "options": "config"} }'
+URL="https://127.0.0.1:8443/restconf/operations/jetconf:conf-start"
 curl -v --http2 -k --cert-type PEM -E $CLIENT_CERT -X POST -d "$POST_DATA" "$URL" 2>/dev/null
 
 echo "--- POST new zone"
@@ -13,14 +13,14 @@ URL="https://127.0.0.1:8443/restconf/data/dns-server:dns-server/zones"
 curl -v --http2 -k --cert-type PEM -E $CLIENT_CERT -X POST -d "$POST_DATA" "$URL" 2>/dev/null
 
 echo "--- conf-commit"
-URL="https://127.0.0.1:8443/restconf/operations/dns-server:conf-commit"
+URL="https://127.0.0.1:8443/restconf/operations/jetconf:conf-commit"
 curl -v --http2 -k --cert-type PEM -E $CLIENT_CERT -X POST "$URL" 2>/dev/null
 
 sleep 2
 
 echo "--- zone conf-start 1"
-POST_DATA='{ "dns-server:input": {"name": "Zone data edit 1", "options": "zone"} }'
-URL="https://127.0.0.1:8443/restconf/operations/dns-server:conf-start"
+POST_DATA='{ "jetconf:input": {"name": "Zone data edit 1", "options": "zone"} }'
+URL="https://127.0.0.1:8443/restconf/operations/jetconf:conf-start"
 curl -v --http2 -k --cert-type PEM -E $CLIENT_CERT -X POST -d "$POST_DATA" "$URL" 2>/dev/null
 
 echo "--- POST new zone SOA"
@@ -39,11 +39,11 @@ URL="https://127.0.0.1:8443/restconf/data/dns-zones:zone-data/zone=newzone.cz,IN
 curl -v --http2 -k --cert-type PEM -E $CLIENT_CERT -X POST -d "$POST_DATA" "$URL" 2>/dev/null
 
 echo "--- conf-list"
-URL="https://127.0.0.1:8443/restconf/operations/dns-server:conf-list"
+URL="https://127.0.0.1:8443/restconf/operations/jetconf:conf-list"
 curl -v --http2 -k --cert-type PEM -E $CLIENT_CERT -X POST "$URL" 2>/dev/null
 
 echo "--- conf-commit"
-URL="https://127.0.0.1:8443/restconf/operations/dns-server:conf-commit"
+URL="https://127.0.0.1:8443/restconf/operations/jetconf:conf-commit"
 curl -v --http2 -k --cert-type PEM -E $CLIENT_CERT -X POST "$URL" 2>/dev/null
 
 echo "--- GET zones"
