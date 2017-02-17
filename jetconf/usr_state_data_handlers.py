@@ -1,3 +1,5 @@
+import json
+
 from colorlog import error
 
 from yangson.datamodel import DataModel
@@ -25,15 +27,15 @@ class StateNodeHandlerBase:
 
 
 class ContainerNodeHandlerBase(StateNodeHandlerBase):
-    def generate_node(self, node_ii: InstanceRoute, data_root: InstanceNode) -> InstanceNode:
+    def generate_node(self, node_ii: InstanceRoute, staging: bool) -> JsonNodeT:
         pass
 
 
 class ListNodeHandlerBase(StateNodeHandlerBase):
-    def generate_list(self, node_ii: InstanceRoute, data_root: InstanceNode) -> InstanceNode:
+    def generate_list(self, node_ii: InstanceRoute, staging: bool) -> JsonNodeT:
         pass
 
-    def generate_item(self, node_ii: InstanceRoute, data_root: InstanceNode) -> InstanceNode:
+    def generate_item(self, node_ii: InstanceRoute, staging: bool) -> JsonNodeT:
         pass
 
 
@@ -41,7 +43,7 @@ class ZoneSigningStateHandler(ContainerNodeHandlerBase):
     def __init__(self, data_model: DataModel):
         super().__init__(data_model, "/dns-server:dns-server-state/zone/dnssec-signing:dnssec-signing")
 
-    def generate_node(self, node_ii: InstanceRoute, data_root: InstanceNode) -> InstanceNode:
+    def generate_node(self, node_ii: InstanceRoute, staging: bool) -> JsonNodeT:
         print("zone_state_signing_handler, ii = {}".format(node_ii))
         domain_name = node_ii[2].keys.get(("domain", None)) + "."
 
@@ -71,7 +73,7 @@ class ZoneStateHandler(ListNodeHandlerBase):
     def __init__(self, data_model: DataModel):
         super().__init__(data_model, "/dns-server:dns-server-state/zone")
 
-    def generate_list(self, node_ii: InstanceRoute, data_root: InstanceNode) -> InstanceNode:
+    def generate_list(self, node_ii: InstanceRoute, staging: bool) -> JsonNodeT:
         zones_list = []
 
         KNOT.knot_connect()
@@ -94,7 +96,7 @@ class ZoneStateHandler(ListNodeHandlerBase):
 
         return zones_list
 
-    def generate_item(self, node_ii: InstanceRoute, data_root: InstanceNode) -> InstanceNode:
+    def generate_item(self, node_ii: InstanceRoute, staging: bool) -> JsonNodeT:
         zone_obj = {}
 
         # Request status of specific zone
@@ -117,10 +119,130 @@ class ZoneStateHandler(ListNodeHandlerBase):
         return zone_obj
 
 
+class ZoneDataStateHandler(ListNodeHandlerBase):
+    def __init__(self, data_model: DataModel):
+        super().__init__(data_model, "/dns-zones-state:zone")
+
+    def generate_item(self, node_ii: InstanceRoute, staging: bool) -> JsonNodeT:
+        # Request contents of specific zone
+        KNOT.knot_connect()
+        domain_name = node_ii[1].keys.get(("name", None))
+
+        # if domain_name[-1] != ".":
+        #     domain_name_dot = domain_name + "."
+        # else:
+        #     domain_name_dot = domain_name
+
+        resp = KNOT.zone_read(domain_name)
+        KNOT.knot_disconnect()
+
+        zone_out = {
+            "name": domain_name,
+            "class": "IN",
+            "rrset": []
+        }
+
+        rrset_out = zone_out["rrset"]
+
+        for owner, rrs in resp.items():
+            # print("rrs={}".format(rrs))
+            for rr_type, rr in rrs.items():
+                # print("rr={}".format(rr))
+                if rr_type not in ("SOA", "A", "AAAA", "NS", "MX", "TXT", "TLSA", "CNAME"):
+                    continue
+
+                ttl = int(rr["ttl"])
+                rr_data_list = rr["data"]
+
+                new_rr_out_rdata_list = []
+                new_rr_out = {
+                    "owner": owner.rstrip("."),
+                    "type": "iana-dns-parameters:" + rr_type,
+                    "ttl": ttl,
+                    "rdata": new_rr_out_rdata_list
+                }
+
+                for rr_data in rr_data_list:
+                    new_rr_out_rdata_values = {}
+                    new_rr_out_rdata = {
+                        rr_type: new_rr_out_rdata_values
+                    }
+
+                    if rr_type == "SOA":
+                        rr_data = rr_data.split()
+                        try:
+                            new_rr_out_rdata_values["mname"] = rr_data[0].rstrip(".")
+                            new_rr_out_rdata_values["rname"] = rr_data[1].rstrip(".")
+                            new_rr_out_rdata_values["serial"] = int(rr_data[2])
+                            new_rr_out_rdata_values["refresh"] = int(rr_data[3])
+                            new_rr_out_rdata_values["retry"] = int(rr_data[4])
+                            new_rr_out_rdata_values["expire"] = int(rr_data[5])
+                            new_rr_out_rdata_values["minimum"] = int(rr_data[6])
+                        except (IndexError, ValueError) as e:
+                            print(str(e))
+                    elif rr_type in ("A", "AAAA"):
+                        new_rr_out_rdata_values["address"] = rr_data
+                    elif rr_type == "NS":
+                        new_rr_out_rdata_values["nsdname"] = rr_data.rstrip(".")
+                    elif rr_type == "MX":
+                        rr_data = rr_data.split()
+                        new_rr_out_rdata_values["preference"] = rr_data[0]
+                        new_rr_out_rdata_values["exchange"] = rr_data[1].rstrip(".")
+                    elif rr_type == "TXT":
+                        new_rr_out_rdata_values["txt-data"] = rr_data.strip(" \"")
+                    elif rr_type == "TLSA":
+                        cert_usage_enum = {
+                            "0": "PKIX-TA",
+                            "1": "PKIX-EE",
+                            "2": "DANE-TA",
+                            "3": "DANE-EE",
+                            "255": "PrivCert"
+                        }
+                        sel_enum = {
+                            "0": "Cert",
+                            "1": "SPKI",
+                            "255": "PrivSel"
+                        }
+                        match_type_enum = {
+                            "0": "Full",
+                            "1": "SHA2-256",
+                            "2": "SHA2-512",
+                            "255": "PrivMatch"
+                        }
+                        rr_data = rr_data.split()
+                        new_rr_out_rdata_values["certificate-usage"] = cert_usage_enum[rr_data[0]]
+                        new_rr_out_rdata_values["selector"] = sel_enum[rr_data[1]]
+                        new_rr_out_rdata_values["matching-type"] = match_type_enum[rr_data[2]]
+                        new_rr_out_rdata_values["certificate-association-data"] = rr_data[3]
+                    elif rr_type == "CNAME":
+                        new_rr_out_rdata_values["cname"] = rr_data
+
+                    new_rr_out_rdata_list.append(new_rr_out_rdata)
+
+                rrset_out.append(new_rr_out)
+
+        return zone_out
+
+
+class PokusStateHandler(ContainerNodeHandlerBase):
+    def __init__(self, data_model: DataModel):
+        super().__init__(data_model, "/dns-server:dns-server/access-control-list/network/pokus")
+
+    def generate_node(self, node_ii: InstanceRoute, staging: bool) -> JsonNodeT:
+        print("pokus_handler, ii = {}".format(node_ii))
+        try:
+            acl_name = node_ii[2].keys.get(("name", None))
+        except IndexError:
+            acl_name = None
+
+        return {"pok": "Name: {}".format(acl_name)}
+
+
 # Instantiate state data handlers
 def create_zone_state_handlers(handler_list: "StateDataHandlerList", dm: DataModel):
-    # zssh = ZoneSigningStateHandler(dm)
-    # handler_list.register_handler(zssh)
-
     zsh = ZoneStateHandler(dm)
+    zdsh = ZoneDataStateHandler(dm)
+    psh = PokusStateHandler(dm)
     handler_list.register_handler(zsh)
+    handler_list.register_handler(zdsh)
+    handler_list.register_handler(psh)

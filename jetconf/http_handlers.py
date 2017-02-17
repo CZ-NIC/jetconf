@@ -12,6 +12,7 @@ from yangson.schemanode import NonexistentSchemaNode, ContainerNode, ListNode, G
 from yangson.instance import NonexistentInstance, InstanceValueError, RootNode
 from yangson.datatype import YangTypeError
 
+from jetconf.knot_api import KnotError
 from .config import CONFIG_GLOBAL, CONFIG_HTTP, NACM_ADMINS, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops
 from .helpers import CertHelpers, DataHelpers, DateTimeHelpers, ErrorHelpers, LogHelpers, SSLCertT
 from .data import (
@@ -123,7 +124,7 @@ def _get(ds: BaseDatastore, pth: str, username: str, yl_data: bool=False, stagin
         except InstanceValueError as e:
             warn(epretty(e))
             http_resp = HttpResponse.empty(HttpStatus.BadRequest)
-        except (ConfHandlerFailedError, NoHandlerError) as e:
+        except (ConfHandlerFailedError, NoHandlerError, KnotError) as e:
             error(epretty(e))
             http_resp = HttpResponse.empty(HttpStatus.InternalServerError)
         finally:

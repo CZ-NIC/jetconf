@@ -525,6 +525,14 @@ module dns-server {
         description
           "Identification of a network.";
         uses entry-name;
+	    container pokus {
+	  	  config "false";
+	  	  leaf pok {
+	        type string;
+	        description
+	          "pokus";
+	      }
+	    }
         leaf ip-prefix {
           type inet:ip-prefix;
           mandatory "true";

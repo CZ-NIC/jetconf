@@ -5,8 +5,9 @@ from enum import Enum
 from typing import List, Dict, Union, Any, Iterable
 from datetime import datetime
 from pytz import timezone
-from yangson.instance import InstanceRoute, MemberName, EntryKeys
+from yangson.instance import InstanceRoute, MemberName, EntryKeys, InstanceNode, ArrayValue, NonexistentInstance
 from yangson.datamodel import DataModel
+from yangson.schemanode import ListNode, ContainerNode
 
 from .config import CONFIG_GLOBAL, CONFIG_HTTP
 
@@ -56,20 +57,41 @@ class DataHelpers:
         dm = DataModel(yl, [module_dir])
         return dm
 
-    # Parse Instance Identifier from string
-    # @staticmethod
-    # def parse_ii(path: str, path_format: PathFormat) -> InstanceRoute:
-    #     if path_format == PathFormat.URL:
-    #         ii = ResourceIdParser(path).parse()
-    #     else:
-    #         ii = InstanceIdParser(path).parse()
-    #
-    #     return ii
-
     # Convert InstanceRoute or List[InstanceSelector] to string
     @staticmethod
     def ii2str(ii: Iterable) -> str:
         return "".join([str(seg) for seg in ii])
+
+    @staticmethod
+    def node_get_ii(node: InstanceNode) -> InstanceRoute:
+        m = node
+        ii_gen = InstanceRoute()
+        try:
+            while m:
+                m_sn = m.schema_node
+                m_sn_dp = m_sn.data_parent()
+
+                if isinstance(m_sn, ListNode):
+                    if isinstance(m.value, ArrayValue):
+                        mn = MemberName(m_sn.qual_name[0], None if m_sn_dp and m_sn.ns == m_sn_dp.ns else m_sn.qual_name[1])
+                        ii_gen.append(mn)
+                    else:
+                        kv = {}
+                        for qk in m_sn.keys:
+                            k = qk[0]
+                            k_ns = None if m_sn_dp and m_sn.ns == m_sn_dp.ns else qk[1]
+                            kv[(k, k_ns)] = m.value.get(k)
+                        ek = EntryKeys(kv)
+                        ii_gen.append(ek)
+                elif isinstance(m_sn, ContainerNode):
+                    mn = MemberName(m_sn.qual_name[0], None if m_sn_dp and m_sn.ns == m_sn_dp.ns else m_sn.qual_name[1])
+                    ii_gen.append(mn)
+                m = m.up()
+        except NonexistentInstance:
+            pass
+
+        ii_gen.reverse()
+        return ii_gen
 
 
 class DateTimeHelpers:

@@ -91,6 +91,13 @@
         "schema": "https://gitlab.labs.nic.cz/labs/zone-data-yang/raw/master/dns-zone-rpcs.yang"
       },
       {
+        "name": "dns-zones-state",
+        "revision": "2017-01-12",
+        "namespace": "http://www.nic.cz/ns/yang/dns-zones-state",
+        "conformance-type": "implement",
+        "schema": "https://gitlab.labs.nic.cz/labs/zone-data-yang/blob/master/dns-zones-state.yang"
+      },
+      {
         "name": "iana-dns-parameters",
         "revision": "2016-08-03",
         "namespace": "http://www.nic.cz/ns/yang/iana-dns-parameters",

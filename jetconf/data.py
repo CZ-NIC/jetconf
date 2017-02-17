@@ -399,10 +399,10 @@ class BaseDatastore:
                     sdh = STATE_DATA_HANDLES.get_handler(state_root_sch_pth)
                     if sdh is not None:
                         if isinstance(sdh, ContainerNodeHandlerBase):
-                            state_handler_val = sdh.generate_node(ii, root)
+                            state_handler_val = sdh.generate_node(ii, staging)
                             state_root_n = sdh.schema_node.orphan_instance(state_handler_val)
                         elif isinstance(sdh, ListNodeHandlerBase):
-                            state_handler_val = sdh.generate_item(ii, root)
+                            state_handler_val = sdh.generate_item(ii, staging)
                             state_root_n = sdh.schema_node.orphan_entry(state_handler_val)
 
                         # Select desired subnode from handler-generated content
@@ -412,9 +412,35 @@ class BaseDatastore:
                         raise NoHandlerForStateDataError(rpc.path)
                 else:
                     # Request for config data containing state data
-                    # TODO
-                    n = root
-                    pass
+                    n = root.goto(ii)
+
+                    def _fill_state_roots(node: InstanceNode) -> InstanceNode:
+                        if isinstance(node.value, ObjectValue):
+                            if node.schema_node is state_root_sn.parent:
+                                ii_gen = DataHelpers.node_get_ii(node)
+                                sdh = STATE_DATA_HANDLES.get_handler(state_root_sch_pth)
+                                if sdh is not None:
+                                    if isinstance(sdh, ContainerNodeHandlerBase):
+                                        state_handler_val = sdh.generate_node(ii_gen, staging)
+                                    elif isinstance(sdh, ListNodeHandlerBase):
+                                        state_handler_val = sdh.generate_item(ii_gen, staging)
+
+                                    nm_name = state_root_sn.qual_name[0]
+                                    node = node.put_member(nm_name, state_handler_val, raw=True).up()
+                            else:
+                                for key in node:
+                                    member = node[key]
+                                    node = _fill_state_roots(member).up()
+                        elif isinstance(node.value, ArrayValue):
+                            i = 0
+                            arr_len = len(node.value)
+                            while i < arr_len:
+                                node = _fill_state_roots(node[i]).up()
+                                i += 1
+
+                        return node
+
+                    n = _fill_state_roots(n)
         else:
             n = root.goto(ii)
 
