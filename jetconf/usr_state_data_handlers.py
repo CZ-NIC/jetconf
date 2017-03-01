@@ -8,6 +8,7 @@ from yangson.instance import InstanceRoute, InstanceNode, EntryKeys, Nonexistent
 from .knot_api import KNOT, KnotInternalError
 from .helpers import DataHelpers, JsonNodeT
 from .handler_list import StateDataHandlerList
+from .usr_op_handlers import OP_HANDLERS_IMPL as OH, KnotZoneCmd
 
 
 class StateNonexistentInstance(NonexistentInstance):
@@ -27,15 +28,15 @@ class StateNodeHandlerBase:
 
 
 class ContainerNodeHandlerBase(StateNodeHandlerBase):
-    def generate_node(self, node_ii: InstanceRoute, staging: bool) -> JsonNodeT:
+    def generate_node(self, node_ii: InstanceRoute, username: str, staging: bool) -> JsonNodeT:
         pass
 
 
 class ListNodeHandlerBase(StateNodeHandlerBase):
-    def generate_list(self, node_ii: InstanceRoute, staging: bool) -> JsonNodeT:
+    def generate_list(self, node_ii: InstanceRoute, username: str, staging: bool) -> JsonNodeT:
         pass
 
-    def generate_item(self, node_ii: InstanceRoute, staging: bool) -> JsonNodeT:
+    def generate_item(self, node_ii: InstanceRoute, username: str, staging: bool) -> JsonNodeT:
         pass
 
 
@@ -43,7 +44,7 @@ class ZoneSigningStateHandler(ContainerNodeHandlerBase):
     def __init__(self, data_model: DataModel):
         super().__init__(data_model, "/dns-server:dns-server-state/zone/dnssec-signing:dnssec-signing")
 
-    def generate_node(self, node_ii: InstanceRoute, staging: bool) -> JsonNodeT:
+    def generate_node(self, node_ii: InstanceRoute, username: str, staging: bool) -> JsonNodeT:
         print("zone_state_signing_handler, ii = {}".format(node_ii))
         domain_name = node_ii[2].keys.get(("domain", None)) + "."
 
@@ -73,7 +74,7 @@ class ZoneStateHandler(ListNodeHandlerBase):
     def __init__(self, data_model: DataModel):
         super().__init__(data_model, "/dns-server:dns-server-state/zone")
 
-    def generate_list(self, node_ii: InstanceRoute, staging: bool) -> JsonNodeT:
+    def generate_list(self, node_ii: InstanceRoute, username: str, staging: bool) -> JsonNodeT:
         zones_list = []
 
         KNOT.knot_connect()
@@ -96,7 +97,7 @@ class ZoneStateHandler(ListNodeHandlerBase):
 
         return zones_list
 
-    def generate_item(self, node_ii: InstanceRoute, staging: bool) -> JsonNodeT:
+    def generate_item(self, node_ii: InstanceRoute, username: str, staging: bool) -> JsonNodeT:
         zone_obj = {}
 
         # Request status of specific zone
@@ -123,28 +124,17 @@ class ZoneDataStateHandler(ListNodeHandlerBase):
     def __init__(self, data_model: DataModel):
         super().__init__(data_model, "/dns-zones-state:zone")
 
-    def generate_item(self, node_ii: InstanceRoute, staging: bool) -> JsonNodeT:
-        # Request contents of specific zone
-        KNOT.knot_connect()
-        domain_name = node_ii[1].keys.get(("name", None))
-
-        # if domain_name[-1] != ".":
-        #     domain_name_dot = domain_name + "."
-        # else:
-        #     domain_name_dot = domain_name
-
-        resp = KNOT.zone_read(domain_name)
-        KNOT.knot_disconnect()
-
+    @staticmethod
+    def _transform_zone(domain_name: str, domain_data_raw: JsonNodeT) -> JsonNodeT:
         zone_out = {
-            "name": domain_name,
+            "name": domain_name.rstrip("."),
             "class": "IN",
             "rrset": []
         }
 
         rrset_out = zone_out["rrset"]
 
-        for owner, rrs in resp.items():
+        for owner, rrs in domain_data_raw.items():
             # print("rrs={}".format(rrs))
             for rr_type, rr in rrs.items():
                 # print("rr={}".format(rr))
@@ -223,12 +213,191 @@ class ZoneDataStateHandler(ListNodeHandlerBase):
 
         return zone_out
 
+    def generate_list(self, node_ii: InstanceRoute, username: str, staging: bool):
+        # Request contents of all zones
+        KNOT.knot_connect()
+
+        # Get list of zones with zone-status command
+        resp = KNOT.zone_status()
+
+        # Read zone contents
+        retval = []
+        for domain_name in resp.keys():
+            resp_zone = KNOT.zone_read(domain_name)
+            retval.append(self._transform_zone(domain_name, resp_zone))
+
+        KNOT.knot_disconnect()
+
+        return retval
+
+    def generate_item(self, node_ii: InstanceRoute, username: str, staging: bool) -> JsonNodeT:
+        # Request contents of specific zone
+        KNOT.knot_connect()
+        domain_name = node_ii[1].keys.get(("name", None))
+
+        # if domain_name[-1] != ".":
+        #     domain_name_dot = domain_name + "."
+        # else:
+        #     domain_name_dot = domain_name
+
+        resp = KNOT.zone_read(domain_name)
+        KNOT.knot_disconnect()
+
+        zone_data = self._transform_zone(domain_name, resp)
+
+        if staging:
+            print("{}: generating staging state data".format(username))
+            usr_op_journal = OH.op_journal.get(username, [])
+            for knot_op in usr_op_journal:
+                input_args = knot_op.op_input
+                input_domain = input_args["dns-zone-rpcs:zone"]
+                if domain_name != input_domain:
+                    continue
+
+                if knot_op.cmd == KnotZoneCmd.SET:
+                    input = knot_op.op_input
+                    rrset_out = zone_data["rrset"]
+
+                    rr1 = None
+
+                    for rr in rrset_out:
+                        owner_eq = rr["owner"] == input["dns-zone-rpcs:owner"]
+                        input_type_str = input["dns-zone-rpcs:type"][1] + ":" + input["dns-zone-rpcs:type"][0]
+                        type_eq = rr["type"] == input_type_str
+                        ttl_eq = rr["ttl"] == input["dns-zone-rpcs:ttl"]
+
+                        if owner_eq and type_eq and ttl_eq:
+                            rr1 = rr
+                            break
+
+                    if rr1 is not None:
+                        # Suitable rr already present
+                        rdata_out = rr1["rdata"]
+                        type_no_ns = input["dns-zone-rpcs:type"][0]
+                        rdata_in_key = "dns-zone-rpcs:" + type_no_ns
+                        rdata_in = input[rdata_in_key]
+                        rdata_item = {
+                            type_no_ns: rdata_in
+                        }
+                        rdata_out.append(rdata_item)
+                    else:
+                        # Create new rr
+                        type_no_ns = input["dns-zone-rpcs:type"][0]
+                        rdata_in_key = "dns-zone-rpcs:" + type_no_ns
+                        rdata_in = input[rdata_in_key]
+                        rr_new = {
+                            "owner": input["dns-zone-rpcs:owner"],
+                            "type": input["dns-zone-rpcs:type"][1] + ":" + input["dns-zone-rpcs:type"][0],
+                            "ttl": input["dns-zone-rpcs:ttl"],
+                            "rdata": [
+                                {
+                                    type_no_ns: rdata_in
+                                }
+                            ]
+                        }
+                        rrset_out.append(rr_new)
+
+                elif knot_op.cmd == KnotZoneCmd.UNSET:
+                    # zone-unset zone owner [type [rdata]]
+                    input = knot_op.op_input
+                    rrset_out = zone_data["rrset"]
+
+                    owner_in = input["dns-zone-rpcs:owner"]
+                    try:
+                        type_no_ns = input["dns-zone-rpcs:type"][0]
+                        input_type_str = input["dns-zone-rpcs:type"][1] + ":" + input["dns-zone-rpcs:type"][0]
+                    except (IndexError, KeyError):
+                        type_no_ns = None
+                        input_type_str = None
+
+                    if type_no_ns is not None:
+                        try:
+                            rdata_in_key = "dns-zone-rpcs:" + type_no_ns
+                            rdata_in = input[rdata_in_key]
+                        except (IndexError, KeyError):
+                            rdata_in = None
+
+                        if rdata_in is not None:
+                            # Owner, type and rdata is known
+                            found_positions = list(filter(lambda n: (rrset_out[n]["owner"] == owner_in) and (rrset_out[n]["type"] == input_type_str), range(len(rrset_out))))
+                            # print("found_positions_otr={}".format(found_positions))
+                            for pos in found_positions:
+                                rr_rdata = rrset_out[pos]["rdata"]
+                                found_positions_rdata = list(filter(lambda n: (rr_rdata[n][type_no_ns] == dict(rdata_in.items())), range(len(rr_rdata))))
+                                # print("found_positions_rdata={}".format(found_positions_rdata))
+                                for pos_rd in found_positions_rdata:
+                                    rr_rdata.pop(pos_rd)
+                        else:
+                            # Owner and type is known
+                            found_positions = list(filter(lambda n: (rrset_out[n]["owner"] == owner_in) and (rrset_out[n]["type"] == input_type_str), range(len(rrset_out))))
+                            # print("found_positions_ot={}".format(found_positions))
+                            for pos in found_positions:
+                                rrset_out.pop(pos)
+                    else:
+                        # Just owner is specified
+                        found_positions = list(filter(lambda n: rrset_out[n]["owner"] == owner_in, range(len(rrset_out))))
+                        # print("found_positions_o={}".format(found_positions))
+                        for pos in found_positions:
+                            rrset_out.pop(pos)
+
+
+        return zone_data
+
+
+#     +---x zone-set
+#     |  +---w input
+#     |     +---w zone          inet:domain-name
+#     |     +---w owner         domain-name
+#     |     +---w type          identityref
+#     |     +---w ttl           time-interval
+#     |     +---w (rdata-content)
+#     |        +--:(SOA)
+#     |        |  +---w SOA
+#     |        |     +---w mname      domain-name
+#     |        |     +---w rname      domain-name
+#     |        |     +---w serial     yang:counter32
+#     |        |     +---w refresh    time-interval
+#     |        |     +---w retry      time-interval
+#     |        |     +---w expire     time-interval
+#     |        |     +---w minimum    time-interval
+#     |        +--:(A)
+#     |        |  +---w A
+#     |        |     +---w address    inet:ipv4-address-no-zone
+
+
+# "class": "IN",
+# "name": "turris.cz",
+# "rrset": [
+#     {
+#         "type": "iana-dns-parameters:CNAME",
+#         "ttl": 1800,
+#         "owner": "buy.turris.cz",
+#         "rdata": [
+#             {
+#                 "CNAME": {
+#                     "cname": "omnia.turris.cz."
+#                 }
+#             }
+#         ]
+#     },
+#     {
+#         "type": "iana-dns-parameters:A",
+#         "ttl": 1800,
+#         "owner": "at.turris.cz",
+#         "rdata": [
+#             {
+#                 "A": {
+#                     "address": "217.31.192.107"
+#                 }
+#             }
+#         ]
+#     },
 
 class PokusStateHandler(ContainerNodeHandlerBase):
     def __init__(self, data_model: DataModel):
         super().__init__(data_model, "/dns-server:dns-server/access-control-list/network/pokus")
 
-    def generate_node(self, node_ii: InstanceRoute, staging: bool) -> JsonNodeT:
+    def generate_node(self, node_ii: InstanceRoute, username: str, staging: bool) -> JsonNodeT:
         print("pokus_handler, ii = {}".format(node_ii))
         try:
             acl_name = node_ii[2].keys.get(("name", None))

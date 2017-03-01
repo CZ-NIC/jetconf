@@ -8,6 +8,7 @@ from colorlog import error, warning as warn, info
 from urllib.parse import parse_qs
 from typing import Dict, List, Optional
 
+from yangson.exceptions import YangsonException
 from yangson.schemanode import NonexistentSchemaNode, ContainerNode, ListNode, GroupNode, LeafListNode, LeafNode
 from yangson.instance import NonexistentInstance, InstanceValueError, RootNode
 from yangson.datatype import YangTypeError
@@ -124,7 +125,7 @@ def _get(ds: BaseDatastore, pth: str, username: str, yl_data: bool=False, stagin
         except InstanceValueError as e:
             warn(epretty(e))
             http_resp = HttpResponse.empty(HttpStatus.BadRequest)
-        except (ConfHandlerFailedError, NoHandlerError, KnotError) as e:
+        except (ConfHandlerFailedError, NoHandlerError, KnotError, YangsonException) as e:
             error(epretty(e))
             http_resp = HttpResponse.empty(HttpStatus.InternalServerError)
         finally:
@@ -214,7 +215,7 @@ def create_get_staging_api(ds: BaseDatastore):
             else:
                 http_resp = _get(ds.nacm.nacm_ds, username, api_pth, staging=True)
         else:
-            http_resp = _get(ds, username, api_pth, staging=True)
+            http_resp = _get(ds, api_pth, username, staging=True)
 
         return http_resp
 

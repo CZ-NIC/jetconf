@@ -367,11 +367,13 @@ class BaseDatastore:
 
         if yl_data:
             root = self._yang_lib_data
-        else:
-            if staging:
+        elif staging:
+            try:
                 root = self.get_data_root_staging(rpc.username)
-            else:
+            except NoHandlerError:
                 root = self._data
+        else:
+            root = self._data
 
         # Resolve schema node of the desired data node
         sch_pth_list = filter(lambda isel: isinstance(isel, MemberName), ii)
@@ -381,7 +383,7 @@ class BaseDatastore:
         state_roots = sn.state_roots()
 
         if state_roots and not yl_data:
-            print("state roots: {}".format(state_roots))
+            debug_data("State roots: {}".format(state_roots))
             for state_root_sch_pth in state_roots:
                 state_root_sn = self._dm.get_data_node(state_root_sch_pth)
 
@@ -389,7 +391,7 @@ class BaseDatastore:
                 sni = sn
                 is_child = False
                 while sni:
-                    if sni == state_root_sn:
+                    if sni is state_root_sn:
                         is_child = True
                         break
                     sni = sni.parent
@@ -399,11 +401,15 @@ class BaseDatastore:
                     sdh = STATE_DATA_HANDLES.get_handler(state_root_sch_pth)
                     if sdh is not None:
                         if isinstance(sdh, ContainerNodeHandlerBase):
-                            state_handler_val = sdh.generate_node(ii, staging)
+                            state_handler_val = sdh.generate_node(ii, rpc.username, staging)
                             state_root_n = sdh.schema_node.orphan_instance(state_handler_val)
                         elif isinstance(sdh, ListNodeHandlerBase):
-                            state_handler_val = sdh.generate_item(ii, staging)
-                            state_root_n = sdh.schema_node.orphan_entry(state_handler_val)
+                            if (sn is sdh.schema_node) and isinstance(ii[-1], MemberName):
+                                state_handler_val = sdh.generate_list(ii, rpc.username, staging)
+                                state_root_n = sdh.schema_node.orphan_instance(state_handler_val)
+                            else:
+                                state_handler_val = sdh.generate_item(ii, rpc.username, staging)
+                                state_root_n = sdh.schema_node.orphan_entry(state_handler_val)
 
                         # Select desired subnode from handler-generated content
                         ii_prefix, ii_rel = sdh.schema_node.split_instance_route(ii)
