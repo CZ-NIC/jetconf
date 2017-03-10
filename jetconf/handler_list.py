@@ -1,6 +1,6 @@
 from typing import List, Tuple, Callable, Any
-from yangson.context import Context
 from yangson.schema import SchemaNode
+from yangson.schemadata import SchemaData
 from yangson.instance import InstanceRoute
 
 HandlerSelectorT = Any
@@ -102,11 +102,11 @@ class StateDataHandlerList:
         self.handlers = []
 
     def register_handler(self, handler: "StateNodeHandlerBase"):
-        saddr = Context.path2route(handler.sch_pth)
+        saddr = SchemaData.path2route(handler.sch_pth)
         self.handlers.append((saddr, handler))
 
     def get_handler(self, sch_pth: str, allow_superior: bool = True) -> Callable:
-        saddr = Context.path2route(sch_pth)
+        saddr = SchemaData.path2route(sch_pth)
         if allow_superior:
             while saddr:
                 for h in self.handlers:
