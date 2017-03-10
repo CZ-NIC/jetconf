@@ -1,5 +1,5 @@
 from typing import List, Tuple, Callable, Any
-from yangson.schema import SchemaNode
+from yangson.schemanode import SchemaNode
 from yangson.schemadata import SchemaData
 from yangson.instance import InstanceRoute
 
