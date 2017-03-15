@@ -384,6 +384,7 @@ class BaseDatastore:
 
         if state_roots and not yl_data:
             debug_data("State roots: {}".format(state_roots))
+
             for state_root_sch_pth in state_roots:
                 state_root_sn = self._dm.get_data_node(state_root_sch_pth)
 
@@ -414,6 +415,11 @@ class BaseDatastore:
                         # Select desired subnode from handler-generated content
                         ii_prefix, ii_rel = sdh.schema_node.split_instance_route(ii)
                         n = state_root_n.goto(ii_rel)
+
+                        # There should be only one state root, no need to continue
+                        if len(state_roots) != 1:
+                            warn("URI points to directly to state data, but more state roots found")
+                        break
                     else:
                         raise NoHandlerForStateDataError(rpc.path)
                 else:
@@ -425,16 +431,25 @@ class BaseDatastore:
                             if node.schema_node is state_root_sn.parent:
                                 ii_gen = DataHelpers.node_get_ii(node)
                                 sdh = STATE_DATA_HANDLES.get_handler(state_root_sch_pth)
+                                # print(state_root_sch_pth)
                                 if sdh is not None:
-                                    if isinstance(sdh, ContainerNodeHandlerBase):
-                                        state_handler_val = sdh.generate_node(ii_gen, rpc.username, staging)
-                                    elif isinstance(sdh, ListNodeHandlerBase):
-                                        print("node={}".format(node))
-                                        print("iigen={}".format(ii_gen))
-                                        state_handler_val = sdh.generate_item(ii_gen, rpc.username, staging)
+                                    try:
+                                        if isinstance(sdh, ContainerNodeHandlerBase):
+                                            state_handler_val = sdh.generate_node(ii_gen, rpc.username, staging)
+                                        elif isinstance(sdh, ListNodeHandlerBase):
+                                            state_handler_val = sdh.generate_list(ii_gen, rpc.username, staging)
+                                    except Exception as e:
+                                        error("Error occured in state data generator (sn: {})".format(state_root_sch_pth))
+                                        error(epretty(e))
+                                        error("This state node will be omitted.")
+                                    else:
+                                        if state_root_sn.ns == state_root_sn.parent.ns:
+                                            nm_name = state_root_sn.qual_name[0]
+                                        else:
+                                            nm_name = state_root_sn.qual_name[1] + ":" + state_root_sn.qual_name[0]
 
-                                    nm_name = state_root_sn.qual_name[0]
-                                    node = node.put_member(nm_name, state_handler_val, raw=True).up()
+                                        # print("nm={}".format(nm_name))
+                                        node = node.put_member(nm_name, state_handler_val, raw=True).up()
                             else:
                                 for key in node:
                                     member = node[key]
@@ -449,6 +464,7 @@ class BaseDatastore:
                         return node
 
                     n = _fill_state_roots(n)
+                    root = n.top()
         else:
             n = root.goto(ii)
 
