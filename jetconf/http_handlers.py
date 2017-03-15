@@ -65,6 +65,7 @@ class HttpResponse:
     def __init__(self, status: HttpStatus, data: bytes, content_type: str, extra_headers: OrderedDict=None):
         self.status_code = status.code
         self.data = data
+        self.content_length = len(data)
         self.content_type = content_type
         self.extra_headers = extra_headers
 

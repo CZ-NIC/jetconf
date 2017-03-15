@@ -157,7 +157,7 @@ class H2Protocol(asyncio.Protocol):
         resp_headers = (
             (":status", resp.status_code),
             ("Content-Type", resp.content_type),
-            ("Content-Length", str(len(resp.data))),
+            ("Content-Length", str(resp.content_length)),
             ("Server", CONFIG_HTTP["SERVER_NAME"]),
             ("Access-Control-Allow-Origin", CONFIG_HTTP["AC_ALLOW_ORIGIN"])
         )
