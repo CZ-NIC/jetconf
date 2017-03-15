@@ -427,9 +427,11 @@ class BaseDatastore:
                                 sdh = STATE_DATA_HANDLES.get_handler(state_root_sch_pth)
                                 if sdh is not None:
                                     if isinstance(sdh, ContainerNodeHandlerBase):
-                                        state_handler_val = sdh.generate_node(ii_gen, staging)
+                                        state_handler_val = sdh.generate_node(ii_gen, rpc.username, staging)
                                     elif isinstance(sdh, ListNodeHandlerBase):
-                                        state_handler_val = sdh.generate_item(ii_gen, staging)
+                                        print("node={}".format(node))
+                                        print("iigen={}".format(ii_gen))
+                                        state_handler_val = sdh.generate_item(ii_gen, rpc.username, staging)
 
                                     nm_name = state_root_sn.qual_name[0]
                                     node = node.put_member(nm_name, state_handler_val, raw=True).up()

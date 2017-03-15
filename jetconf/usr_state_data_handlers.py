@@ -340,7 +340,6 @@ class ZoneDataStateHandler(ListNodeHandlerBase):
                         for pos in found_positions:
                             rrset_out.pop(pos)
 
-
         return zone_data
 
 

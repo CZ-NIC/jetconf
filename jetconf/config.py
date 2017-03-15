@@ -23,6 +23,7 @@ CONFIG_HTTP = {
     "SERVER_NAME": "jetconf-h2",
     "UPLOAD_SIZE_LIMIT": 1,
     "LISTEN_LOCALHOST_ONLY": False,
+    "AC_ALLOW_ORIGIN": "http://localhost:3000",
     "PORT": 8443,
 
     "SERVER_SSL_CERT": "server.crt",

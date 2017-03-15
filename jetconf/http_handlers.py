@@ -8,8 +8,8 @@ from colorlog import error, warning as warn, info
 from urllib.parse import parse_qs
 from typing import Dict, List, Optional
 
-from yangson.exceptions import YangsonException
-from yangson.schemanode import NonexistentSchemaNode, ContainerNode, ListNode, GroupNode, LeafListNode, LeafNode
+from yangson.exceptions import YangsonException, NonexistentSchemaNode
+from yangson.schemanode import ContainerNode, ListNode, GroupNode, LeafListNode, LeafNode
 from yangson.instance import NonexistentInstance, InstanceValueError, RootNode
 from yangson.datatype import YangTypeError
 
@@ -106,7 +106,7 @@ def _get(ds: BaseDatastore, pth: str, username: str, yl_data: bool=False, stagin
 
     rpc1 = RpcInfo()
     rpc1.username = username
-    rpc1.path = url_path
+    rpc1.path = url_path.rstrip("/")
     rpc1.qs = query_string
 
     try:
@@ -189,7 +189,7 @@ def create_get_api(ds: BaseDatastore):
                 warn(username + " not allowed to access NACM data")
                 http_resp = HttpResponse.empty(HttpStatus.Forbidden)
             else:
-                http_resp = _get(ds.nacm.nacm_ds, username, api_pth)
+                http_resp = _get(ds.nacm.nacm_ds, api_pth, username)
         elif ns == "ietf-yang-library":
             http_resp = _get(ds, api_pth, username, yl_data=True)
         else:
@@ -260,7 +260,7 @@ def _post(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse
 
     rpc1 = RpcInfo()
     rpc1.username = username
-    rpc1.path = url_path
+    rpc1.path = url_path.rstrip("/")
     rpc1.qs = query_string
 
     try:
@@ -326,7 +326,7 @@ def _put(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse:
 
     rpc1 = RpcInfo()
     rpc1.username = username
-    rpc1.path = url_path
+    rpc1.path = url_path.rstrip("/")
 
     try:
         json_data = json.loads(data) if len(data) > 0 else {}
@@ -386,7 +386,7 @@ def _delete(ds: BaseDatastore, pth: str, username: str) -> HttpResponse:
 
         rpc1 = RpcInfo()
         rpc1.username = username
-        rpc1.path = url_path
+        rpc1.path = url_path.rstrip("/")
 
         try:
             ds.lock_data(username)
@@ -494,3 +494,13 @@ def create_api_op(ds: BaseDatastore):
         return http_resp
 
     return api_op_closure
+
+
+def options_api(headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
+    info("api_options: {}".format(headers[":path"]))
+    headers_extra = OrderedDict()
+    headers_extra["Allow"] = "GET, PUT, POST, OPTIONS, HEAD, DELETE"
+    http_resp = HttpResponse(HttpStatus.Ok, bytes(), CT_PLAIN, extra_headers=headers_extra)
+
+    return http_resp
+

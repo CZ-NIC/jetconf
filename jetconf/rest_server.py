@@ -104,7 +104,7 @@ class H2Protocol(asyncio.Protocol):
                         headers = request_data.headers
                         http_method = headers[":method"]
 
-                        if http_method in ("GET", "DELETE"):
+                        if http_method in ("GET", "DELETE", "OPTIONS", "HEAD"):
                             self.run_request_handler(headers, event.stream_id, None)
                         elif http_method in ("PUT", "POST"):
                             body = request_data.data.getvalue().decode('utf-8')
@@ -131,27 +131,35 @@ class H2Protocol(asyncio.Protocol):
             if dts:
                 self.transport.write(dts)
 
+    def max_chunk_size(self, stream_id: int):
+        return min(self.conn.max_outbound_frame_size, self.conn.local_flow_control_window(stream_id))
+
     # Find and run handler for specific URI and HTTP method
     def run_request_handler(self, headers: OrderedDict, stream_id: int, data: Optional[str]):
         url_path = headers[":path"].split("?")[0]
+        method = headers[":method"]
 
-        h = h2_handlers.get_handler(headers[":method"], url_path)
+        if method == "HEAD":
+            h = h2_handlers.get_handler("GET", url_path)
+        else:
+            h = h2_handlers.get_handler(method, url_path)
+
         if not h:
             self.send_response(HttpResponse.empty(HttpStatus.BadRequest), stream_id)
         else:
             # Run handler and send HTTP response
             resp = h(headers, data, self.client_cert)
+            if method == "HEAD":
+                resp.data = bytes()
             self.send_response(resp, stream_id)
-
-    def max_chunk_size(self, stream_id: int):
-        return min(self.conn.max_outbound_frame_size, self.conn.local_flow_control_window(stream_id))
 
     def send_response(self, resp: HttpResponse, stream_id: int):
         resp_headers = (
             (":status", resp.status_code),
-            ("content-type", resp.content_type),
-            ("content-length", str(len(resp.data))),
-            ("server", CONFIG_HTTP["SERVER_NAME"]),
+            ("Content-Type", resp.content_type),
+            ("Content-Length", str(len(resp.data))),
+            ("Server", CONFIG_HTTP["SERVER_NAME"]),
+            ("Access-Control-Allow-Origin", CONFIG_HTTP["AC_ALLOW_ORIGIN"])
         )
 
         if resp.extra_headers:
@@ -242,6 +250,7 @@ class RestServer:
         self.http_handlers.register_handler(lambda m, p: (m == "PUT") and (p.startswith(API_ROOT_data)), api_put)
         self.http_handlers.register_handler(lambda m, p: (m == "DELETE") and (p.startswith(API_ROOT_data)), api_delete)
         self.http_handlers.register_handler(lambda m, p: (m == "POST") and (p.startswith(API_ROOT_ops)), api_op)
+        self.http_handlers.register_handler(lambda m, p: (m == "OPTIONS") and (p.startswith(API_ROOT_data)), handlers.options_api)
 
         h2_handlers = self.http_handlers
 
