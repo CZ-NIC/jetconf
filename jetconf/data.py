@@ -485,7 +485,13 @@ class BaseDatastore:
                 n = nrpc.prune_data_tree(n, root, ii, Permission.NACM_ACCESS_READ)
 
         try:
-            max_depth = int(rpc.qs["depth"][0])
+            max_depth_str = rpc.qs["depth"][0]
+            if max_depth_str == "unbounded":
+                max_depth = None
+            else:
+                max_depth = int(max_depth_str) - 1
+                if (max_depth < 0) or (max_depth > 65535):
+                    raise ValueError()
         except (IndexError, KeyError):
             max_depth = None
         except ValueError:
