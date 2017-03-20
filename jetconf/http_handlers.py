@@ -123,7 +123,7 @@ def _get(ds: BaseDatastore, pth: str, username: str, yl_data: bool=False, stagin
         except (NonexistentSchemaNode, NonexistentInstance) as e:
             warn(epretty(e))
             http_resp = HttpResponse.empty(HttpStatus.NotFound)
-        except InstanceValueError as e:
+        except (InstanceValueError, ValueError) as e:
             warn(epretty(e))
             http_resp = HttpResponse.empty(HttpStatus.BadRequest)
         except (ConfHandlerFailedError, NoHandlerError, KnotError, YangsonException) as e:
