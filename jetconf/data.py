@@ -731,6 +731,22 @@ class BaseDatastore:
                 }
         elif rpc.op_name == "jetconf:get-schema-digest":
             ret_data = self._dm.schema_digest()
+        elif rpc.op_name == "jetconf:get-list-length":
+            try:
+                list_url = rpc.op_input_args["url"]     # type: str
+            except (TypeError, KeyError):
+                raise ValueError("This operation expects \"url\" input parameter")
+
+            if list_url == "":
+                list_ii = []
+            else:
+                list_ii = self.parse_ii(list_url, PathFormat.URL)
+
+            ln_val = self._data.goto(list_ii).value
+            if isinstance(ln_val, list):
+                ret_data = {"jetconf:list-length": len(ln_val)}
+            else:
+                raise ValueError("Passed URI does not point to List")
         else:
             # User-defined operation
             if self.nacm and (not rpc.skip_nacm_check):
