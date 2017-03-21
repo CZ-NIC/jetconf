@@ -250,7 +250,7 @@ class RestServer:
         self.http_handlers.register_handler(lambda m, p: (m == "PUT") and (p.startswith(API_ROOT_data)), api_put)
         self.http_handlers.register_handler(lambda m, p: (m == "DELETE") and (p.startswith(API_ROOT_data)), api_delete)
         self.http_handlers.register_handler(lambda m, p: (m == "POST") and (p.startswith(API_ROOT_ops)), api_op)
-        self.http_handlers.register_handler(lambda m, p: (m == "OPTIONS") and (p.startswith(API_ROOT_data)), handlers.options_api)
+        self.http_handlers.register_handler(lambda m, p: m == "OPTIONS", handlers.options_api)
 
         h2_handlers = self.http_handlers
 
