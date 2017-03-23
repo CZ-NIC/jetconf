@@ -50,6 +50,7 @@ class HttpStatus(Enum):
     MethodNotAllowed    = ("405", "Method Not Allowed")
     NotAcceptable       = ("406", "Not Acceptable")
     Conflict    = ("409", "Conflict")
+    ReqTooLarge = ("413", "Request Entity Too Large")
     InternalServerError = ("500", "Internal Server Error")
 
     @property

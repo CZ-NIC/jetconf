@@ -99,7 +99,7 @@ class H2Protocol(asyncio.Protocol):
                     self.send_response(HttpResponse.empty(HttpStatus.BadRequest), event.stream_id)
                 else:
                     if request_data.data_overflow:
-                        self.send_response(HttpResponse.empty(HttpStatus.NotAcceptable), event.stream_id)
+                        self.send_response(HttpResponse.empty(HttpStatus.ReqTooLarge), event.stream_id)
                     else:
                         headers = request_data.headers
                         http_method = headers[":method"]

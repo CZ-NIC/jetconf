@@ -157,6 +157,7 @@ def main():
     except (SchemaError, SemanticError) as e:
         error("Validation of datastore failed")
         error(ErrorHelpers.epretty(e))
+        # print(e.__dict__)
         sig_exit_handler(0, None)
 
     # Register configuration data node listeners
