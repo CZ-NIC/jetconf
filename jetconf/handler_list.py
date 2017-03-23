@@ -58,10 +58,10 @@ class BaseHandlerList:
         self.handlers = []              # type: List[Tuple[HandlerSelectorT, Callable]]
         self.default_handler = None     # type: Callable
 
-    def register_handler(self, identifier: str, handler: Callable):
+    def register(self, identifier: str, handler: Callable):
         raise NotImplementedError("Not implemented in base class")
 
-    def register_default_handler(self, handler: Callable):
+    def register_default(self, handler: Callable):
         self.default_handler = handler
 
     def get_handler(self, identifier: str) -> Any:
@@ -69,7 +69,7 @@ class BaseHandlerList:
 
 
 class OpHandlerList(BaseHandlerList):
-    def register_handler(self, op_name: str, handler: Callable):
+    def register(self, op_name: str, handler: Callable):
         self.handlers.append((op_name, handler))
 
     def get_handler(self, op_name: str) -> Callable:
@@ -84,7 +84,7 @@ class ConfDataHandlerList:
     def __init__(self):
         self.handlers = []  # type: List[Tuple[HandlerSelectorT, BaseDataListener]]
 
-    def register_handler(self, handler: "BaseDataListener"):
+    def register(self, handler: "BaseDataListener"):
         schema_node = handler.schema_node  # type: SchemaNode
         sch_node_id = str(id(schema_node))
         self.handlers.append((sch_node_id, handler))
@@ -101,7 +101,7 @@ class StateDataHandlerList:
     def __init__(self):
         self.handlers = []
 
-    def register_handler(self, handler: "StateNodeHandlerBase"):
+    def register(self, handler: "StateNodeHandlerBase"):
         saddr = SchemaData.path2route(handler.sch_pth)
         self.handlers.append((saddr, handler))
 

@@ -29,6 +29,7 @@ from .data import (
 
 QueryStrT = Dict[str, List[str]]
 epretty = ErrorHelpers.epretty
+errtag = ErrorHelpers.errtag
 debug_httph = LogHelpers.create_module_dbg_logger(__name__)
 
 
@@ -62,6 +63,23 @@ class HttpStatus(Enum):
         return self.value[1]
 
 
+ERRTAG_MALFORMED = "malformed-message"
+ERRTAG_REQLARGE = "request-too-large"
+ERRTAG_OPNOTSUPPORTED = "operation-not-supported"
+ERRTAG_OPFAILED = "operation-failed"
+ERRTAG_ACCDENIED = "access-denied"
+ERRTAG_LOCKDENIED = "lock-denied"
+ERRTAG_INVVALUE = "invalid-value"
+ERRTAG_EXISTS = "data-exists"
+
+
+class RestconfErrType(Enum):
+    Transport   = "transport"
+    Rpc         = "rpc"
+    Protocol    = "protocol"
+    Application = "application"
+
+
 class HttpResponse:
     def __init__(self, status: HttpStatus, data: bytes, content_type: str, extra_headers: OrderedDict=None):
         self.status_code = status.code
@@ -79,9 +97,56 @@ class HttpResponse:
 
         return cls(status, response.encode(), CT_PLAIN)
 
+    @classmethod
+    def error(cls, status: HttpStatus, err_type: RestconfErrType, err_tag: str, err_apptag: str=None,
+              err_path: str=None, err_msg: str=None, exception: Exception=None) -> "HttpResponse":
+        err_body = {
+            "error-type": err_type.value,
+            "error-tag": err_tag
+        }
+
+        # Auto-fill app-tag, path and mesage fields from Python's Exception attributes
+        if exception is not None:
+            try:
+                err_body["error-app-tag"] = exception.tag
+            except AttributeError:
+                pass
+
+            try:
+                err_body["error-path"] = exception.path
+            except AttributeError:
+                pass
+
+            err_body["error-message"] = epretty(exception)
+
+        if err_apptag is not None:
+            err_body["error-app-tag"] = err_apptag
+
+        if err_path is not None:
+            err_body["error-path"] = err_path
+
+        if err_msg is not None:
+            err_body["error-message"] = err_msg
+
+        err_template = {
+            "ietf-restconf:errors": {
+                "error": [
+                    err_body
+                ]
+            }
+        }
+
+        response = json.dumps(err_template, indent=4)
+        return cls(status, response.encode(), CT_YANG_JSON)
+
 
 def unknown_req_handler(headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
-    return HttpResponse.empty(HttpStatus.BadRequest)
+    return HttpResponse.error(
+        HttpStatus.BadRequest,
+        RestconfErrType.Transport,
+        ERRTAG_MALFORMED,
+        "unknown_req_handler"
+    )
 
 
 def api_root_handler(headers: OrderedDict, data: Optional[str], client_cert: SSLCertT):
@@ -119,17 +184,33 @@ def _get(ds: BaseDatastore, pth: str, username: str, yl_data: bool=False, stagin
         try:
             n = ds.get_node_rpc(rpc1, yl_data, staging)
         except NacmForbiddenError as e:
-            warn(epretty(e))
-            http_resp = HttpResponse.empty(HttpStatus.Forbidden)
+            http_resp = HttpResponse.error(
+                HttpStatus.Forbidden,
+                RestconfErrType.Protocol,
+                ERRTAG_ACCDENIED,
+                exception=e
+            )
         except (NonexistentSchemaNode, NonexistentInstance) as e:
-            warn(epretty(e))
-            http_resp = HttpResponse.empty(HttpStatus.NotFound)
+            http_resp = HttpResponse.error(
+                HttpStatus.NotFound,
+                RestconfErrType.Protocol,
+                ERRTAG_INVVALUE,
+                exception=e
+            )
         except (InstanceValueError, ValueError) as e:
-            warn(epretty(e))
-            http_resp = HttpResponse.empty(HttpStatus.BadRequest)
+            http_resp = HttpResponse.error(
+                HttpStatus.BadRequest,
+                RestconfErrType.Protocol,
+                ERRTAG_INVVALUE,
+                exception=e
+            )
         except (ConfHandlerFailedError, NoHandlerError, KnotError, YangsonException) as e:
-            error(epretty(e))
-            http_resp = HttpResponse.empty(HttpStatus.InternalServerError)
+            http_resp = HttpResponse.error(
+                HttpStatus.InternalServerError,
+                RestconfErrType.Protocol,
+                ERRTAG_OPFAILED,
+                exception=e
+            )
         finally:
             ds.unlock_data()
 
@@ -169,11 +250,19 @@ def _get(ds: BaseDatastore, pth: str, username: str, yl_data: bool=False, stagin
             http_resp = HttpResponse(HttpStatus.Ok, response.encode(), CT_YANG_JSON, extra_headers=add_headers)
 
     except DataLockError as e:
-        warn(epretty(e))
-        http_resp = HttpResponse.empty(HttpStatus.InternalServerError)
+        http_resp = HttpResponse.error(
+            HttpStatus.Conflict,
+            RestconfErrType.Protocol,
+            ERRTAG_LOCKDENIED,
+            exception=e
+        )
     except HttpRequestError as e:
-        warn(epretty(e))
-        http_resp = HttpResponse.empty(HttpStatus.BadRequest)
+        http_resp = HttpResponse.error(
+            HttpStatus.BadRequest,
+            RestconfErrType.Protocol,
+            ERRTAG_INVVALUE,
+            exception=e
+        )
 
     return http_resp
 
@@ -442,21 +531,27 @@ def create_api_op(ds: BaseDatastore):
         info("[{}] invoke_op: {}".format(username, headers[":path"]))
 
         api_pth = headers[":path"][len(API_ROOT_ops):]
-        op_name_fq = api_pth[1:]
-        op_name_splitted = op_name_fq.split(":", maxsplit=1)
+        op_name_fq = api_pth[1:].split("/", maxsplit=1)[0]
 
         try:
-            ns = op_name_splitted[0]
-            op_name = op_name_splitted[1]
-        except IndexError:
-            warn("Operation name must be in fully-qualified format")
-            return HttpResponse.empty(HttpStatus.BadRequest)
+            ns, sel1 = op_name_fq.split(":", maxsplit=1)
+        except ValueError:
+            return HttpResponse.error(
+                HttpStatus.BadRequest,
+                RestconfErrType.Protocol,
+                ERRTAG_MALFORMED,
+                "Operation name must be in fully-qualified format"
+            )
 
         try:
             json_data = json.loads(data) if len(data) > 0 else {}
         except ValueError as e:
-            error("Failed to parse POST data: " + epretty(e))
-            return HttpResponse.empty(HttpStatus.BadRequest)
+            return HttpResponse.error(
+                HttpStatus.BadRequest,
+                RestconfErrType.Protocol,
+                ERRTAG_MALFORMED,
+                "Failed to parse POST data: " + epretty(e)
+            )
 
         input_args = json_data.get(ns + ":input")
 
@@ -481,17 +576,47 @@ def create_api_op(ds: BaseDatastore):
                     response = ret_data
                 http_resp = HttpResponse(HttpStatus.Ok, response.encode(), CT_YANG_JSON)
         except NacmForbiddenError as e:
-            warn(epretty(e))
-            http_resp = HttpResponse.empty(HttpStatus.Forbidden)
+            http_resp = HttpResponse.error(
+                HttpStatus.Forbidden,
+                RestconfErrType.Protocol,
+                ERRTAG_ACCDENIED,
+                exception=e
+            )
         except NonexistentSchemaNode as e:
-            warn(epretty(e))
-            http_resp = HttpResponse.empty(HttpStatus.NotFound)
-        except (InstanceAlreadyPresent, NoHandlerForOpError, ValueError) as e:
-            warn(epretty(e))
-            http_resp = HttpResponse.empty(HttpStatus.BadRequest)
+            http_resp = HttpResponse.error(
+                HttpStatus.NotFound,
+                RestconfErrType.Protocol,
+                ERRTAG_INVVALUE,
+                exception=e
+            )
+        except InstanceAlreadyPresent as e:
+            http_resp = HttpResponse.error(
+                HttpStatus.Conflict,
+                RestconfErrType.Protocol,
+                ERRTAG_EXISTS,
+                exception=e
+            )
+        except NoHandlerForOpError as e:
+            http_resp = HttpResponse.error(
+                HttpStatus.BadRequest,
+                RestconfErrType.Protocol,
+                ERRTAG_OPNOTSUPPORTED,
+                exception=e
+            )
         except ConfHandlerFailedError as e:
-            error(epretty(e))
-            http_resp = HttpResponse.empty(HttpStatus.InternalServerError)
+            http_resp = HttpResponse.error(
+                HttpStatus.InternalServerError,
+                RestconfErrType.Protocol,
+                ERRTAG_OPFAILED,
+                exception=e
+            )
+        except ValueError as e:
+            http_resp = HttpResponse.error(
+                HttpStatus.BadRequest,
+                RestconfErrType.Protocol,
+                ERRTAG_INVVALUE,
+                exception=e
+            )
 
         return http_resp
 

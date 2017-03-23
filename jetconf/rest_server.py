@@ -1,10 +1,10 @@
 import asyncio
 import ssl
+
 from io import BytesIO
 from collections import OrderedDict
-
 from colorlog import error, warning as warn, info
-from typing import List, Tuple, Dict, Any, Callable, Optional
+from typing import List, Tuple, Dict, Callable, Optional
 
 from h2.connection import H2Connection
 from h2.errors import PROTOCOL_ERROR, ENHANCE_YOUR_CALM
@@ -12,7 +12,7 @@ from h2.exceptions import ProtocolError
 from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged, StreamEnded, WindowUpdated
 
 from . import http_handlers as handlers
-from .http_handlers import HttpResponse, HttpStatus
+from .http_handlers import HttpResponse, HttpStatus, RestconfErrType, ERRTAG_MALFORMED, ERRTAG_OPNOTSUPPORTED, ERRTAG_REQLARGE
 from .config import CONFIG_HTTP, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops
 from .data import BaseDatastore
 from .helpers import SSLCertT, LogHelpers
@@ -31,6 +31,7 @@ class RequestData:
         self.data = data
         self.data_overflow = False
 
+
 class ResponseData:
     def __init__(self, data: bytes):
         self.data = data
@@ -42,10 +43,10 @@ class HttpHandlerList:
         self.handlers = []              # type: List[Tuple[HandlerConditionT, HttpHandlerT]]
         self.default_handler = None     # type: HttpHandlerT
 
-    def register_handler(self, condition: HandlerConditionT, handler: HttpHandlerT):
+    def register(self, condition: HandlerConditionT, handler: HttpHandlerT):
         self.handlers.append((condition, handler))
 
-    def register_default_handler(self, handler: HttpHandlerT):
+    def register_default(self, handler: HttpHandlerT):
         self.default_handler = handler
 
     def get_handler(self, method: str, path: str) -> HttpHandlerT:
@@ -96,10 +97,16 @@ class H2Protocol(asyncio.Protocol):
                 try:
                     request_data = self.stream_data.pop(event.stream_id)
                 except KeyError:
-                    self.send_response(HttpResponse.empty(HttpStatus.BadRequest), event.stream_id)
+                    self.send_response(
+                        HttpResponse.error(HttpStatus.BadRequest, RestconfErrType.Transport, ERRTAG_MALFORMED),
+                        event.stream_id
+                    )
                 else:
                     if request_data.data_overflow:
-                        self.send_response(HttpResponse.empty(HttpStatus.ReqTooLarge), event.stream_id)
+                        self.send_response(
+                            HttpResponse.error(HttpStatus.ReqTooLarge, RestconfErrType.Transport, ERRTAG_REQLARGE),
+                            event.stream_id
+                        )
                     else:
                         headers = request_data.headers
                         http_method = headers[":method"]
@@ -111,7 +118,14 @@ class H2Protocol(asyncio.Protocol):
                             self.run_request_handler(headers, event.stream_id, body)
                         else:
                             warn("Unknown http method \"{}\"".format(headers[":method"]))
-                            self.send_response(HttpResponse.empty(HttpStatus.MethodNotAllowed), event.stream_id)
+                            self.send_response(
+                                HttpResponse.error(
+                                    HttpStatus.MethodNotAllowed,
+                                    RestconfErrType.Transport,
+                                    ERRTAG_OPNOTSUPPORTED
+                                ),
+                                event.stream_id
+                            )
             elif isinstance(event, RemoteSettingsChanged):
                 changed_settings = {}
                 for s in event.changed_settings.items():
@@ -119,7 +133,9 @@ class H2Protocol(asyncio.Protocol):
                 self.conn.update_settings(changed_settings)
             elif isinstance(event, WindowUpdated):
                 try:
-                    debug_srv("str {} nw={}".format(event.stream_id, self.conn.local_flow_control_window(event.stream_id)))
+                    debug_srv(
+                        "str {} nw={}".format(event.stream_id, self.conn.local_flow_control_window(event.stream_id))
+                    )
                     self.send_response_continue(event.stream_id)
                 except (ProtocolError, KeyError) as e:
                     # debug_srv("wupdexception strid={}: {}".format(event.stream_id, str(e)))
@@ -145,7 +161,10 @@ class H2Protocol(asyncio.Protocol):
             h = h2_handlers.get_handler(method, url_path)
 
         if not h:
-            self.send_response(HttpResponse.empty(HttpStatus.BadRequest), stream_id)
+            self.send_response(
+                HttpResponse.error(HttpStatus.BadRequest, RestconfErrType.Transport, ERRTAG_MALFORMED),
+                stream_id
+            )
         else:
             # Run handler and send HTTP response
             resp = h(headers, data, self.client_cert)
@@ -238,28 +257,28 @@ class RestServer:
         # Register HTTP handlers
         api_get_root = handlers.api_root_handler
         api_get = handlers.create_get_api(datastore)
-        api_get_staging = handlers.create_get_staging_api(datastore)
+        api_get_st = handlers.create_get_staging_api(datastore)
         api_post = handlers.create_post_api(datastore)
         api_put = handlers.create_put_api(datastore)
         api_delete = handlers.create_api_delete(datastore)
         api_op = handlers.create_api_op(datastore)
 
-        self.http_handlers.register_handler(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["API_ROOT"]), api_get_root)
-        self.http_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_data)), api_get)
-        self.http_handlers.register_handler(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_STAGING_data)), api_get_staging)
-        self.http_handlers.register_handler(lambda m, p: (m == "POST") and (p.startswith(API_ROOT_data)), api_post)
-        self.http_handlers.register_handler(lambda m, p: (m == "PUT") and (p.startswith(API_ROOT_data)), api_put)
-        self.http_handlers.register_handler(lambda m, p: (m == "DELETE") and (p.startswith(API_ROOT_data)), api_delete)
-        self.http_handlers.register_handler(lambda m, p: (m == "POST") and (p.startswith(API_ROOT_ops)), api_op)
-        self.http_handlers.register_handler(lambda m, p: m == "OPTIONS", handlers.options_api)
+        self.http_handlers.register(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["API_ROOT"]), api_get_root)
+        self.http_handlers.register(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_data)), api_get)
+        self.http_handlers.register(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_STAGING_data)), api_get_st)
+        self.http_handlers.register(lambda m, p: (m == "POST") and (p.startswith(API_ROOT_data)), api_post)
+        self.http_handlers.register(lambda m, p: (m == "PUT") and (p.startswith(API_ROOT_data)), api_put)
+        self.http_handlers.register(lambda m, p: (m == "DELETE") and (p.startswith(API_ROOT_data)), api_delete)
+        self.http_handlers.register(lambda m, p: (m == "POST") and (p.startswith(API_ROOT_ops)), api_op)
+        self.http_handlers.register(lambda m, p: m == "OPTIONS", handlers.options_api)
 
         h2_handlers = self.http_handlers
 
     def register_static_handlers(self):
         global h2_handlers
 
-        self.http_handlers.register_handler(lambda m, p: m == "GET", handlers.get_file)
-        self.http_handlers.register_default_handler(handlers.unknown_req_handler)
+        self.http_handlers.register(lambda m, p: m == "GET", handlers.get_file)
+        self.http_handlers.register_default(handlers.unknown_req_handler)
 
         h2_handlers = self.http_handlers
 

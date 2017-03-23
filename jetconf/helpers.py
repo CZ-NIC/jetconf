@@ -46,9 +46,13 @@ class DataHelpers:
                 n = [n]
         return n
 
+    # Get the namespace of the first segment in path
+    # Raises ValueError if the first segment is not in fully-qualified format
     @staticmethod
     def path_first_ns(api_pth: str) -> str:
-        return api_pth[1:].split("/", maxsplit=1)[0].split(":", maxsplit=1)[0]
+        first_seg = api_pth[1:].split("/", maxsplit=1)[0]
+        ns1, sel1 = first_seg.split(":", maxsplit=1)
+        return ns1
 
     @staticmethod
     def load_data_model(module_dir: str, yang_library_file: str) -> DataModel:
@@ -114,6 +118,15 @@ class ErrorHelpers:
             return "In module " + module_name + ": " + err_str
         else:
             return err_str
+
+    @staticmethod
+    def errtag(e: BaseException) -> str:
+        try:
+            tag = e.tag
+        except AttributeError:
+            tag = None
+
+        return tag
 
 
 class LogHelpers:

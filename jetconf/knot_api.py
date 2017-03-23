@@ -1,10 +1,8 @@
-import json
 from enum import Enum
 from typing import List, Union, Dict, Any, Optional
 from threading import Lock
 
 from .libknot.control import KnotCtl, KnotCtlType
-from .config import CONFIG
 from .helpers import LogHelpers
 
 JsonNodeT = Union[Dict[str, Any], List[Any], str, int]

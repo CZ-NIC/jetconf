@@ -155,24 +155,23 @@ def main():
     try:
         datastore.get_data_root().validate(ValidationScope.all, ContentType.config)
     except (SchemaError, SemanticError) as e:
-        error("Validation of datastore failed")
+        error("Initial validation of datastore failed")
         error(ErrorHelpers.epretty(e))
-        # print(e.__dict__)
         sig_exit_handler(0, None)
 
     # Register configuration data node listeners
-    CONF_DATA_HANDLES.register_handler(KnotConfServerListener(datastore, "/dns-server:dns-server/server-options"))
-    CONF_DATA_HANDLES.register_handler(KnotConfLogListener(datastore, "/dns-server:dns-server/knot-dns:log"))
-    CONF_DATA_HANDLES.register_handler(KnotConfZoneListener(datastore, "/dns-server:dns-server/zones/zone"))
-    CONF_DATA_HANDLES.register_handler(KnotConfControlListener(datastore, "/dns-server:dns-server/knot-dns:control-socket"))
-    CONF_DATA_HANDLES.register_handler(KnotConfAclListener(datastore, "/dns-server:dns-server/access-control-list"))
+    CONF_DATA_HANDLES.register(KnotConfServerListener(datastore, "/dns-server:dns-server/server-options"))
+    CONF_DATA_HANDLES.register(KnotConfLogListener(datastore, "/dns-server:dns-server/knot-dns:log"))
+    CONF_DATA_HANDLES.register(KnotConfZoneListener(datastore, "/dns-server:dns-server/zones/zone"))
+    CONF_DATA_HANDLES.register(KnotConfControlListener(datastore, "/dns-server:dns-server/knot-dns:control-socket"))
+    CONF_DATA_HANDLES.register(KnotConfAclListener(datastore, "/dns-server:dns-server/access-control-list"))
 
     # Register op handlers
-    OP_HANDLERS.register_handler("dns-zone-rpcs:begin-transaction", OP_HANDLERS_IMPL.zone_begin_transaction)
-    OP_HANDLERS.register_handler("dns-zone-rpcs:commit-transaction", OP_HANDLERS_IMPL.zone_commit_transaction)
-    OP_HANDLERS.register_handler("dns-zone-rpcs:abort-transaction", OP_HANDLERS_IMPL.zone_abort_transaction)
-    OP_HANDLERS.register_handler("dns-zone-rpcs:zone-set", OP_HANDLERS_IMPL.zone_set)
-    OP_HANDLERS.register_handler("dns-zone-rpcs:zone-unset", OP_HANDLERS_IMPL.zone_unset)
+    OP_HANDLERS.register("dns-zone-rpcs:begin-transaction", OP_HANDLERS_IMPL.zone_begin_transaction)
+    OP_HANDLERS.register("dns-zone-rpcs:commit-transaction", OP_HANDLERS_IMPL.zone_commit_transaction)
+    OP_HANDLERS.register("dns-zone-rpcs:abort-transaction", OP_HANDLERS_IMPL.zone_abort_transaction)
+    OP_HANDLERS.register("dns-zone-rpcs:zone-set", OP_HANDLERS_IMPL.zone_set)
+    OP_HANDLERS.register("dns-zone-rpcs:zone-unset", OP_HANDLERS_IMPL.zone_unset)
 
     # Create and register state data node listeners
     usr_state_data_handlers.create_zone_state_handlers(STATE_DATA_HANDLES, datamodel)
