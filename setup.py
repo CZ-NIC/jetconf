@@ -19,7 +19,7 @@ setup(
     entry_points = {
         "console_scripts": ["jetconf=jetconf.__main__:main"]
     },
-    install_requires = ["yangson", "h2", "colorlog"],
+    install_requires = ["yangson", "h2", "colorlog", "pyaml", "pytz"],
     tests_require = ["pytest"],
     keywords = ["RESTCONF", "yang", "data model", "configuration", "json"],
     classifiers = [
