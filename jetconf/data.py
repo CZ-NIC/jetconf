@@ -355,6 +355,7 @@ class BaseDatastore:
         else:
             root = self._data
 
+        yl_data_request = False
         if (len(ii) > 0) and (isinstance(ii[0], MemberName)):
             # Not getting root
             ns_first = ii[0].namespace
@@ -362,6 +363,7 @@ class BaseDatastore:
                 raise NacmForbiddenError(rpc.username + " not allowed to access NACM data")
             elif ns_first == "ietf-yang-library":
                 root = self._yang_lib_data
+                yl_data_request = True
         else:
             # Root node requested
             # Remove NACM data if user is not NACM privieged
@@ -383,7 +385,7 @@ class BaseDatastore:
         state_roots = sn.state_roots()
 
         # Check if URL points to state data or node that contains state data
-        if state_roots:
+        if state_roots and not yl_data_request:
             debug_data("State roots: {}".format(state_roots))
 
             for state_root_sch_pth in state_roots:
