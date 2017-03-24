@@ -7,6 +7,7 @@ lib
 pip-selfcheck.json
 pyvenv.cfg
 TAGS
+.eggs
 .idea
 __pycache__
 jetconf/__pycache__
