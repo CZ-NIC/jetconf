@@ -14,26 +14,28 @@ from yangson.schemanode import (
     SchemaError,
     SemanticError,
     InternalNode,
-    ContainerNode)
+    ContainerNode
+)
+from yangson.instvalue import ArrayValue, ObjectValue
 from yangson.instance import (
     InstanceNode,
     NonexistentInstance,
     InstanceValueError,
-    ArrayValue,
-    ObjectValue,
     MemberName,
     EntryKeys,
     EntryIndex,
     InstanceRoute,
     ArrayEntry,
     RootNode,
-    ObjectMember)
+    ObjectMember
+)
 
 from .helpers import PathFormat, ErrorHelpers, LogHelpers, DataHelpers, JsonNodeT
-from .config import CONFIG
-from .nacm import NacmConfig, Permission, Action
+from .config import CONFIG, CONFIG_NACM, CONFIG_HTTP
+from .nacm import NacmConfig, Permission, Action, NacmForbiddenError
 from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES, ConfDataObjectHandler, ConfDataListHandler
 from .usr_state_data_handlers import ContainerNodeHandlerBase, ListNodeHandlerBase
+from .errors import JetconfError
 
 epretty = ErrorHelpers.epretty
 debug_data = LogHelpers.create_module_dbg_logger(__name__)
@@ -45,37 +47,20 @@ class ChangeType(Enum):
     DELETE = 2
 
 
-class NacmForbiddenError(Exception):
-    def __init__(self, msg="Access to data node rejected by NACM", rule=None):
-        self.msg = msg
-        self.rulename = rule
-
-    def __str__(self):
-        return self.msg
+class DataLockError(JetconfError):
+    pass
 
 
-class DataLockError(Exception):
-    def __init__(self, msg=""):
-        self.msg = msg
-
-    def __str__(self):
-        return self.msg
+class NoStagingDataException(JetconfError):
+    pass
 
 
-class InstanceAlreadyPresent(Exception):
-    def __init__(self, msg=""):
-        self.msg = msg
-
-    def __str__(self):
-        return self.msg
+class InstanceAlreadyPresent(JetconfError):
+    pass
 
 
-class HandlerError(Exception):
-    def __init__(self, msg=""):
-        self.msg = msg
-
-    def __str__(self):
-        return self.msg
+class HandlerError(JetconfError):
+    pass
 
 
 class NoHandlerError(HandlerError):
@@ -277,7 +262,7 @@ class BaseDatastore:
             root = usr_journal.get_root_head()
             return root
         else:
-            raise NoHandlerError("No active changelist for user \"{}\"".format(username))
+            raise NoStagingDataException("No active changelist for user \"{}\"".format(username))
 
     # Set a new Instance node as data root, store old root to archive
     def set_data_root(self, new_root: InstanceNode):
@@ -348,8 +333,8 @@ class BaseDatastore:
                     h = CONF_DATA_HANDLES.get_handler(str(id(sn)))
                     if h is not None and isinstance(h, ConfDataObjectHandler):
                         info("handler for superior data node triggered, replace")
-                        print(h.schema_path)
-                        print(h.__class__.__name__)
+                        # print(h.schema_path)
+                        # print(h.__class__.__name__)
                         h.replace(ii, ch)
                     if h is not None and isinstance(h, ConfDataListHandler):
                         info("handler for superior data node triggered, replace_item")
@@ -359,21 +344,36 @@ class BaseDatastore:
             warn("Cannnot notify {}, parent container removed".format(ii))
 
     # Get data node, evaluate NACM if required
-    def get_node_rpc(self, rpc: RpcInfo, yl_data=False, staging=False) -> InstanceNode:
-        if rpc.path == "":
-            ii = []
-        else:
-            ii = self.parse_ii(rpc.path, rpc.path_format)
+    def get_node_rpc(self, rpc: RpcInfo, staging=False) -> InstanceNode:
+        ii = self.parse_ii(rpc.path, rpc.path_format)
 
-        if yl_data:
-            root = self._yang_lib_data
-        elif staging:
+        if staging:
             try:
                 root = self.get_data_root_staging(rpc.username)
-            except NoHandlerError:
+            except NoStagingDataException:
                 root = self._data
         else:
             root = self._data
+
+        if (len(ii) > 0) and (isinstance(ii[0], MemberName)):
+            # Not getting root
+            ns_first = ii[0].namespace
+            if (ns_first == "ietf-netconf-acm") and (rpc.username not in CONFIG_NACM["ALLOWED_USERS"]):
+                raise NacmForbiddenError(rpc.username + " not allowed to access NACM data")
+            elif ns_first == "ietf-yang-library":
+                root = self._yang_lib_data
+        else:
+            # Root node requested
+            # Remove NACM data if user is not NACM privieged
+            if rpc.username not in CONFIG_NACM["ALLOWED_USERS"]:
+                try:
+                    root = root.delete_item("ietf-netconf-acm:nacm")
+                except NonexistentInstance:
+                    pass
+
+            # Append YANG library data
+            for member_name, member_val in self._yang_lib_data.value.items():
+                root = root.put_member(member_name, member_val)
 
         # Resolve schema node of the desired data node
         sch_pth_list = filter(lambda isel: isinstance(isel, MemberName), ii)
@@ -382,13 +382,14 @@ class BaseDatastore:
 
         state_roots = sn.state_roots()
 
-        if state_roots and not yl_data:
+        # Check if URL points to state data or node that contains state data
+        if state_roots:
             debug_data("State roots: {}".format(state_roots))
 
             for state_root_sch_pth in state_roots:
                 state_root_sn = self._dm.get_data_node(state_root_sch_pth)
 
-                # Check if desired node is child of state root
+                # Check if the desired node is child of the state root
                 sni = sn
                 is_child = False
                 while sni:
@@ -431,7 +432,6 @@ class BaseDatastore:
                             if node.schema_node is state_root_sn.parent:
                                 ii_gen = DataHelpers.node_get_ii(node)
                                 sdh = STATE_DATA_HANDLES.get_handler(state_root_sch_pth)
-                                # print(state_root_sch_pth)
                                 if sdh is not None:
                                     try:
                                         if isinstance(sdh, ContainerNodeHandlerBase):
@@ -466,8 +466,10 @@ class BaseDatastore:
                     n = _fill_state_roots(n)
                     root = n.top()
         else:
+            # No state data in requested node
             n = root.goto(ii)
 
+        # Process "with-defaults" query parameter
         try:
             with_defs = rpc.qs["with-defaults"][0]
         except (IndexError, KeyError):
@@ -476,14 +478,16 @@ class BaseDatastore:
         if with_defs == "report-all":
             n = n.add_defaults()
 
+        # Evaluate NACM if required
         if self.nacm:
-            nrpc = self.nacm.get_user_nacm(rpc.username)
+            nrpc = self.nacm.get_user_rules(rpc.username)
             if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_READ) == Action.DENY:
                 raise NacmForbiddenError()
             else:
                 # Prune nodes that should not be accessible to user
                 n = nrpc.prune_data_tree(n, root, ii, Permission.NACM_ACCESS_READ)
 
+        # Process "depth" query parameter
         try:
             max_depth_str = rpc.qs["depth"][0]
             if max_depth_str == "unbounded":
@@ -517,6 +521,7 @@ class BaseDatastore:
                 return node
             n = _tree_limit_depth(n, 1)
 
+        # Return result
         return n
 
     # Create new data node (Restconf draft compliant version)
@@ -528,7 +533,7 @@ class BaseDatastore:
         point = rpc.qs.get("point", [None])[0]
 
         if self.nacm:
-            nrpc = self.nacm.get_user_nacm(rpc.username)
+            nrpc = self.nacm.get_user_rules(rpc.username)
             if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_CREATE) == Action.DENY:
                 raise NacmForbiddenError()
 
@@ -633,7 +638,7 @@ class BaseDatastore:
         n = root.goto(ii)
 
         if self.nacm:
-            nrpc = self.nacm.get_user_nacm(rpc.username)
+            nrpc = self.nacm.get_user_rules(rpc.username)
             if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_UPDATE) == Action.DENY:
                 raise NacmForbiddenError()
 
@@ -657,7 +662,7 @@ class BaseDatastore:
         last_isel = ii[-1]
 
         if self.nacm:
-            nrpc = self.nacm.get_user_nacm(rpc.username)
+            nrpc = self.nacm.get_user_rules(rpc.username)
             if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_DELETE) == Action.DENY:
                 raise NacmForbiddenError()
 
@@ -750,7 +755,7 @@ class BaseDatastore:
         else:
             # User-defined operation
             if self.nacm and (not rpc.skip_nacm_check):
-                nrpc = self.nacm.get_user_nacm(rpc.username)
+                nrpc = self.nacm.get_user_rules(rpc.username)
                 if nrpc.check_rpc_name(rpc.op_name) == Action.DENY:
                     raise NacmForbiddenError(
                         "Op \"{}\" invocation denied for user \"{}\"".format(rpc.op_name, rpc.username)

@@ -2,23 +2,25 @@ import collections
 from io import StringIO
 from threading import Lock
 from enum import Enum
+from typing import Union
+
 from colorlog import error, info
 from typing import List, Set, Optional
 
 from yangson.datamodel import DataModel
+from yangson.instvalue import Value, ArrayValue, ObjectValue
 from yangson.instance import (
     InstanceNode,
     NonexistentSchemaNode,
     NonexistentInstance,
-    ArrayValue,
-    ObjectValue,
     InstanceRoute,
     MemberName,
     EntryIndex,
     EntryKeys
 )
 
-from .helpers import DataHelpers, ErrorHelpers, LogHelpers, PathFormat
+from .helpers import DataHelpers, ErrorHelpers, LogHelpers
+from .errors import JetconfError
 
 epretty = ErrorHelpers.epretty
 debug_nacm = LogHelpers.create_module_dbg_logger(__name__)
@@ -44,12 +46,21 @@ class NacmRuleType(Enum):
     NACM_RULE_DATA = 3
 
 
-class NonexistentUserError(Exception):
-    def __init__(self, msg=""):
+class NacmError(JetconfError):
+    pass
+
+
+class NonexistentUserError(NacmError):
+    pass
+
+
+class NacmForbiddenError(NacmError):
+    def __init__(self, msg="Access to data node rejected by NACM", rule=None):
         self.msg = msg
+        self.rule = rule
 
     def __str__(self):
-        return self.msg
+        return "{} (rule: {})".format(self.msg, str(self.rule))
 
 
 class NacmGroup:
@@ -274,11 +285,11 @@ class NacmConfig:
             return
 
         info("Creating personalized rule list for user \"{}\"".format(username))
-        self._user_nacm_rpc[username] = UserNacm(self.dm, self, username)
+        self._user_nacm_rpc[username] = UserRuleSet(self.dm, self, username)
 
         self.internal_data_lock.release()
 
-    def get_user_nacm(self, username: str) -> "UserNacm":
+    def get_user_rules(self, username: str) -> "UserRuleSet":
         user_nacm = self._user_nacm_rpc.get(username)
         if user_nacm is None:
             self.create_user_nacm(username)
@@ -288,7 +299,7 @@ class NacmConfig:
 
 
 # Rules for particular user
-class UserNacm:
+class UserRuleSet:
     def __init__(self, dm: DataModel, config: NacmConfig, username: str):
         self.nacm_enabled = config.enabled
         self.default_read = config.default_read
@@ -307,7 +318,7 @@ class UserNacm:
         if not self.nacm_enabled:
             return Action.PERMIT
 
-        data_node_value = root.value    # type: InstanceNode
+        data_node_value = root.value    # type: Union[Value, ArrayValue, ObjectValue]
 
         nl = self.rule_tree.root        # type: List[RuleTreeNode]
         node_match = None               # type: RuleTreeNode
@@ -344,10 +355,14 @@ class UserNacm:
     def _prune_data_tree(self, node: InstanceNode, root: InstanceNode, ii: InstanceRoute, access: Permission) -> InstanceNode:
         if isinstance(node.value, ObjectValue):
             # print("obj: {}".format(node.value))
-            nsel = MemberName("")
+            nsel = MemberName(name="", ns=None)
             mii = ii + [nsel]
             for child_key in node.value.keys():
-                nsel.key = child_key
+                key_splitted = child_key.split(":", maxsplit=1)
+                if len(key_splitted) > 1:
+                    nsel.namespace, nsel.name = key_splitted
+                else:
+                    nsel.namespace, nsel.name = (None, key_splitted[0])
                 m = nsel.goto_step(node)
 
                 # debug_nacm("checking mii {}".format(mii))

@@ -48,10 +48,14 @@ class DataHelpers:
 
     # Get the namespace of the first segment in path
     # Raises ValueError if the first segment is not in fully-qualified format
+    # Returns empty string if api_pth is empty
     @staticmethod
     def path_first_ns(api_pth: str) -> str:
-        first_seg = api_pth[1:].split("/", maxsplit=1)[0]
-        ns1, sel1 = first_seg.split(":", maxsplit=1)
+        if (len(api_pth) > 0) and (api_pth[0] == "/"):
+            first_seg = api_pth[1:].split("/", maxsplit=1)[0]
+            ns1, sel1 = first_seg.split(":", maxsplit=1)
+        else:
+            ns1 = ""
         return ns1
 
     @staticmethod

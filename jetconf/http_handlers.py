@@ -13,19 +13,20 @@ from yangson.schemanode import ContainerNode, ListNode, GroupNode, LeafListNode,
 from yangson.instance import NonexistentInstance, InstanceValueError, RootNode
 from yangson.datatype import YangTypeError
 
-from jetconf.knot_api import KnotError
-from .config import CONFIG_GLOBAL, CONFIG_HTTP, NACM_ADMINS, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops
+from .knot_api import KnotError
+from .config import CONFIG_GLOBAL, CONFIG_HTTP, CONFIG_NACM, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops
 from .helpers import CertHelpers, DataHelpers, DateTimeHelpers, ErrorHelpers, LogHelpers, SSLCertT
+from .nacm import NacmForbiddenError
 from .data import (
     BaseDatastore,
     RpcInfo,
     DataLockError,
-    NacmForbiddenError,
     NoHandlerError,
     NoHandlerForOpError,
     InstanceAlreadyPresent,
     ChangeType,
-    ConfHandlerFailedError)
+    ConfHandlerFailedError
+)
 
 QueryStrT = Dict[str, List[str]]
 epretty = ErrorHelpers.epretty
@@ -163,7 +164,7 @@ def api_root_handler(headers: OrderedDict, data: Optional[str], client_cert: SSL
     return HttpResponse(HttpStatus.Ok, response.encode(), CT_YANG_JSON)
 
 
-def _get(ds: BaseDatastore, pth: str, username: str, yl_data: bool=False, staging: bool=False) -> HttpResponse:
+def _get(ds: BaseDatastore, pth: str, username: str, staging: bool=False) -> HttpResponse:
     url_split = pth.split("?")
     url_path = url_split[0]
     if len(url_split) > 1:
@@ -182,7 +183,7 @@ def _get(ds: BaseDatastore, pth: str, username: str, yl_data: bool=False, stagin
         n = None
         http_resp = None
         try:
-            n = ds.get_node_rpc(rpc1, yl_data, staging)
+            n = ds.get_node_rpc(rpc1, staging)
         except NacmForbiddenError as e:
             http_resp = HttpResponse.error(
                 HttpStatus.Forbidden,
@@ -273,19 +274,7 @@ def create_get_api(ds: BaseDatastore):
         info("[{}] api_get: {}".format(username, headers[":path"]))
 
         api_pth = headers[":path"][len(API_ROOT_data):]
-        ns = DataHelpers.path_first_ns(api_pth)
-
-        if ns == "ietf-netconf-acm":
-            if username not in NACM_ADMINS:
-                warn(username + " not allowed to access NACM data")
-                http_resp = HttpResponse.empty(HttpStatus.Forbidden)
-            else:
-                http_resp = _get(ds.nacm.nacm_ds, api_pth, username)
-        elif ns == "ietf-yang-library":
-            http_resp = _get(ds, api_pth, username, yl_data=True)
-        else:
-            http_resp = _get(ds, api_pth, username)
-
+        http_resp = _get(ds, api_pth, username)
         return http_resp
 
     return get_api_closure
@@ -300,7 +289,7 @@ def create_get_staging_api(ds: BaseDatastore):
         ns = DataHelpers.path_first_ns(api_pth)
 
         if ns == "ietf-netconf-acm":
-            if username not in NACM_ADMINS:
+            if username not in CONFIG_NACM["ALLOWED_USERS"]:
                 warn(username + " not allowed to access NACM data")
                 http_resp = HttpResponse.empty(HttpStatus.Forbidden)
             else:
@@ -395,7 +384,7 @@ def create_post_api(ds: BaseDatastore):
         ns = DataHelpers.path_first_ns(api_pth)
 
         if ns == "ietf-netconf-acm":
-            if username not in NACM_ADMINS:
+            if username not in CONFIG_NACM["ALLOWED_USERS"]:
                 warn(username + " not allowed to access NACM data")
                 http_resp = HttpResponse.empty(HttpStatus.Forbidden)
             else:
@@ -457,7 +446,7 @@ def create_put_api(ds: BaseDatastore):
         ns = DataHelpers.path_first_ns(api_pth)
 
         if ns == "ietf-netconf-acm":
-            if username not in NACM_ADMINS:
+            if username not in CONFIG_NACM["ALLOWED_USERS"]:
                 warn(username + " not allowed to access NACM data")
                 http_resp = HttpResponse.empty(HttpStatus.Forbidden)
             else:
@@ -511,7 +500,7 @@ def create_api_delete(ds: BaseDatastore):
         ns = DataHelpers.path_first_ns(api_pth)
 
         if ns == "ietf-netconf-acm":
-            if username not in NACM_ADMINS:
+            if username not in CONFIG_NACM["ALLOWED_USERS"]:
                 warn(username + " not allowed to access NACM data")
                 http_resp = HttpResponse.empty(HttpStatus.Forbidden)
             else:
@@ -562,7 +551,7 @@ def create_api_op(ds: BaseDatastore):
         rpc1.op_input_args = input_args
 
         # Skip NACM check for privileged users
-        if username in NACM_ADMINS:
+        if username in CONFIG_NACM["ALLOWED_USERS"]:
             rpc1.skip_nacm_check = True
 
         try:
