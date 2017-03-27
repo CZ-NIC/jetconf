@@ -152,23 +152,37 @@ def unknown_req_handler(headers: OrderedDict, data: Optional[str], client_cert: 
     )
 
 
-def api_root_handler(headers: OrderedDict, data: Optional[str], client_cert: SSLCertT):
-    # Top level api resource (appendix B.1.1)
+def _get_yl_date() -> str:
     try:
         yang_lib_date_ts = os.path.getmtime(os.path.join(CONFIG_GLOBAL["YANG_LIB_DIR"], "yang-library-data.json"))
         yang_lib_date = datetime.fromtimestamp(yang_lib_date_ts).strftime("%Y-%m-%d")
     except OSError:
         yang_lib_date = None
 
+    return yang_lib_date
+
+
+def api_root_handler(headers: OrderedDict, data: Optional[str], client_cert: SSLCertT):
+    # Top level api resource (appendix B.1.1)
+
     top_res = {
         "ietf-restconf:restconf": {
             "data": {},
             "operations": {},
-            "yang-library-version": yang_lib_date
+            "yang-library-version": _get_yl_date()
         }
     }
 
     response = json.dumps(top_res, indent=4)
+    return HttpResponse(HttpStatus.Ok, response.encode(), CT_YANG_JSON)
+
+
+def api_ylv_handler(headers: OrderedDict, data: Optional[str], client_cert: SSLCertT):
+    ylv = {
+        "ietf-restconf:yang-library-version": _get_yl_date()
+    }
+
+    response = json.dumps(ylv, indent=4)
     return HttpResponse(HttpStatus.Ok, response.encode(), CT_YANG_JSON)
 
 

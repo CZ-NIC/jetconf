@@ -50,12 +50,14 @@ CONFIG = {
 API_ROOT_data = os.path.join(CONFIG_HTTP["API_ROOT"], "data")
 API_ROOT_STAGING_data = os.path.join(CONFIG_HTTP["API_ROOT_STAGING"], "data")
 API_ROOT_ops = os.path.join(CONFIG_HTTP["API_ROOT"], "operations")
+API_ROOT_ylv = os.path.join(CONFIG_HTTP["API_ROOT"], "yang-library-version")
 
 
 def load_config(filename: str) -> bool:
     global API_ROOT_data
     global API_ROOT_STAGING_data
     global API_ROOT_ops
+    global API_ROOT_ylv
 
     with open(filename) as conf_fd:
         conf_yaml = yaml.load(conf_fd)
@@ -69,6 +71,7 @@ def load_config(filename: str) -> bool:
     API_ROOT_data = os.path.join(CONFIG_HTTP["API_ROOT"], "data")
     API_ROOT_STAGING_data = os.path.join(CONFIG_HTTP["API_ROOT_STAGING"], "data")
     API_ROOT_ops = os.path.join(CONFIG_HTTP["API_ROOT"], "operations")
+    API_ROOT_ylv = os.path.join(CONFIG_HTTP["API_ROOT"], "yang-library-version")
 
 
 def print_config():
