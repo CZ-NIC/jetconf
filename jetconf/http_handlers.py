@@ -6,6 +6,7 @@ from collections import OrderedDict
 from enum import Enum
 from colorlog import error, warning as warn, info
 from urllib.parse import parse_qs
+from datetime import datetime
 from typing import Dict, List, Optional
 
 from yangson.exceptions import YangsonException, NonexistentSchemaNode
@@ -46,6 +47,7 @@ class HttpStatus(Enum):
     Ok          = ("200", "OK")
     Created     = ("201", "Created")
     NoContent   = ("204", "No Content")
+    NotModified = ("304", "Not Modified")
     BadRequest  = ("400", "Bad Request")
     Forbidden   = ("403", "Forbidden")
     NotFound    = ("404", "Not Found")
@@ -90,7 +92,7 @@ class HttpResponse:
         self.extra_headers = extra_headers
 
     @classmethod
-    def empty(cls, status: HttpStatus, status_in_body: bool=True) -> "HttpResponse":
+    def empty(cls, status: HttpStatus, status_in_body: bool=False) -> "HttpResponse":
         if status_in_body:
             response = status.code + " " + status.msg + "\n"
         else:
@@ -151,20 +153,26 @@ def unknown_req_handler(headers: OrderedDict, data: Optional[str], client_cert: 
 
 
 def api_root_handler(headers: OrderedDict, data: Optional[str], client_cert: SSLCertT):
-    # Top level api resource (appendix D.1.1)
-    response = (
-        "{\n"
-        "    \"ietf-restconf:restconf\": {\n"
-        "        \"data\" : [ null ],\n"
-        "        \"operations\" : [ null ]\n"
-        "    }\n"
-        "}"
-    )
+    # Top level api resource (appendix B.1.1)
+    try:
+        yang_lib_date_ts = os.path.getmtime(os.path.join(CONFIG_GLOBAL["YANG_LIB_DIR"], "yang-library-data.json"))
+        yang_lib_date = datetime.fromtimestamp(yang_lib_date_ts).strftime("%Y-%m-%d")
+    except OSError:
+        yang_lib_date = None
 
+    top_res = {
+        "ietf-restconf:restconf": {
+            "data": {},
+            "operations": {},
+            "yang-library-version": yang_lib_date
+        }
+    }
+
+    response = json.dumps(top_res, indent=4)
     return HttpResponse(HttpStatus.Ok, response.encode(), CT_YANG_JSON)
 
 
-def _get(ds: BaseDatastore, pth: str, username: str, staging: bool=False) -> HttpResponse:
+def _get(ds: BaseDatastore, req_headers: OrderedDict, pth: str, username: str, staging: bool=False) -> HttpResponse:
     url_split = pth.split("?")
     url_path = url_split[0]
     if len(url_split) > 1:
@@ -179,9 +187,8 @@ def _get(ds: BaseDatastore, pth: str, username: str, staging: bool=False) -> Htt
 
     try:
         ds.lock_data(username)
-
-        n = None
         http_resp = None
+
         try:
             n = ds.get_node_rpc(rpc1, staging)
         except NacmForbiddenError as e:
@@ -215,7 +222,16 @@ def _get(ds: BaseDatastore, pth: str, username: str, staging: bool=False) -> Htt
         finally:
             ds.unlock_data()
 
-        if n is not None:
+        if http_resp is not None:
+            # Return error response
+            return http_resp
+
+        hdr_inm = req_headers.get("if-none-match")
+        n_etag = str(hash(n.value))
+
+        if (hdr_inm is not None) and (hdr_inm == n_etag):
+            http_resp = HttpResponse.empty(HttpStatus.NotModified)
+        else:
             n_value = n.raw_value()
 
             if isinstance(n, RootNode):
@@ -240,7 +256,7 @@ def _get(ds: BaseDatastore, pth: str, username: str, staging: bool=False) -> Htt
             response = json.dumps(restconf_n_value, indent=4)
 
             add_headers = OrderedDict()
-            add_headers["ETag"] = str(hash(n.value))
+            add_headers["ETag"] = n_etag
             try:
                 lm_time = DateTimeHelpers.to_httpdate_str(n.value.timestamp, CONFIG_GLOBAL["TIMEZONE"])
                 add_headers["Last-Modified"] = lm_time
@@ -274,7 +290,7 @@ def create_get_api(ds: BaseDatastore):
         info("[{}] api_get: {}".format(username, headers[":path"]))
 
         api_pth = headers[":path"][len(API_ROOT_data):]
-        http_resp = _get(ds, api_pth, username)
+        http_resp = _get(ds, headers, api_pth, username)
         return http_resp
 
     return get_api_closure
@@ -286,17 +302,7 @@ def create_get_staging_api(ds: BaseDatastore):
         info("[{}] api_get_staging: {}".format(username, headers[":path"]))
 
         api_pth = headers[":path"][len(API_ROOT_STAGING_data):]
-        ns = DataHelpers.path_first_ns(api_pth)
-
-        if ns == "ietf-netconf-acm":
-            if username not in CONFIG_NACM["ALLOWED_USERS"]:
-                warn(username + " not allowed to access NACM data")
-                http_resp = HttpResponse.empty(HttpStatus.Forbidden)
-            else:
-                http_resp = _get(ds.nacm.nacm_ds, username, api_pth, staging=True)
-        else:
-            http_resp = _get(ds, api_pth, username, staging=True)
-
+        http_resp = _get(ds, headers, api_pth, username, staging=True)
         return http_resp
 
     return get_staging_api_closure

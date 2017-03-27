@@ -137,16 +137,17 @@ def main():
     signal.signal(signal.SIGINT, sig_exit_handler)
 
     # Load data model
+    yang_lib_file = os.path.join(CONFIG_GLOBAL["YANG_LIB_DIR"], "yang-library-data.json")
     datamodel = DataHelpers.load_data_model(
         CONFIG_GLOBAL["YANG_LIB_DIR"],
-        CONFIG_GLOBAL["YANG_LIB_DIR"] + "yang-library-data.json"
+        yang_lib_file
     )
 
     # Datastore init
     datastore = JsonDatastore(datamodel, CONFIG_GLOBAL["DATA_JSON_FILE"], "DNS data", with_nacm=False)
     try:
         datastore.load()
-        datastore.load_yl_data(CONFIG_GLOBAL["YANG_LIB_DIR"] + "yang-library-data.json")
+        datastore.load_yl_data(yang_lib_file)
     except (FileNotFoundError, YangsonException) as e:
         error("Could not load JSON datastore " + CONFIG_GLOBAL["DATA_JSON_FILE"])
         error(ErrorHelpers.epretty(e))
