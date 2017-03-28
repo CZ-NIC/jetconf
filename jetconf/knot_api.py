@@ -1,9 +1,16 @@
+import sys
+
 from enum import Enum
 from typing import List, Union, Dict, Any, Optional
 from threading import Lock
 
-from .libknot.control import KnotCtl, KnotCtlType
 from .helpers import LogHelpers
+
+try:
+    from .libknot.control import KnotCtl, KnotCtlType, KnotCtlError
+except ValueError as e:
+    print(str(e))
+    sys.exit(1)
 
 JsonNodeT = Union[Dict[str, Any], List[Any], str, int]
 debug_knot = LogHelpers.create_module_dbg_logger(__name__)
@@ -123,7 +130,7 @@ class KnotConfig(KnotCtl):
 
         try:
             self.connect(self.sock_path)
-        except Exception:
+        except KnotCtlError:
             self.socket_lock.release()
             raise KnotApiError("Cannot connect to Knot socket")
         self.connected = True
@@ -144,7 +151,7 @@ class KnotConfig(KnotCtl):
             try:
                 self.receive_block()
                 self.conf_state = KnotConfState.CONF
-            except Exception as e:
+            except KnotCtlError as e:
                 raise KnotInternalError(str(e))
 
     # Starts a new transaction for zone data
@@ -154,7 +161,7 @@ class KnotConfig(KnotCtl):
             try:
                 self.receive_block()
                 self.conf_state = KnotConfState.ZONE
-            except Exception as e:
+            except KnotCtlError as e:
                 raise KnotInternalError(str(e))
 
     # Commits the internal KnotDNS transaction
@@ -169,7 +176,7 @@ class KnotConfig(KnotCtl):
         try:
             self.receive_block()
             self.conf_state = KnotConfState.NONE
-        except Exception as e:
+        except KnotCtlError as e:
             raise KnotInternalError(str(e))
 
     # Aborts the internal KnotDNS transaction
@@ -184,7 +191,7 @@ class KnotConfig(KnotCtl):
         try:
             self.receive_block()
             self.conf_state = KnotConfState.NONE
-        except Exception as e:
+        except KnotCtlError as e:
             raise KnotInternalError(str(e))
 
     # Deletes a whole section from Knot configuration
@@ -195,7 +202,7 @@ class KnotConfig(KnotCtl):
         self.send_block("conf-unset", section=section, identifier=identifier)
         try:
             resp = self.receive_block()
-        except Exception as e:
+        except KnotCtlError as e:
             resp = {}
             err_str = str(e)
             if err_str != "not exists":
@@ -214,7 +221,7 @@ class KnotConfig(KnotCtl):
             self.send_block("conf-set", section=section, identifier=identifier, item=item, data=value)
             try:
                 resp = self.receive_block()
-            except Exception as e:
+            except KnotCtlError as e:
                 raise KnotInternalError(str(e))
         else:
             resp = {}
@@ -228,7 +235,7 @@ class KnotConfig(KnotCtl):
         self.send_block("conf-unset", section=section, identifier=identifier, item=item, zone=zone)
         try:
             resp = self.receive_block()
-        except Exception as e:
+        except KnotCtlError as e:
             raise KnotInternalError(str(e))
 
         return resp
@@ -243,7 +250,7 @@ class KnotConfig(KnotCtl):
             try:
                 resp = self.receive_block()
                 resp_list.append(resp)
-            except Exception as e:
+            except KnotCtlError as e:
                 raise KnotInternalError(str(e))
 
         return resp_list
@@ -256,7 +263,7 @@ class KnotConfig(KnotCtl):
         try:
             self.send_block("zone-status", zone=domain_name)
             resp = self.receive_block()
-        except Exception as e:
+        except KnotCtlError as e:
             raise KnotInternalError(str(e))
         return resp
 
@@ -268,7 +275,7 @@ class KnotConfig(KnotCtl):
         self.send_block("zone-purge", zone=domain_name)
         try:
             resp = self.receive_block()
-        except Exception as e:
+        except KnotCtlError as e:
             raise KnotInternalError(str(e))
 
         return resp
@@ -298,7 +305,7 @@ class KnotConfig(KnotCtl):
                 domain_name, rr.type, rr.owner, rr.ttl_str, res_data
             ))
             resp = self.receive_block()
-        except Exception as e:
+        except KnotCtlError as e:
             raise KnotInternalError(str(e))
         return resp
 
@@ -312,7 +319,7 @@ class KnotConfig(KnotCtl):
         try:
             self.send_block("zone-unset", zone=domain_name, owner=owner, rtype=rr_type, data=selector)
             resp = self.receive_block()
-        except Exception as e:
+        except KnotCtlError as e:
             raise KnotInternalError(str(e))
         return resp
 
@@ -324,7 +331,7 @@ class KnotConfig(KnotCtl):
         try:
             self.send_block("zone-read", zone=domain_name)
             resp = self.receive_block()
-        except Exception as e:
+        except KnotCtlError as e:
             raise KnotInternalError(str(e))
 
         if domain_name[-1] != ".":
