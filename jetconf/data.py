@@ -4,6 +4,7 @@ from threading import Lock
 from enum import Enum
 from colorlog import error, warning as warn, info
 from typing import List, Any, Dict, Callable, Optional
+from datetime import datetime
 
 from yangson.datamodel import DataModel
 from yangson.enumerations import ContentType, ValidationScope
@@ -70,6 +71,8 @@ class NoHandlerError(HandlerError):
 class ConfHandlerFailedError(HandlerError):
     pass
 
+class OpHandlerFailedError(HandlerError):
+    pass
 
 class NoHandlerForOpError(NoHandlerError):
     def __init__(self, op_name: str):
@@ -168,61 +171,59 @@ class UsrChangeJournal:
             # Validate syntax and semantics of new data
             if CONFIG["GLOBAL"]["VALIDATE_TRANSACTIONS"] is True:
                 nr.validate(ValidationScope.all, ContentType.config)
-            new_data_valid = True
         except (SchemaError, SemanticError) as e:
             error("Data validation error:")
             error(epretty(e))
-            new_data_valid = False
+            raise e
 
-        if new_data_valid:
-            # Set new data root
-            ds.set_data_root(nr)
+        # Set new data root
+        ds.set_data_root(nr)
 
-            # Call commit begin hook
-            begin_hook_failed = False
+        # Call commit begin hook
+        begin_hook_failed = False
+        try:
+            ds.commit_begin_callback(self.transaction_opts)
+        except Exception as e:
+            error("Exception occured in commit_begin handler: {}".format(epretty(e)))
+            begin_hook_failed = True
+
+        # Run schema node handlers
+        conf_handler_failed = False
+        if not begin_hook_failed:
             try:
-                ds.commit_begin_callback(self.transaction_opts)
+                for cl in self.clists:
+                    for change in cl.journal:
+                        ii = ds.parse_ii(change.rpc_info.path, change.rpc_info.path_format)
+                        ds.run_conf_edit_handler(ii, change)
+            except IndexError as e:
+                error("Exception occured in edit handler: {}".format(epretty(e)))
+                conf_handler_failed = True
+
+        # Call commit end hook
+        end_hook_failed = False
+        end_hook_abort_failed = False
+        if not (begin_hook_failed or conf_handler_failed):
+            try:
+                ds.commit_end_callback(self.transaction_opts, failed=False)
             except Exception as e:
-                error("Exception occured in commit_begin handler: {}".format(epretty(e)))
-                begin_hook_failed = True
+                error("Exception occured in commit_end handler: {}".format(epretty(e)))
+                end_hook_failed = True
 
-            # Run schema node handlers
-            conf_handler_failed = False
-            if not begin_hook_failed:
-                try:
-                    for cl in self.clists:
-                        for change in cl.journal:
-                            ii = ds.parse_ii(change.rpc_info.path, change.rpc_info.path_format)
-                            ds.run_conf_edit_handler(ii, change)
-                except IndexError as e: ## Exception
-                    error("Exception occured in edit handler: {}".format(epretty(e)))
-                    conf_handler_failed = True
+        if begin_hook_failed or conf_handler_failed or end_hook_failed:
+            try:
+                # Call commit_end callback again with "failed" argument set to True
+                ds.commit_end_callback(self.transaction_opts, failed=True)
+            except Exception as e:
+                error("Exception occured in commit_end handler (abort): {}".format(epretty(e)))
+                end_hook_abort_failed = True
 
-            # Call commit end hook
-            end_hook_failed = False
-            end_hook_abort_failed = False
-            if not (begin_hook_failed or conf_handler_failed):
-                try:
-                    ds.commit_end_callback(self.transaction_opts, failed=False)
-                except Exception as e:
-                    error("Exception occured in commit_end handler: {}".format(epretty(e)))
-                    end_hook_failed = True
+        # Clear user changelists
+        self.clists.clear()
 
-            if begin_hook_failed or conf_handler_failed or end_hook_failed:
-                try:
-                    # Call commit_end callback again with "failed" argument set to True
-                    ds.commit_end_callback(self.transaction_opts, failed=True)
-                except Exception as e:
-                    error("Exception occured in commit_end handler (abort): {}".format(epretty(e)))
-                    end_hook_abort_failed = True
-
-            # Clear user changelists
-            self.clists.clear()
-
-            # Return to previous version of data and raise an exception if something went wrong
-            if begin_hook_failed or conf_handler_failed or end_hook_failed or end_hook_abort_failed:
-                ds.data_root_rollback(history_steps=1, store_current=False)
-                raise ConfHandlerFailedError("(see logged)")
+        # Return to previous version of data and raise an exception if something went wrong
+        if begin_hook_failed or conf_handler_failed or end_hook_failed or end_hook_abort_failed:
+            ds.data_root_rollback(history_steps=1, store_current=False)
+            raise ConfHandlerFailedError("(see logged)")
 
 
 class BaseDatastore:
@@ -387,6 +388,7 @@ class BaseDatastore:
         # Check if URL points to state data or node that contains state data
         if state_roots and not yl_data_request:
             debug_data("State roots: {}".format(state_roots))
+            n = None
 
             for state_root_sch_pth in state_roots:
                 state_root_sn = self._dm.get_data_node(state_root_sch_pth)
@@ -526,42 +528,60 @@ class BaseDatastore:
         # Return result
         return n
 
-    # Create new data node (Restconf draft compliant version)
+    # Create new data node
     def create_node_rpc(self, root: InstanceNode, rpc: RpcInfo, value: Any) -> InstanceNode:
         ii = self.parse_ii(rpc.path, rpc.path_format)
-        n = root.goto(ii)
 
-        insert = rpc.qs.get("insert", [None])[0]
-        point = rpc.qs.get("point", [None])[0]
+        # Get target member name
+        input_member_keys = tuple(value.keys())
+        if len(input_member_keys) != 1:
+            raise ValueError("Received json object must contain exactly one member")
 
+        input_member_name_fq = input_member_keys[0]
+        try:
+            input_member_ns, input_member_name = input_member_name_fq.split(":", maxsplit=1)
+        except ValueError:
+            raise ValueError("Input object name must me in fully-qualified format")
+        input_member_value = value[input_member_name_fq]
+
+        # Deny any changes of NACM data for non-privileged users
+        if (len(ii) > 0) and (isinstance(ii[0], MemberName)):
+            # Not getting root
+            ns_first = ii[0].namespace
+            if (ns_first == "ietf-netconf-acm") and (rpc.username not in CONFIG_NACM["ALLOWED_USERS"]):
+                raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
+        else:
+            # Editing root node
+            if (input_member_ns == "ietf-netconf-acm") and (rpc.username not in CONFIG_NACM["ALLOWED_USERS"]):
+                raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
+
+        # Evaluate NACM
         if self.nacm:
             nrpc = self.nacm.get_user_rules(rpc.username)
             if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_CREATE) == Action.DENY:
                 raise NacmForbiddenError()
 
-        # Get target member name
-        input_member_name = tuple(value.keys())
-        if len(input_member_name) != 1:
-            raise ValueError("Received json object must contain exactly one member")
-        else:
-            input_member_name_fq = input_member_name[0]
-            input_member_name = input_member_name_fq.split(":", maxsplit=1)[-1]
-
-        input_member_value = value[input_member_name_fq]
-
-        # Check if target member already exists
-        try:
-            existing_member = n[input_member_name]
-        except NonexistentInstance:
-            existing_member = None
-
-        # Get target schema node
         n = root.goto(ii)
 
+        # Get target schema node
         sn = n.schema_node  # type: InternalNode
-        # sch_member_name = sn._iname2qname(input_member_name)
-        # member_sn = sn.get_data_child(*sch_member_name)
         member_sn = sn.get_child(input_member_name)
+
+        # Check if target member already exists
+        if sn.ns == member_sn.ns:
+            try:
+                existing_member = n[input_member_name]
+            except NonexistentInstance:
+                existing_member = None
+        else:
+            try:
+                existing_member = n[input_member_name_fq]
+            except NonexistentInstance:
+                existing_member = None
+
+        # Get query parameters
+        insert = rpc.qs.get("insert", [None])[0]
+        point = rpc.qs.get("point", [None])[0]
 
         if isinstance(member_sn, ListNode):
             # Append received node to list
@@ -571,12 +591,10 @@ class BaseDatastore:
                 existing_member = n.put_member(input_member_name, ArrayValue([]))
 
             # Convert input data from List/Dict to ArrayValue/ObjectValue
-            new_value_list = member_sn.from_raw([input_member_value])
-            new_value_item = new_value_list[0]    # type: ObjectValue
+            new_value_item = member_sn.entry_from_raw(input_member_value)
 
-            list_node_key = member_sn.keys[0][0]
-            if new_value_item[list_node_key] in map(lambda x: x[list_node_key], existing_member.value):
-                raise InstanceAlreadyPresent("Duplicate key")
+            # Get ListNode key names
+            list_node_keys = member_sn.keys     # Key names in the form [(key, ns), ]
 
             if insert == "first":
                 # Optimization
@@ -584,24 +602,40 @@ class BaseDatastore:
                     list_entry_first = existing_member[0]   # type: ArrayEntry
                     new_member = list_entry_first.insert_before(new_value_item).up()
                 else:
-                    new_member = existing_member.update(new_value_list)
-            elif (insert == "last") or insert is None:
+                    new_member = existing_member.update([new_value_item])
+            elif (insert == "last") or (insert is None):
                 # Optimization
                 if len(existing_member.value) > 0:
                     list_entry_last = existing_member[-1]   # type: ArrayEntry
                     new_member = list_entry_last.insert_after(new_value_item).up()
                 else:
-                    new_member = existing_member.update(new_value_list)
-            elif insert == "before":
-                entry_sel = EntryKeys({list_node_key: point})
-                list_entry = entry_sel.goto_step(existing_member)   # type: ArrayEntry
-                new_member = list_entry.insert_before(new_value_item).up()
-            elif insert == "after":
-                entry_sel = EntryKeys({list_node_key: point})
-                list_entry = entry_sel.goto_step(existing_member)   # type: ArrayEntry
-                new_member = list_entry.insert_after(new_value_item).up()
+                    new_member = existing_member.update([new_value_item])
+            elif (insert == "before") and (point is not None):
+                point_keys_val = point.split(",")  # List key values passed in the "point" query argument
+                if len(list_node_keys) != len(point_keys_val):
+                    raise ValueError(
+                        "Invalid number of keys passed in 'point' query: {} ({} expected)".format(
+                            len(point_keys_val), len(list_node_keys)
+                        )
+                    )
+                entry_keys = dict(map(lambda i: (list_node_keys[i], point_keys_val[i]), range(len(list_node_keys))))
+                entry_sel = EntryKeys(entry_keys)
+                point_list_entry = entry_sel.goto_step(existing_member)   # type: ArrayEntry
+                new_member = point_list_entry.insert_before(new_value_item).up()
+            elif (insert == "after") and (point is not None):
+                point_keys_val = point.split(",")  # List key values passed in the "point" query argument
+                if len(list_node_keys) != len(point_keys_val):
+                    raise ValueError(
+                        "Invalid number of keys passed in 'point' query: {} ({} expected)".format(
+                            len(point_keys_val), len(list_node_keys)
+                        )
+                    )
+                entry_keys = dict(map(lambda i: (list_node_keys[i], point_keys_val[i]), range(len(list_node_keys))))
+                entry_sel = EntryKeys(entry_keys)
+                point_list_entry = entry_sel.goto_step(existing_member)   # type: ArrayEntry
+                new_member = point_list_entry.insert_after(new_value_item).up()
             else:
-                raise ValueError("Invalid 'insert' value")
+                raise ValueError("Invalid 'insert'/'point' query values")
         elif isinstance(member_sn, LeafListNode):
             # Append received node to leaf list
 
@@ -610,14 +644,14 @@ class BaseDatastore:
                 existing_member = n.put_member(input_member_name, ArrayValue([]))
 
             # Convert input data from List/Dict to ArrayValue/ObjectValue
-            new_value_item = member_sn.from_raw([input_member_value])[0]
+            new_value_item = member_sn.entry_from_raw(input_member_value)
 
             if insert == "first":
                 new_member = existing_member.update(ArrayValue([new_value_item] + existing_member.value))
-            elif (insert == "last") or insert is None:
+            elif (insert == "last") or (insert is None):
                 new_member = existing_member.update(ArrayValue(existing_member.value + [new_value_item]))
             else:
-                raise ValueError("Invalid 'insert' value")
+                raise ValueError("Invalid 'insert' query value")
         else:
             if existing_member is None:
                 # Create new data node
@@ -631,7 +665,6 @@ class BaseDatastore:
                 # Data node already exists
                 raise InstanceAlreadyPresent("Member \"{}\" already present in \"{}\"".format(input_member_name, ii))
 
-        print(json.dumps(new_member.top().value, indent=4))
         return new_member.top()
 
     # PUT data node
@@ -639,20 +672,26 @@ class BaseDatastore:
         ii = self.parse_ii(rpc.path, rpc.path_format)
         n = root.goto(ii)
 
+        # Deny any changes of NACM data for non-privileged users
+        if (len(ii) > 0) and (isinstance(ii[0], MemberName)):
+            # Not getting root
+            ns_first = ii[0].namespace
+            if (ns_first == "ietf-netconf-acm") and (rpc.username not in CONFIG_NACM["ALLOWED_USERS"]):
+                raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
+        else:
+            # Replacing root node
+            # Check if NACM data are present in the datastore
+            nacm_val = n.value.get("ietf-netconf-acm:nacm")
+            if (nacm_val is not None) and (rpc.username not in CONFIG_NACM["ALLOWED_USERS"]):
+                raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
+
+        # Evaluate NACM
         if self.nacm:
             nrpc = self.nacm.get_user_rules(rpc.username)
             if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_UPDATE) == Action.DENY:
                 raise NacmForbiddenError()
 
-            sn = n.schema_node
-            new_val = sn.from_raw([value])[0]
-            new_node = RootNode(new_val, sn, new_val.timestamp)
-            new_node_prunned = nrpc.prune_data_tree(new_node, self._data, ii, Permission.NACM_ACCESS_UPDATE).raw_value()
-            print(json.dumps(new_node_prunned, indent=4))
-
-            new_n = n.update(new_node_prunned, raw=True)
-        else:
-            new_n = n.update(value, raw=True)
+        new_n = n.update(value, raw=True)
 
         return new_n.top()
 
@@ -660,30 +699,48 @@ class BaseDatastore:
     def delete_node_rpc(self, root: InstanceNode, rpc: RpcInfo) -> InstanceNode:
         ii = self.parse_ii(rpc.path, rpc.path_format)
         n = root.goto(ii)
-        n_parent = n.up()
-        last_isel = ii[-1]
 
+        # Deny any changes of NACM data for non-privileged users
+        if (len(ii) > 0) and (isinstance(ii[0], MemberName)):
+            # Not getting root
+            ns_first = ii[0].namespace
+            if (ns_first == "ietf-netconf-acm") and (rpc.username not in CONFIG_NACM["ALLOWED_USERS"]):
+                raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
+        else:
+            # Deleting root node
+            # Check if NACM data are present in the datastore
+            nacm_val = n.value.get("ietf-netconf-acm:nacm")
+            if (nacm_val is not None) and (rpc.username not in CONFIG_NACM["ALLOWED_USERS"]):
+                raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
+
+        # Evaluate NACM
         if self.nacm:
             nrpc = self.nacm.get_user_rules(rpc.username)
             if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_DELETE) == Action.DENY:
                 raise NacmForbiddenError()
 
-        new_n = n_parent
-        if isinstance(n_parent.value, ArrayValue):
-            if isinstance(last_isel, EntryIndex):
-                new_n = n_parent.delete_item(last_isel.key)
-            elif isinstance(last_isel, EntryKeys):
-                new_n = n_parent.delete_item(n.index)
-        elif isinstance(n_parent.value, ObjectValue):
-            if isinstance(last_isel, MemberName):
-                new_n = n_parent.delete_item(last_isel.key)
+        if len(ii) == 0:
+            # Deleting entire datastore
+            new_n = RootNode(ObjectValue({}), root.schema_node, datetime.now())
         else:
-            raise InstanceValueError(n, "Invalid target node type")
+            n_parent = n.up()
+            last_isel = ii[-1]
+            if isinstance(n_parent.value, ArrayValue):
+                if isinstance(last_isel, EntryIndex):
+                    new_n = n_parent.delete_item(last_isel.index)
+                elif isinstance(last_isel, EntryKeys):
+                    new_n = n_parent.delete_item(n.index)
+                else:
+                    raise ValueError("Unknown node selector")
+            elif isinstance(n_parent.value, ObjectValue):
+                new_n = n_parent.delete_item(last_isel.namespace + ":" + last_isel.name if last_isel.namespace else last_isel.name)
+            else:
+                raise InstanceValueError(rpc.path, "Invalid target node type")
 
         return new_n.top()
 
     # Invoke an operation
-    def invoke_op_rpc(self, rpc: RpcInfo) -> ObjectValue:
+    def invoke_op_rpc(self, rpc: RpcInfo) -> JsonNodeT:
         if rpc.op_name == "jetconf:conf-start":
             try:
                 cl_name = rpc.op_input_args["name"]
@@ -696,6 +753,7 @@ class BaseDatastore:
                 self._usr_journals[rpc.username] = UsrChangeJournal(self._data, transaction_opts)
 
             self._usr_journals[rpc.username].cl_new(cl_name)
+
             ret_data = {"status": "OK"}
         elif rpc.op_name == "jetconf:conf-list":
             usr_journal = self._usr_journals.get(rpc.username)
@@ -704,11 +762,10 @@ class BaseDatastore:
             else:
                 chl_json = str(None)
 
-            ret_data = \
-                {
-                    "status": "OK",
-                    "changelists": chl_json
-                }
+            ret_data = {
+                "status": "OK",
+                "changelists": chl_json
+            }
         elif rpc.op_name == "jetconf:conf-drop":
             usr_journal = self._usr_journals.get(rpc.username)
             if usr_journal is not None:
@@ -728,13 +785,16 @@ class BaseDatastore:
                     self.unlock_data()
 
                 del self._usr_journals[rpc.username]
-            else:
-                info("[{}]: Nothing to commit".format(rpc.username))
 
-            ret_data = \
-                {
+                ret_data = {
                     "status": "OK",
                     "conf-changed": True
+                }
+            else:
+                info("[{}]: Nothing to commit".format(rpc.username))
+                ret_data = {
+                    "status": "OK",
+                    "conf-changed": False
                 }
         elif rpc.op_name == "jetconf:get-schema-digest":
             ret_data = self._dm.schema_digest()
@@ -755,7 +815,7 @@ class BaseDatastore:
             else:
                 raise ValueError("Passed URI does not point to List")
         else:
-            # User-defined operation
+            # External operation defined in data model
             if self.nacm and (not rpc.skip_nacm_check):
                 nrpc = self.nacm.get_user_rules(rpc.username)
                 if nrpc.check_rpc_name(rpc.op_name) == Action.DENY:
@@ -767,9 +827,10 @@ class BaseDatastore:
             if op_handler is None:
                 raise NoHandlerForOpError(rpc.op_name)
 
-            # Print operation input schema
+            # Get operation input schema
             sn = self._dm.get_schema_node(rpc.path)
             sn_input = sn.get_child("input")
+
             # if sn_input is not None:
             #     print("RPC input schema:")
             #     print(sn_input._ascii_tree(""))
@@ -777,10 +838,16 @@ class BaseDatastore:
             if sn_input.children:
                 # Input arguments are expected
                 op_input_args = sn_input.from_raw(rpc.op_input_args)
-                ret_data = op_handler(op_input_args, rpc.username)
+                try:
+                    ret_data = op_handler(op_input_args, rpc.username)
+                except Exception as e:
+                    raise OpHandlerFailedError(epretty(e))
             else:
                 # Operation with no input
-                ret_data = op_handler(None, rpc.username)
+                try:
+                    ret_data = op_handler(None, rpc.username)
+                except Exception as e:
+                    raise OpHandlerFailedError(epretty(e))
 
         return ret_data
 

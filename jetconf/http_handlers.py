@@ -9,14 +9,14 @@ from urllib.parse import parse_qs
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from yangson.exceptions import YangsonException, NonexistentSchemaNode
+from yangson.exceptions import YangsonException, NonexistentSchemaNode, SchemaError, SemanticError
 from yangson.schemanode import ContainerNode, ListNode, GroupNode, LeafListNode, LeafNode
 from yangson.instance import NonexistentInstance, InstanceValueError, RootNode
 from yangson.datatype import YangTypeError
 
 from .knot_api import KnotError
 from .config import CONFIG_GLOBAL, CONFIG_HTTP, CONFIG_NACM, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops
-from .helpers import CertHelpers, DataHelpers, DateTimeHelpers, ErrorHelpers, LogHelpers, SSLCertT
+from .helpers import CertHelpers, DateTimeHelpers, ErrorHelpers, LogHelpers, SSLCertT
 from .nacm import NacmForbiddenError
 from .data import (
     BaseDatastore,
@@ -26,7 +26,8 @@ from .data import (
     NoHandlerForOpError,
     InstanceAlreadyPresent,
     ChangeType,
-    ConfHandlerFailedError
+    ConfHandlerFailedError,
+    OpHandlerFailedError
 )
 
 QueryStrT = Dict[str, List[str]]
@@ -367,28 +368,62 @@ def _post(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse
         json_data = json.loads(data) if len(data) > 0 else {}
     except ValueError as e:
         error("Failed to parse POST data: " + epretty(e))
-        return HttpResponse.empty(HttpStatus.BadRequest)
+        return HttpResponse.error(
+            HttpStatus.BadRequest,
+            RestconfErrType.Protocol,
+            ERRTAG_INVVALUE,
+            exception=e
+        )
 
     try:
         ds.lock_data(username)
-        new_root = ds.create_node_rpc(ds.get_data_root_staging(rpc1.username), rpc1, json_data)
-        ds.add_to_journal_rpc(ChangeType.CREATE, rpc1, json_data, new_root)
-        http_resp = HttpResponse.empty(HttpStatus.Created)
+
+        try:
+            new_root = ds.create_node_rpc(ds.get_data_root_staging(rpc1.username), rpc1, json_data)
+            ds.add_to_journal_rpc(ChangeType.CREATE, rpc1, json_data, new_root)
+            http_resp = HttpResponse.empty(HttpStatus.Created)
+        except NacmForbiddenError as e:
+            http_resp = HttpResponse.error(
+                HttpStatus.Forbidden,
+                RestconfErrType.Protocol,
+                ERRTAG_ACCDENIED,
+                exception=e
+            )
+        except (NonexistentSchemaNode, NonexistentInstance) as e:
+            http_resp = HttpResponse.error(
+                HttpStatus.NotFound,
+                RestconfErrType.Protocol,
+                ERRTAG_INVVALUE,
+                exception=e
+            )
+        except NoHandlerError as e:
+            http_resp = HttpResponse.error(
+                HttpStatus.BadRequest,
+                RestconfErrType.Protocol,
+                ERRTAG_OPNOTSUPPORTED,
+                exception=e
+            )
+        except (InstanceValueError, YangTypeError, ValueError) as e:
+            http_resp = HttpResponse.error(
+                HttpStatus.BadRequest,
+                RestconfErrType.Protocol,
+                ERRTAG_INVVALUE,
+                exception=e
+            )
+        except InstanceAlreadyPresent as e:
+            http_resp = HttpResponse.error(
+                HttpStatus.Conflict,
+                RestconfErrType.Protocol,
+                ERRTAG_EXISTS,
+                exception=e
+            )
     except DataLockError as e:
-        warn(epretty(e))
-        http_resp = HttpResponse.empty(HttpStatus.InternalServerError)
-    except NacmForbiddenError as e:
-        warn(epretty(e))
-        http_resp = HttpResponse.empty(HttpStatus.Forbidden)
-    except (NonexistentSchemaNode, NonexistentInstance) as e:
-        warn(epretty(e))
-        http_resp = HttpResponse.empty(HttpStatus.NotFound)
-    except (InstanceValueError, YangTypeError, NoHandlerError, ValueError) as e:
-        warn(epretty(e))
-        http_resp = HttpResponse.empty(HttpStatus.BadRequest)
-    except InstanceAlreadyPresent as e:
-        warn(epretty(e))
-        http_resp = HttpResponse.empty(HttpStatus.Conflict)
+        http_resp = HttpResponse.error(
+            HttpStatus.Conflict,
+            RestconfErrType.Protocol,
+            ERRTAG_LOCKDENIED,
+            exception=e
+        )
     finally:
         ds.unlock_data()
 
@@ -401,18 +436,7 @@ def create_post_api(ds: BaseDatastore):
         info("[{}] api_post: {}".format(username, headers[":path"]))
 
         api_pth = headers[":path"][len(API_ROOT_data):]
-        ns = DataHelpers.path_first_ns(api_pth)
-
-        if ns == "ietf-netconf-acm":
-            if username not in CONFIG_NACM["ALLOWED_USERS"]:
-                warn(username + " not allowed to access NACM data")
-                http_resp = HttpResponse.empty(HttpStatus.Forbidden)
-            else:
-                http_resp = _post(ds.nacm.nacm_ds, api_pth, username, data)
-                ds.nacm.update()
-        else:
-            http_resp = _post(ds, api_pth, username, data)
-
+        http_resp = _post(ds, api_pth, username, data)
         return http_resp
 
     return post_api_closure
@@ -432,25 +456,48 @@ def _put(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse:
         json_data = json.loads(data) if len(data) > 0 else {}
     except ValueError as e:
         error("Failed to parse PUT data: " + epretty(e))
-        return HttpResponse.empty(HttpStatus.BadRequest)
+        return HttpResponse.error(
+            HttpStatus.BadRequest,
+            RestconfErrType.Protocol,
+            ERRTAG_INVVALUE,
+            exception=e
+        )
 
     try:
         ds.lock_data(username)
-        new_root = ds.update_node_rpc(ds.get_data_root_staging(rpc1.username), rpc1, json_data)
-        ds.add_to_journal_rpc(ChangeType.REPLACE, rpc1, json_data, new_root)
-        http_resp = HttpResponse.empty(HttpStatus.NoContent, status_in_body=False)
+
+        try:
+            new_root = ds.update_node_rpc(ds.get_data_root_staging(rpc1.username), rpc1, json_data)
+            ds.add_to_journal_rpc(ChangeType.REPLACE, rpc1, json_data, new_root)
+            http_resp = HttpResponse.empty(HttpStatus.NoContent, status_in_body=False)
+        except NacmForbiddenError as e:
+            http_resp = HttpResponse.error(
+                HttpStatus.Forbidden,
+                RestconfErrType.Protocol,
+                ERRTAG_ACCDENIED,
+                exception=e
+            )
+        except (NonexistentSchemaNode, NonexistentInstance) as e:
+            http_resp = HttpResponse.error(
+                HttpStatus.NotFound,
+                RestconfErrType.Protocol,
+                ERRTAG_INVVALUE,
+                exception=e
+            )
+        except NoHandlerError as e:
+            http_resp = HttpResponse.error(
+                HttpStatus.BadRequest,
+                RestconfErrType.Protocol,
+                ERRTAG_OPNOTSUPPORTED,
+                exception=e
+            )
     except DataLockError as e:
-        warn(epretty(e))
-        http_resp = HttpResponse.empty(HttpStatus.InternalServerError)
-    except NacmForbiddenError as e:
-        warn(epretty(e))
-        http_resp = HttpResponse.empty(HttpStatus.Forbidden)
-    except (NonexistentSchemaNode, NonexistentInstance) as e:
-        warn(epretty(e))
-        http_resp = HttpResponse.empty(HttpStatus.NotFound)
-    except NoHandlerError as e:
-        warn(epretty(e))
-        http_resp = HttpResponse.empty(HttpStatus.BadRequest)
+        http_resp = HttpResponse.error(
+            HttpStatus.Conflict,
+            RestconfErrType.Protocol,
+            ERRTAG_LOCKDENIED,
+            exception=e
+        )
     finally:
         ds.unlock_data()
 
@@ -463,18 +510,7 @@ def create_put_api(ds: BaseDatastore):
         info("[{}] api_put: {}".format(username, headers[":path"]))
 
         api_pth = headers[":path"][len(API_ROOT_data):]
-        ns = DataHelpers.path_first_ns(api_pth)
-
-        if ns == "ietf-netconf-acm":
-            if username not in CONFIG_NACM["ALLOWED_USERS"]:
-                warn(username + " not allowed to access NACM data")
-                http_resp = HttpResponse.empty(HttpStatus.Forbidden)
-            else:
-                http_resp = _put(ds.nacm.nacm_ds, api_pth, username, data)
-                ds.nacm.update()
-        else:
-            http_resp = _put(ds, api_pth, username, data)
-
+        http_resp = _put(ds, api_pth, username, data)
         return http_resp
 
     return put_api_closure
@@ -490,21 +526,39 @@ def _delete(ds: BaseDatastore, pth: str, username: str) -> HttpResponse:
 
         try:
             ds.lock_data(username)
-            new_root = ds.delete_node_rpc(ds.get_data_root_staging(rpc1.username), rpc1)
-            ds.add_to_journal_rpc(ChangeType.DELETE, rpc1, None, new_root)
-            http_resp = HttpResponse.empty(HttpStatus.NoContent, status_in_body=False)
+
+            try:
+                new_root = ds.delete_node_rpc(ds.get_data_root_staging(rpc1.username), rpc1)
+                ds.add_to_journal_rpc(ChangeType.DELETE, rpc1, None, new_root)
+                http_resp = HttpResponse.empty(HttpStatus.NoContent, status_in_body=False)
+            except NacmForbiddenError as e:
+                http_resp = HttpResponse.error(
+                    HttpStatus.Forbidden,
+                    RestconfErrType.Protocol,
+                    ERRTAG_ACCDENIED,
+                    exception=e
+                )
+            except (NonexistentSchemaNode, NonexistentInstance) as e:
+                http_resp = HttpResponse.error(
+                    HttpStatus.NotFound,
+                    RestconfErrType.Protocol,
+                    ERRTAG_INVVALUE,
+                    exception=e
+                )
+            except NoHandlerError as e:
+                http_resp = HttpResponse.error(
+                    HttpStatus.BadRequest,
+                    RestconfErrType.Protocol,
+                    ERRTAG_OPNOTSUPPORTED,
+                    exception=e
+                )
         except DataLockError as e:
-            warn(epretty(e))
-            http_resp = HttpResponse.empty(HttpStatus.InternalServerError)
-        except NacmForbiddenError as e:
-            warn(epretty(e))
-            http_resp = HttpResponse.empty(HttpStatus.Forbidden)
-        except (NonexistentSchemaNode, NonexistentInstance) as e:
-            warn(epretty(e))
-            http_resp = HttpResponse.empty(HttpStatus.NotFound)
-        except NoHandlerError as e:
-            warn(epretty(e))
-            http_resp = HttpResponse.empty(HttpStatus.BadRequest)
+            http_resp = HttpResponse.error(
+                HttpStatus.Conflict,
+                RestconfErrType.Protocol,
+                ERRTAG_LOCKDENIED,
+                exception=e
+            )
         finally:
             ds.unlock_data()
 
@@ -517,18 +571,7 @@ def create_api_delete(ds: BaseDatastore):
         info("[{}] api_delete: {}".format(username, headers[":path"]))
 
         api_pth = headers[":path"][len(API_ROOT_data):]
-        ns = DataHelpers.path_first_ns(api_pth)
-
-        if ns == "ietf-netconf-acm":
-            if username not in CONFIG_NACM["ALLOWED_USERS"]:
-                warn(username + " not allowed to access NACM data")
-                http_resp = HttpResponse.empty(HttpStatus.Forbidden)
-            else:
-                http_resp = _delete(ds.nacm.nacm_ds, api_pth, username)
-                ds.nacm.update()
-        else:
-            http_resp = _delete(ds, api_pth, username)
-
+        http_resp = _delete(ds, api_pth, username)
         return http_resp
 
     return api_delete_closure
@@ -612,11 +655,18 @@ def create_api_op(ds: BaseDatastore):
                 ERRTAG_OPNOTSUPPORTED,
                 exception=e
             )
-        except ConfHandlerFailedError as e:
+        except (ConfHandlerFailedError, OpHandlerFailedError) as e:
             http_resp = HttpResponse.error(
                 HttpStatus.InternalServerError,
                 RestconfErrType.Protocol,
                 ERRTAG_OPFAILED,
+                exception=e
+            )
+        except (SchemaError, SemanticError) as e:
+            http_resp = HttpResponse.error(
+                HttpStatus.BadRequest,
+                RestconfErrType.Protocol,
+                ERRTAG_INVVALUE,
                 exception=e
             )
         except ValueError as e:
