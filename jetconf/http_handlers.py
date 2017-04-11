@@ -380,7 +380,7 @@ def _post(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse
 
         try:
             new_root = ds.create_node_rpc(ds.get_data_root_staging(rpc1.username), rpc1, json_data)
-            ds.add_to_journal_rpc(ChangeType.CREATE, rpc1, json_data, new_root)
+            ds.add_to_journal_rpc(ChangeType.CREATE, rpc1, json_data, *new_root)
             http_resp = HttpResponse.empty(HttpStatus.Created)
         except NacmForbiddenError as e:
             http_resp = HttpResponse.error(
@@ -468,7 +468,7 @@ def _put(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse:
 
         try:
             new_root = ds.update_node_rpc(ds.get_data_root_staging(rpc1.username), rpc1, json_data)
-            ds.add_to_journal_rpc(ChangeType.REPLACE, rpc1, json_data, new_root)
+            ds.add_to_journal_rpc(ChangeType.REPLACE, rpc1, json_data, *new_root)
             http_resp = HttpResponse.empty(HttpStatus.NoContent, status_in_body=False)
         except NacmForbiddenError as e:
             http_resp = HttpResponse.error(
@@ -529,7 +529,7 @@ def _delete(ds: BaseDatastore, pth: str, username: str) -> HttpResponse:
 
             try:
                 new_root = ds.delete_node_rpc(ds.get_data_root_staging(rpc1.username), rpc1)
-                ds.add_to_journal_rpc(ChangeType.DELETE, rpc1, None, new_root)
+                ds.add_to_journal_rpc(ChangeType.DELETE, rpc1, None, *new_root)
                 http_resp = HttpResponse.empty(HttpStatus.NoContent, status_in_body=False)
             except NacmForbiddenError as e:
                 http_resp = HttpResponse.error(

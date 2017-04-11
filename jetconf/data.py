@@ -3,7 +3,7 @@ import json
 from threading import Lock
 from enum import Enum
 from colorlog import error, warning as warn, info
-from typing import List, Any, Dict, Callable, Optional
+from typing import List, Any, Dict, Callable, Optional, Tuple
 from datetime import datetime
 
 from yangson.datamodel import DataModel
@@ -71,8 +71,10 @@ class NoHandlerError(HandlerError):
 class ConfHandlerFailedError(HandlerError):
     pass
 
+
 class OpHandlerFailedError(HandlerError):
     pass
+
 
 class NoHandlerForOpError(NoHandlerError):
     def __init__(self, op_name: str):
@@ -98,10 +100,11 @@ class RpcInfo:
 
 
 class DataChange:
-    def __init__(self, change_type: ChangeType, rpc_info: RpcInfo, data: Any):
+    def __init__(self, change_type: ChangeType, rpc_info: RpcInfo, input_data: JsonNodeT, nacm_modified: bool):
         self.change_type = change_type
         self.rpc_info = rpc_info
-        self.data = data
+        self.data = input_data
+        self.nacm_modified = nacm_modified
 
 
 class ChangeList:
@@ -151,21 +154,29 @@ class UsrChangeJournal:
         return chl_json
 
     def commit(self, ds: "BaseDatastore"):
+        nacm_modified = False
+
         if hash(ds.get_data_root()) == hash(self.root_origin):
             info("Commiting new configuration (swapping roots)")
             # Set new root
             nr = self.get_root_head()
+
+            for cl in self.clists:
+                for change in cl.journal:
+                    nacm_modified = nacm_modified or change.nacm_modified
         else:
             info("Commiting new configuration (re-applying changes)")
             nr = ds.get_data_root()
             for cl in self.clists:
                 for change in cl.journal:
+                    nacm_modified = nacm_modified or change.nacm_modified
+
                     if change.change_type == ChangeType.CREATE:
-                        nr = ds.create_node_rpc(nr, change.rpc_info, change.data)
+                        nr = ds.create_node_rpc(nr, change.rpc_info, change.data)[0]
                     elif change.change_type == ChangeType.REPLACE:
-                        nr = ds.update_node_rpc(nr, change.rpc_info, change.data)
+                        nr = ds.update_node_rpc(nr, change.rpc_info, change.data)[0]
                     elif change.change_type == ChangeType.DELETE:
-                        nr = ds.delete_node_rpc(nr, change.rpc_info)
+                        nr = ds.delete_node_rpc(nr, change.rpc_info)[0]
 
         try:
             # Validate syntax and semantics of new data
@@ -178,6 +189,10 @@ class UsrChangeJournal:
 
         # Set new data root
         ds.set_data_root(nr)
+
+        # Update NACM if NACM data has been affected by any edit
+        if nacm_modified and ds.nacm is not None:
+            ds.nacm.update()
 
         # Call commit begin hook
         begin_hook_failed = False
@@ -195,7 +210,7 @@ class UsrChangeJournal:
                     for change in cl.journal:
                         ii = ds.parse_ii(change.rpc_info.path, change.rpc_info.path_format)
                         ds.run_conf_edit_handler(ii, change)
-            except IndexError as e:
+            except Exception as e:
                 error("Exception occured in edit handler: {}".format(epretty(e)))
                 conf_handler_failed = True
 
@@ -223,6 +238,11 @@ class UsrChangeJournal:
         # Return to previous version of data and raise an exception if something went wrong
         if begin_hook_failed or conf_handler_failed or end_hook_failed or end_hook_abort_failed:
             ds.data_root_rollback(history_steps=1, store_current=False)
+
+            # Update NACM again after rollback
+            if nacm_modified and ds.nacm is not None:
+                ds.nacm.update()
+
             raise ConfHandlerFailedError("(see logged)")
 
 
@@ -305,7 +325,6 @@ class BaseDatastore:
                 sch_pth_list.append(MemberName(input_member_name, None))
 
             sch_pth = DataHelpers.ii2str(sch_pth_list)
-            print(sch_pth)
             sn = self.get_schema_node(sch_pth)
 
             if sn is None:
@@ -529,7 +548,7 @@ class BaseDatastore:
         return n
 
     # Create new data node
-    def create_node_rpc(self, root: InstanceNode, rpc: RpcInfo, value: Any) -> InstanceNode:
+    def create_node_rpc(self, root: InstanceNode, rpc: RpcInfo, value: Any) -> Tuple[InstanceNode, bool]:
         ii = self.parse_ii(rpc.path, rpc.path_format)
 
         # Get target member name
@@ -545,15 +564,20 @@ class BaseDatastore:
         input_member_value = value[input_member_name_fq]
 
         # Deny any changes of NACM data for non-privileged users
+        nacm_changed = False
         if (len(ii) > 0) and (isinstance(ii[0], MemberName)):
             # Not getting root
             ns_first = ii[0].namespace
-            if (ns_first == "ietf-netconf-acm") and (rpc.username not in CONFIG_NACM["ALLOWED_USERS"]):
-                raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
+            if ns_first == "ietf-netconf-acm":
+                nacm_changed = True
+                if rpc.username not in CONFIG_NACM["ALLOWED_USERS"]:
+                    raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
         else:
             # Editing root node
-            if (input_member_ns == "ietf-netconf-acm") and (rpc.username not in CONFIG_NACM["ALLOWED_USERS"]):
-                raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
+            if input_member_ns == "ietf-netconf-acm":
+                nacm_changed = True
+                if rpc.username not in CONFIG_NACM["ALLOWED_USERS"]:
+                    raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
 
         # Evaluate NACM
         if self.nacm:
@@ -665,25 +689,30 @@ class BaseDatastore:
                 # Data node already exists
                 raise InstanceAlreadyPresent("Member \"{}\" already present in \"{}\"".format(input_member_name, ii))
 
-        return new_member.top()
+        return new_member.top(), nacm_changed
 
     # PUT data node
-    def update_node_rpc(self, root: InstanceNode, rpc: RpcInfo, value: Any) -> InstanceNode:
+    def update_node_rpc(self, root: InstanceNode, rpc: RpcInfo, value: Any) -> Tuple[InstanceNode, bool]:
         ii = self.parse_ii(rpc.path, rpc.path_format)
         n = root.goto(ii)
 
         # Deny any changes of NACM data for non-privileged users
+        nacm_changed = False
         if (len(ii) > 0) and (isinstance(ii[0], MemberName)):
             # Not getting root
             ns_first = ii[0].namespace
-            if (ns_first == "ietf-netconf-acm") and (rpc.username not in CONFIG_NACM["ALLOWED_USERS"]):
-                raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
+            if ns_first == "ietf-netconf-acm":
+                nacm_changed = True
+                if rpc.username not in CONFIG_NACM["ALLOWED_USERS"]:
+                    raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
         else:
             # Replacing root node
             # Check if NACM data are present in the datastore
             nacm_val = n.value.get("ietf-netconf-acm:nacm")
-            if (nacm_val is not None) and (rpc.username not in CONFIG_NACM["ALLOWED_USERS"]):
-                raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
+            if nacm_val is not None:
+                nacm_changed = True
+                if rpc.username not in CONFIG_NACM["ALLOWED_USERS"]:
+                    raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
 
         # Evaluate NACM
         if self.nacm:
@@ -693,25 +722,30 @@ class BaseDatastore:
 
         new_n = n.update(value, raw=True)
 
-        return new_n.top()
+        return new_n.top(), nacm_changed
 
     # Delete data node
-    def delete_node_rpc(self, root: InstanceNode, rpc: RpcInfo) -> InstanceNode:
+    def delete_node_rpc(self, root: InstanceNode, rpc: RpcInfo) -> Tuple[InstanceNode, bool]:
         ii = self.parse_ii(rpc.path, rpc.path_format)
         n = root.goto(ii)
 
         # Deny any changes of NACM data for non-privileged users
+        nacm_changed = False
         if (len(ii) > 0) and (isinstance(ii[0], MemberName)):
             # Not getting root
             ns_first = ii[0].namespace
-            if (ns_first == "ietf-netconf-acm") and (rpc.username not in CONFIG_NACM["ALLOWED_USERS"]):
-                raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
+            if ns_first == "ietf-netconf-acm":
+                nacm_changed = True
+                if rpc.username not in CONFIG_NACM["ALLOWED_USERS"]:
+                    raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
         else:
             # Deleting root node
             # Check if NACM data are present in the datastore
             nacm_val = n.value.get("ietf-netconf-acm:nacm")
-            if (nacm_val is not None) and (rpc.username not in CONFIG_NACM["ALLOWED_USERS"]):
-                raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
+            if nacm_val is not None:
+                nacm_changed = True
+                if rpc.username not in CONFIG_NACM["ALLOWED_USERS"]:
+                    raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
 
         # Evaluate NACM
         if self.nacm:
@@ -737,7 +771,7 @@ class BaseDatastore:
             else:
                 raise InstanceValueError(rpc.path, "Invalid target node type")
 
-        return new_n.top()
+        return new_n.top(), nacm_changed
 
     # Invoke an operation
     def invoke_op_rpc(self, rpc: RpcInfo) -> JsonNodeT:
@@ -851,11 +885,11 @@ class BaseDatastore:
 
         return ret_data
 
-    def add_to_journal_rpc(self, ch_type: ChangeType, rpc: RpcInfo, value: Any, new_root: InstanceNode):
+    def add_to_journal_rpc(self, ch_type: ChangeType, rpc: RpcInfo, value: Optional[JsonNodeT], new_root: InstanceNode, nacm_modified: bool):
         usr_journal = self._usr_journals.get(rpc.username)
         if usr_journal is not None:
             usr_chs = usr_journal.clists[-1]
-            usr_chs.add(DataChange(ch_type, rpc, value), new_root)
+            usr_chs.add(DataChange(ch_type, rpc, value, nacm_modified), new_root)
         else:
             raise NoHandlerError("No active changelist for user \"{}\"".format(rpc.username))
 

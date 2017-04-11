@@ -4,7 +4,7 @@ from threading import Lock
 from enum import Enum
 from typing import Union
 
-from colorlog import error, info
+from colorlog import error, warning as warn, info
 from typing import List, Set, Optional
 
 from yangson.datamodel import DataModel
@@ -87,7 +87,7 @@ class NacmRule:
 
 
 class RuleTreeNode:
-    def __init__(self, isel: "InstanceSelector"=None, up: "RuleTreeNode"=None):
+    def __init__(self, isel=None, up: "RuleTreeNode"=None):
         self.isel = isel
         self.rule = None    # type: NacmRule
         self.up = up
@@ -199,7 +199,8 @@ class NacmConfig:
         try:
             nacm_json = self.nacm_ds.get_data_root()["ietf-netconf-acm:nacm"].value
         except NonexistentInstance:
-            raise ValueError("Data does not contain \"ietf-netconf-acm:nacm\" root element")
+            warn("Data does not contain \"ietf-netconf-acm:nacm\" node, NACM rules will be empty")
+            return
 
         self.enabled = nacm_json["enable-nacm"]
         if not self.enabled:
@@ -318,7 +319,7 @@ class UserRuleSet:
         if not self.nacm_enabled:
             return Action.PERMIT
 
-        data_node_value = root.value    # type: Union[Value, ArrayValue, ObjectValue]
+        data_node_value = (root.value, root.schema_node)
 
         nl = self.rule_tree.root        # type: List[RuleTreeNode]
         node_match = None               # type: RuleTreeNode
@@ -331,14 +332,14 @@ class UserRuleSet:
                     break
 
                 if isinstance(isel, EntryIndex) and isinstance(rule_node.isel, EntryKeys) and \
-                        (isel.peek_step(data_node_value) is rule_node.isel.peek_step(data_node_value)):
+                        (isel.peek_step(*data_node_value)[0] is rule_node.isel.peek_step(*data_node_value)[0]):
                     node_match_step = rule_node
                     break
 
             if node_match_step:
                 nl = node_match_step.children
                 node_match = node_match_step
-                data_node_value = isel.peek_step(data_node_value)
+                data_node_value = isel.peek_step(*data_node_value)
             else:
                 break
 
