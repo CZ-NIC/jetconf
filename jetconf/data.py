@@ -534,12 +534,10 @@ class BaseDatastore:
                             m = node[child_key]
                             node = _tree_limit_depth(m, depth + 1).up()
                 elif isinstance(node.value, ArrayValue):
-                    if depth > max_depth:
-                        node.value = ArrayValue([])
-                    else:
-                        for i in range(len(node.value)):
-                            e = node[i]
-                            node = _tree_limit_depth(e, depth + 1).up()
+                    depth -= 1
+                    for i in range(len(node.value)):
+                        e = node[i]
+                        node = _tree_limit_depth(e, depth + 1).up()
 
                 return node
             n = _tree_limit_depth(n, 1)
