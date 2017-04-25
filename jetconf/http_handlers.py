@@ -634,7 +634,7 @@ def create_api_op(ds: BaseDatastore):
                 ERRTAG_ACCDENIED,
                 exception=e
             )
-        except NonexistentSchemaNode as e:
+        except (NonexistentSchemaNode, NonexistentInstance) as e:
             http_resp = HttpResponse.error(
                 HttpStatus.NotFound,
                 RestconfErrType.Protocol,

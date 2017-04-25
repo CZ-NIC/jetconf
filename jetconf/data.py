@@ -836,12 +836,18 @@ class BaseDatastore:
             except (TypeError, KeyError):
                 raise ValueError("This operation expects \"url\" input parameter")
 
-            if list_url == "":
-                list_ii = []
-            else:
-                list_ii = self.parse_ii(list_url, PathFormat.URL)
+            try:
+                staging = rpc.op_input_args["staging"]  # type: str
+            except (TypeError, KeyError):
+                staging = False
 
-            ln_val = self._data.goto(list_ii).value
+            rpc_gll = RpcInfo()
+            rpc_gll.username = rpc.username
+            rpc_gll.path = list_url.rstrip("/")
+            rpc_gll.qs = {}
+
+            ln_val = self.get_node_rpc(rpc_gll, staging).value
+
             if isinstance(ln_val, list):
                 ret_data = {"jetconf:list-length": len(ln_val)}
             else:
