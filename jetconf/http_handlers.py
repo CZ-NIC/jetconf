@@ -200,6 +200,10 @@ def _get(ds: BaseDatastore, req_headers: OrderedDict, pth: str, username: str, s
     rpc1.path = url_path.rstrip("/")
     rpc1.qs = query_string
 
+    # Skip NACM check for privileged users
+    if username in CONFIG_NACM["ALLOWED_USERS"]:
+        rpc1.skip_nacm_check = True
+
     try:
         ds.lock_data(username)
         http_resp = None
@@ -364,6 +368,10 @@ def _post(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse
     rpc1.path = url_path.rstrip("/")
     rpc1.qs = query_string
 
+    # Skip NACM check for privileged users
+    if username in CONFIG_NACM["ALLOWED_USERS"]:
+        rpc1.skip_nacm_check = True
+
     try:
         json_data = json.loads(data) if len(data) > 0 else {}
     except ValueError as e:
@@ -452,6 +460,10 @@ def _put(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse:
     rpc1.username = username
     rpc1.path = url_path.rstrip("/")
 
+    # Skip NACM check for privileged users
+    if username in CONFIG_NACM["ALLOWED_USERS"]:
+        rpc1.skip_nacm_check = True
+
     try:
         json_data = json.loads(data) if len(data) > 0 else {}
     except ValueError as e:
@@ -523,6 +535,10 @@ def _delete(ds: BaseDatastore, pth: str, username: str) -> HttpResponse:
         rpc1 = RpcInfo()
         rpc1.username = username
         rpc1.path = url_path.rstrip("/")
+
+        # Skip NACM check for privileged users
+        if username in CONFIG_NACM["ALLOWED_USERS"]:
+            rpc1.skip_nacm_check = True
 
         try:
             ds.lock_data(username)

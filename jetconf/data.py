@@ -502,7 +502,7 @@ class BaseDatastore:
             n = n.add_defaults()
 
         # Evaluate NACM if required
-        if self.nacm:
+        if self.nacm and not rpc.skip_nacm_check:
             nrpc = self.nacm.get_user_rules(rpc.username)
             if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_READ) == Action.DENY:
                 raise NacmForbiddenError()
@@ -578,7 +578,7 @@ class BaseDatastore:
                     raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
 
         # Evaluate NACM
-        if self.nacm:
+        if self.nacm and not rpc.skip_nacm_check:
             nrpc = self.nacm.get_user_rules(rpc.username)
             if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_CREATE) == Action.DENY:
                 raise NacmForbiddenError()
@@ -713,7 +713,7 @@ class BaseDatastore:
                     raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
 
         # Evaluate NACM
-        if self.nacm:
+        if self.nacm and not rpc.skip_nacm_check:
             nrpc = self.nacm.get_user_rules(rpc.username)
             if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_UPDATE) == Action.DENY:
                 raise NacmForbiddenError()
@@ -746,7 +746,7 @@ class BaseDatastore:
                     raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
 
         # Evaluate NACM
-        if self.nacm:
+        if self.nacm and not rpc.skip_nacm_check:
             nrpc = self.nacm.get_user_rules(rpc.username)
             if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_DELETE) == Action.DENY:
                 raise NacmForbiddenError()
@@ -854,7 +854,7 @@ class BaseDatastore:
                 raise ValueError("Passed URI does not point to List")
         else:
             # External operation defined in data model
-            if self.nacm and (not rpc.skip_nacm_check):
+            if self.nacm and not rpc.skip_nacm_check:
                 nrpc = self.nacm.get_user_rules(rpc.username)
                 if nrpc.check_rpc_name(rpc.op_name) == Action.DENY:
                     raise NacmForbiddenError(
