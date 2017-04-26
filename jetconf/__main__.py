@@ -144,7 +144,7 @@ def main():
     )
 
     # Datastore init
-    datastore = JsonDatastore(datamodel, CONFIG_GLOBAL["DATA_JSON_FILE"], "DNS data", with_nacm=False)
+    datastore = JsonDatastore(datamodel, CONFIG_GLOBAL["DATA_JSON_FILE"], "DNS data", with_nacm=True)
     try:
         datastore.load()
         datastore.load_yl_data(yang_lib_file)
