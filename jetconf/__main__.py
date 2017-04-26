@@ -18,7 +18,7 @@ from .config import CONFIG_GLOBAL, CONFIG_KNOT, load_config, print_config
 from .data import JsonDatastore
 from .helpers import DataHelpers, ErrorHelpers
 from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES
-from .knot_api import KNOT, knot_connect, knot_disconnect
+from .knot_api import KNOT, KnotError, knot_connect, knot_disconnect
 from .usr_op_handlers import OP_HANDLERS_IMPL
 from .usr_conf_data_handlers import (
     KnotConfServerListener,
@@ -136,6 +136,9 @@ def main():
     signal.signal(signal.SIGTERM, sig_exit_handler)
     signal.signal(signal.SIGINT, sig_exit_handler)
 
+    # Initialize Knot control interface
+    KNOT.set_socket(CONFIG_KNOT["SOCKET"])
+
     # Load data model
     yang_lib_file = os.path.join(CONFIG_GLOBAL["YANG_LIB_DIR"], "yang-library-data.json")
     datamodel = DataHelpers.load_data_model(
@@ -153,12 +156,27 @@ def main():
         error(ErrorHelpers.epretty(e))
         sig_exit_handler(0, None)
 
+    # Get KnotDNS configuration
+    try:
+        KNOT.knot_connect()
+        knot_conf_json = KNOT.config_read()
+        KNOT.knot_disconnect()
+        new_root = datastore.get_data_root().put_member("dns-server:dns-server", knot_conf_json["dns-server:dns-server"], raw=True).top()
+        datastore.set_data_root(new_root)
+    except KnotError as e:
+        error("Cannot load KnotDNS configuration, reason: {}".format(ErrorHelpers.epretty(e)))
+
+    # Validate datastore on startup
     try:
         datastore.get_data_root().validate(ValidationScope.all, ContentType.config)
     except (SchemaError, SemanticError) as e:
         error("Initial validation of datastore failed")
         error(ErrorHelpers.epretty(e))
         sig_exit_handler(0, None)
+
+    # Set datastore commit callbacks
+    datastore.commit_begin_callback = knot_connect
+    datastore.commit_end_callback = knot_disconnect
 
     # Register configuration data node listeners
     CONF_DATA_HANDLES.register(KnotConfServerListener(datastore, "/dns-server:dns-server/server-options"))
@@ -176,11 +194,6 @@ def main():
 
     # Create and register state data node listeners
     usr_state_data_handlers.create_zone_state_handlers(STATE_DATA_HANDLES, datamodel)
-
-    # Initialize Knot control interface
-    KNOT.set_socket(CONFIG_KNOT["SOCKET"])
-    datastore.commit_begin_callback = knot_connect
-    datastore.commit_end_callback = knot_disconnect
 
     # Create HTTP server
     rest_srv = RestServer()

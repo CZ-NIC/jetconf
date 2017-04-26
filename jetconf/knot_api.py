@@ -339,6 +339,166 @@ class KnotConfig(KnotCtl):
 
         return resp[domain_name]
 
+    # Reads all configuration data and converts them to YANG model compliant data tree
+    def config_read(self) -> JsonNodeT:
+        if not self.connected:
+            raise KnotApiError("Knot socket is closed")
+
+        try:
+            self.send_block("conf-read")
+            resp = self.receive_block()
+        except KnotCtlError as e:
+            raise KnotInternalError(str(e))
+
+        out_conf_dnss = {}
+
+        out_conf_data = {
+            "dns-server:dns-server": out_conf_dnss
+        }
+
+        out_conf_dnss["description"] = "Configuration acquired from KnotDNS control socket"
+
+        # "server" section
+        server_in = resp.get("server")
+        if server_in is not None:
+            server_out = {}
+
+            server_listen_in = server_in.get("listen")
+            if server_listen_in is not None:
+                server_ep_list = []
+                ep_name = 1
+
+                for ep in server_listen_in:
+                    ep_splitted = ep.split("@")
+                    listen_ep = {
+                        "name": str(ep_name),
+                        "ip-address": ep_splitted[0],
+                        "port": int(ep_splitted[1])
+                    }
+                    ep_name += 1
+                    server_ep_list.append(listen_ep)
+                server_out["listen-endpoint"] = server_ep_list
+
+            server_rundir_in = server_in.get("rundir")
+            if (server_rundir_in is not None) and (len(server_rundir_in) >= 1):
+                server_out["filesystem-paths"] = {
+                    "run-time-dir": server_rundir_in[0]
+                }
+
+            out_conf_dnss["server-options"] = server_out
+
+        # "log" section
+        log_in = resp.get("log")
+        if log_in is not None:
+            log_out = []
+
+            for tgt, rel_dict in log_in.items():
+                log_item_out = {
+                    "target": tgt
+                }
+                for rel, val in rel_dict.items():
+                    log_item_out[rel] = val[0]
+                log_out.append(log_item_out)
+
+            out_conf_dnss["knot-dns:log"] = log_out
+
+        # "acl" section
+        acl_in = resp.get("acl")
+        if acl_in is not None:
+            acl_out = []
+
+            for acl_name, acl_dict in acl_in.items():
+                acl_item_out = {
+                    "name": acl_name,
+                    "operation": acl_dict["action"]
+                }
+
+                acl_item_nw_out = []
+                nw_name = 1
+                for nw_adr in acl_dict["address"]:
+                    acl_item_nw_item_out = {
+                        "name": str(nw_name),
+                        "ip-prefix": nw_adr + "/32"
+                    }
+                    acl_item_nw_out.append(acl_item_nw_item_out)
+
+                acl_item_out["network"] = acl_item_nw_out
+                acl_out.append(acl_item_out)
+
+            out_conf_dnss["access-control-list"] = acl_out
+
+        # "template" section
+        template_in = resp.get("template")
+        if template_in is not None:
+            template_out = []
+
+            for template_name, template_dict in template_in.items():
+                template_item_out = {
+                    "name": template_name
+                }
+
+                try:
+                    semantic_checks_str = template_dict["semantic-checks"][0]  # values: "on", "off"
+                    semantic_checks_bool = {"on": True, "off": False}[semantic_checks_str]
+                    template_item_out["knot-dns:semantic-checks"] = semantic_checks_bool
+                except (KeyError, IndexError, ValueError):
+                    pass
+
+                try:
+                    storage = template_dict["storage"][0]
+                    template_item_out["zones-dir"] = storage
+                except (KeyError, IndexError):
+                    pass
+
+                try:
+                    zonefile_sync = template_dict["zonefile-sync"][0]
+                    template_item_out["journal"] = {
+                        "zone-file-sync-delay": int(zonefile_sync)
+                    }
+                except (KeyError, IndexError, ValueError):
+                    pass
+
+                template_out.append(template_item_out)
+
+            out_conf_dnss["zones"] = {
+                "template": template_out
+            }
+
+        # "zone" section
+        zone_in = resp.get("zone")
+        if zone_in is not None:
+            zone_out = []
+
+            for domain, zone_dict in zone_in.items():
+                zone_item_out = {
+                    "domain": domain.rstrip(".")
+                }
+
+                try:
+                    zonefile = zone_dict["file"][0]
+                    zone_item_out["file"] = zonefile
+                except (KeyError, IndexError):
+                    pass
+
+                try:
+                    zone_acl = zone_dict["acl"]
+                    zone_item_out["access-control-list"] = zone_acl
+                except KeyError:
+                    pass
+
+                zone_out.append(zone_item_out)
+
+            try:
+                out_conf_dnss_zone = out_conf_dnss["zone"]
+                out_conf_dnss_zone["zone"] = zone_out
+            except KeyError:
+                out_conf_dnss["zones"] = {
+                    "zone": zone_out
+                }
+
+        # print(json.dumps(out_conf_data, indent=4, sort_keys=True))
+        return out_conf_data
+
 
 # Connects to Knot control socket and begins a new transaction (config or zone)
 def knot_connect(transaction_opts: Optional[JsonNodeT]) -> bool:
