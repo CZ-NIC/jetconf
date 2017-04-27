@@ -843,6 +843,7 @@ class BaseDatastore:
 
             rpc_gll = RpcInfo()
             rpc_gll.username = rpc.username
+            rpc_gll.skip_nacm_check = rpc.skip_nacm_check
             rpc_gll.path = list_url.rstrip("/")
             rpc_gll.qs = {}
 
