@@ -12,21 +12,11 @@ from yangson.enumerations import ContentType, ValidationScope
 from yangson.exceptions import YangsonException
 from yangson.schemanode import SchemaError, SemanticError
 
-from . import usr_state_data_handlers
+from . import usr_state_data_handlers, usr_conf_data_handlers, usr_op_handlers
+from .usr_datastore import UserDatastore
 from .rest_server import RestServer
-from .config import CONFIG_GLOBAL, CONFIG_KNOT, load_config, print_config
-from .data import JsonDatastore
+from .config import CONFIG_GLOBAL, CONFIG_NACM, load_config, print_config
 from .helpers import DataHelpers, ErrorHelpers
-from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES
-from .knot_api import KNOT, KnotError, knot_connect, knot_disconnect
-from .usr_op_handlers import OP_HANDLERS_IMPL
-from .usr_conf_data_handlers import (
-    KnotConfServerListener,
-    KnotConfLogListener,
-    KnotConfZoneListener,
-    KnotConfControlListener,
-    KnotConfAclListener
-)
 
 
 def main():
@@ -136,9 +126,6 @@ def main():
     signal.signal(signal.SIGTERM, sig_exit_handler)
     signal.signal(signal.SIGINT, sig_exit_handler)
 
-    # Initialize Knot control interface
-    KNOT.set_socket(CONFIG_KNOT["SOCKET"])
-
     # Load data model
     yang_lib_file = os.path.join(CONFIG_GLOBAL["YANG_LIB_DIR"], "yang-library-data.json")
     datamodel = DataHelpers.load_data_model(
@@ -147,7 +134,7 @@ def main():
     )
 
     # Datastore init
-    datastore = JsonDatastore(datamodel, CONFIG_GLOBAL["DATA_JSON_FILE"], "DNS data", with_nacm=True)
+    datastore = UserDatastore(datamodel, CONFIG_GLOBAL["DATA_JSON_FILE"], with_nacm=CONFIG_NACM["ENABLED"])
     try:
         datastore.load()
         datastore.load_yl_data(yang_lib_file)
@@ -155,16 +142,6 @@ def main():
         error("Could not load JSON datastore " + CONFIG_GLOBAL["DATA_JSON_FILE"])
         error(ErrorHelpers.epretty(e))
         sig_exit_handler(0, None)
-
-    # Get KnotDNS configuration
-    try:
-        KNOT.knot_connect()
-        knot_conf_json = KNOT.config_read()
-        KNOT.knot_disconnect()
-        new_root = datastore.get_data_root().put_member("dns-server:dns-server", knot_conf_json["dns-server:dns-server"], raw=True).top()
-        datastore.set_data_root(new_root)
-    except KnotError as e:
-        error("Cannot load KnotDNS configuration, reason: {}".format(ErrorHelpers.epretty(e)))
 
     # Validate datastore on startup
     try:
@@ -174,26 +151,14 @@ def main():
         error(ErrorHelpers.epretty(e))
         sig_exit_handler(0, None)
 
-    # Set datastore commit callbacks
-    datastore.commit_begin_callback = knot_connect
-    datastore.commit_end_callback = knot_disconnect
+    # Register handlers for configuration data
+    usr_conf_data_handlers.register_conf_handlers(datastore)
 
-    # Register configuration data node listeners
-    CONF_DATA_HANDLES.register(KnotConfServerListener(datastore, "/dns-server:dns-server/server-options"))
-    CONF_DATA_HANDLES.register(KnotConfLogListener(datastore, "/dns-server:dns-server/knot-dns:log"))
-    CONF_DATA_HANDLES.register(KnotConfZoneListener(datastore, "/dns-server:dns-server/zones/zone"))
-    CONF_DATA_HANDLES.register(KnotConfControlListener(datastore, "/dns-server:dns-server/knot-dns:control-socket"))
-    CONF_DATA_HANDLES.register(KnotConfAclListener(datastore, "/dns-server:dns-server/access-control-list"))
+    # Register handlers for state data
+    usr_state_data_handlers.register_state_handlers(datastore)
 
-    # Register op handlers
-    OP_HANDLERS.register("dns-zone-rpcs:begin-transaction", OP_HANDLERS_IMPL.zone_begin_transaction)
-    OP_HANDLERS.register("dns-zone-rpcs:commit-transaction", OP_HANDLERS_IMPL.zone_commit_transaction)
-    OP_HANDLERS.register("dns-zone-rpcs:abort-transaction", OP_HANDLERS_IMPL.zone_abort_transaction)
-    OP_HANDLERS.register("dns-zone-rpcs:zone-set", OP_HANDLERS_IMPL.zone_set)
-    OP_HANDLERS.register("dns-zone-rpcs:zone-unset", OP_HANDLERS_IMPL.zone_unset)
-
-    # Create and register state data node listeners
-    usr_state_data_handlers.create_zone_state_handlers(STATE_DATA_HANDLES, datamodel)
+    # Register handlers for operations
+    usr_op_handlers.register_op_handlers()
 
     # Create HTTP server
     rest_srv = RestServer()

@@ -1,10 +1,16 @@
 from typing import List, Tuple, Callable, Any
+
 from yangson.schemanode import SchemaNode
 from yangson.schemadata import SchemaData
 from yangson.instance import InstanceRoute
 
+from .helpers import JsonNodeT
+
+
 HandlerSelectorT = Any
 
+
+# ---------- Conf data base objects ----------
 
 class ConfDataObjectHandler:
     def __init__(self, ds: "BaseDatastore", sch_pth: str):
@@ -53,6 +59,31 @@ class ConfDataListHandler:
         return self.__class__.__name__ + ": listening at " + self.schema_path
 
 
+# ---------- State data base objects ----------
+
+class StateDataHandlerBase:
+    def __init__(self, datastore: "BaseDatastore", schema_path: str):
+        self.ds = datastore
+        self.data_model = datastore.get_dm()
+        self.sch_pth = schema_path
+        self.schema_node = self.data_model.get_data_node(self.sch_pth)
+
+
+class StateDataContainerHandler(StateDataHandlerBase):
+    def generate_node(self, node_ii: InstanceRoute, username: str, staging: bool) -> JsonNodeT:
+        pass
+
+
+class StateDataListHandler(StateDataHandlerBase):
+    def generate_list(self, node_ii: InstanceRoute, username: str, staging: bool) -> JsonNodeT:
+        pass
+
+    def generate_item(self, node_ii: InstanceRoute, username: str, staging: bool) -> JsonNodeT:
+        pass
+
+
+# ---------- Handles lists ----------
+
 class BaseHandlerList:
     def __init__(self):
         self.handlers = []              # type: List[Tuple[HandlerSelectorT, Callable]]
@@ -69,7 +100,7 @@ class BaseHandlerList:
 
 
 class OpHandlerList(BaseHandlerList):
-    def register(self, op_name: str, handler: Callable):
+    def register(self, handler: Callable, op_name: str):
         self.handlers.append((op_name, handler))
 
     def get_handler(self, op_name: str) -> Callable:
@@ -120,6 +151,8 @@ class StateDataHandlerList:
 
         return None
 
+
+# ---------- Handler list globals ----------
 
 OP_HANDLERS = OpHandlerList()
 STATE_DATA_HANDLES = StateDataHandlerList()

@@ -3,39 +3,6 @@
     "module-set-id": "e595da11ace92c0d881995fa7e56bbe86f1f48e9",
     "module": [
       {
-        "name": "dns-parameters",
-        "revision": "2016-01-13",
-        "namespace": "http://www.nic.cz/ns/yang/dns-parameters",
-        "conformance-type": "import",
-        "schema": "https://gitlab.labs.nic.cz/labs/dns-server-yang/raw/master/dns-parameters.yang"
-      },
-      {
-        "name": "dns-server",
-        "revision": "2016-08-03",
-        "namespace": "http://www.nic.cz/ns/yang/dns-server",
-        "feature": [
-          "acl-entry-port",
-          "any-to-tcp",
-          "journal-from-differences"
-        ],
-        "conformance-type": "implement",
-        "schema": "https://gitlab.labs.nic.cz/labs/dns-server-yang/raw/master/dns-server.yang"
-      },
-      {
-        "name": "dnssec-algorithms",
-        "revision": "2016-01-13",
-        "namespace": "http://www.nic.cz/ns/yang/dnssec-algorithms",
-        "conformance-type": "import",
-        "schema": "https://gitlab.labs.nic.cz/labs/dns-server-yang/raw/master/dnssec-algorithms.yang"
-      },
-      {
-        "name": "dnssec-signing",
-        "revision": "2016-03-03",
-        "namespace": "http://www.nic.cz/ns/yang/dnssec-signing",
-        "conformance-type": "implement",
-        "schema": "https://gitlab.labs.nic.cz/labs/dns-server-yang/raw/master/dnssec-signing.yang"
-      },
-      {
         "name": "ietf-inet-types",
         "revision": "2013-07-15",
         "namespace": "urn:ietf:params:xml:ns:yang:ietf-inet-types",
@@ -63,46 +30,11 @@
         "schema": "https://github.com/YangModels/yang/blob/master/standard/ietf/RFC/ietf-yang-types.yang"
       },
       {
-        "name": "knot-dns",
-        "revision": "2017-04-26",
-        "namespace": "http://www.nic.cz/ns/yang/knot-dns",
+        "name": "example-jukebox",
+        "revision": "2016-08-15",
+        "namespace": "urn:ietf:params:xml:ns:yang:example-jukebox",
         "conformance-type": "implement",
-        "schema": "https://gitlab.labs.nic.cz/labs/dns-server-yang/raw/master/knot-dns.yang"
-      },
-      {
-        "name": "tsig-algorithms",
-        "revision": "2016-01-13",
-        "namespace": "http://www.nic.cz/ns/yang/tsig-algorithms",
-        "conformance-type": "implement",
-        "schema": "https://gitlab.labs.nic.cz/labs/dns-server-yang/raw/master/tsig-algorithms.yang"
-      },
-      {
-        "name": "dns-zone-common",
-        "revision": "2017-01-12",
-        "namespace": "http://www.nic.cz/ns/yang/dns-zone-common",
-        "conformance-type": "implement",
-        "schema": "https://gitlab.labs.nic.cz/labs/zone-data-yang/raw/master/dns-zone-common.yang"
-      },
-      {
-        "name": "dns-zone-rpcs",
-        "revision": "2017-01-12",
-        "namespace": "http://www.nic.cz/ns/yang/dns-zone-rpcs",
-        "conformance-type": "implement",
-        "schema": "https://gitlab.labs.nic.cz/labs/zone-data-yang/raw/master/dns-zone-rpcs.yang"
-      },
-      {
-        "name": "dns-zones-state",
-        "revision": "2017-01-12",
-        "namespace": "http://www.nic.cz/ns/yang/dns-zones-state",
-        "conformance-type": "implement",
-        "schema": "https://gitlab.labs.nic.cz/labs/zone-data-yang/blob/master/dns-zones-state.yang"
-      },
-      {
-        "name": "iana-dns-parameters",
-        "revision": "2016-08-03",
-        "namespace": "http://www.nic.cz/ns/yang/iana-dns-parameters",
-        "conformance-type": "implement",
-        "schema": "https://gitlab.labs.nic.cz/labs/zone-data-yang/raw/master/iana-dns-parameters.yang"
+        "schema": "https://github.com/YangModels/yang/blob/master/standard/ietf/DRAFT/example-jukebox.yang"
       }
     ]
   }

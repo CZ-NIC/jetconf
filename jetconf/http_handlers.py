@@ -14,9 +14,9 @@ from yangson.schemanode import ContainerNode, ListNode, GroupNode, LeafListNode,
 from yangson.instance import NonexistentInstance, InstanceValueError, RootNode
 from yangson.datatype import YangTypeError
 
-from .knot_api import KnotError
 from .config import CONFIG_GLOBAL, CONFIG_HTTP, CONFIG_NACM, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops
 from .helpers import CertHelpers, DateTimeHelpers, ErrorHelpers, LogHelpers, SSLCertT
+from .errors import BackendError
 from .nacm import NacmForbiddenError
 from .data import (
     BaseDatastore,
@@ -231,7 +231,7 @@ def _get(ds: BaseDatastore, req_headers: OrderedDict, pth: str, username: str, s
                 ERRTAG_INVVALUE,
                 exception=e
             )
-        except (ConfHandlerFailedError, NoHandlerError, KnotError, YangsonException) as e:
+        except (ConfHandlerFailedError, NoHandlerError, YangsonException, BackendError) as e:
             http_resp = HttpResponse.error(
                 HttpStatus.InternalServerError,
                 RestconfErrType.Protocol,
@@ -671,18 +671,18 @@ def create_api_op(ds: BaseDatastore):
                 ERRTAG_OPNOTSUPPORTED,
                 exception=e
             )
-        except (ConfHandlerFailedError, OpHandlerFailedError) as e:
-            http_resp = HttpResponse.error(
-                HttpStatus.InternalServerError,
-                RestconfErrType.Protocol,
-                ERRTAG_OPFAILED,
-                exception=e
-            )
         except (SchemaError, SemanticError) as e:
             http_resp = HttpResponse.error(
                 HttpStatus.BadRequest,
                 RestconfErrType.Protocol,
                 ERRTAG_INVVALUE,
+                exception=e
+            )
+        except (ConfHandlerFailedError, OpHandlerFailedError, YangsonException) as e:
+            http_resp = HttpResponse.error(
+                HttpStatus.InternalServerError,
+                RestconfErrType.Protocol,
+                ERRTAG_OPFAILED,
                 exception=e
             )
         except ValueError as e:

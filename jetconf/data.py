@@ -34,8 +34,15 @@ from yangson.instance import (
 from .helpers import PathFormat, ErrorHelpers, LogHelpers, DataHelpers, JsonNodeT
 from .config import CONFIG, CONFIG_NACM, CONFIG_HTTP
 from .nacm import NacmConfig, Permission, Action, NacmForbiddenError
-from .handler_list import OP_HANDLERS, STATE_DATA_HANDLES, CONF_DATA_HANDLES, ConfDataObjectHandler, ConfDataListHandler
-from .usr_state_data_handlers import ContainerNodeHandlerBase, ListNodeHandlerBase
+from .handler_list import (
+    OP_HANDLERS,
+    STATE_DATA_HANDLES,
+    CONF_DATA_HANDLES,
+    ConfDataObjectHandler,
+    ConfDataListHandler,
+    StateDataContainerHandler,
+    StateDataListHandler
+)
 from .errors import JetconfError
 
 epretty = ErrorHelpers.epretty
@@ -247,11 +254,11 @@ class UsrChangeJournal:
 
 
 class BaseDatastore:
-    def __init__(self, dm: DataModel, name: str="", with_nacm: bool=False):
+    def __init__(self, dm: DataModel, with_nacm: bool=False):
         def _blankfn(*args, **kwargs):
             pass
 
-        self.name = name
+        self.name = ""
         self.nacm = None    # type: NacmConfig
         self._data = None   # type: InstanceNode
         self._data_history = []     # type: List[InstanceNode]
@@ -265,6 +272,10 @@ class BaseDatastore:
 
         if with_nacm:
             self.nacm = NacmConfig(self, self._dm)
+
+    # Returns DataModel object
+    def get_dm(self) -> DataModel:
+        return self._dm
 
     # Returns the root node of data tree
     def get_data_root(self, previous_version: int=0) -> InstanceNode:
@@ -425,10 +436,10 @@ class BaseDatastore:
                     # Direct request for the state data
                     sdh = STATE_DATA_HANDLES.get_handler(state_root_sch_pth)
                     if sdh is not None:
-                        if isinstance(sdh, ContainerNodeHandlerBase):
+                        if isinstance(sdh, StateDataContainerHandler):
                             state_handler_val = sdh.generate_node(ii, rpc.username, staging)
                             state_root_n = sdh.schema_node.orphan_instance(state_handler_val)
-                        elif isinstance(sdh, ListNodeHandlerBase):
+                        elif isinstance(sdh, StateDataListHandler):
                             if (sn is sdh.schema_node) and isinstance(ii[-1], MemberName):
                                 state_handler_val = sdh.generate_list(ii, rpc.username, staging)
                                 state_root_n = sdh.schema_node.orphan_instance(state_handler_val)
@@ -457,9 +468,9 @@ class BaseDatastore:
                                 sdh = STATE_DATA_HANDLES.get_handler(state_root_sch_pth)
                                 if sdh is not None:
                                     try:
-                                        if isinstance(sdh, ContainerNodeHandlerBase):
+                                        if isinstance(sdh, StateDataContainerHandler):
                                             state_handler_val = sdh.generate_node(ii_gen, rpc.username, staging)
-                                        elif isinstance(sdh, ListNodeHandlerBase):
+                                        elif isinstance(sdh, StateDataListHandler):
                                             state_handler_val = sdh.generate_list(ii_gen, rpc.username, staging)
                                     except Exception as e:
                                         error("Error occured in state data generator (sn: {})".format(state_root_sch_pth))
@@ -612,9 +623,6 @@ class BaseDatastore:
             if existing_member is None:
                 existing_member = n.put_member(input_member_name, ArrayValue([]))
 
-            # Convert input data from List/Dict to ArrayValue/ObjectValue
-            new_value_item = member_sn.entry_from_raw(input_member_value)
-
             # Get ListNode key names
             list_node_keys = member_sn.keys     # Key names in the form [(key, ns), ]
 
@@ -622,16 +630,16 @@ class BaseDatastore:
                 # Optimization
                 if len(existing_member.value) > 0:
                     list_entry_first = existing_member[0]   # type: ArrayEntry
-                    new_member = list_entry_first.insert_before(new_value_item).up()
+                    new_member = list_entry_first.insert_before(input_member_value, raw=True).up()
                 else:
-                    new_member = existing_member.update([new_value_item])
+                    new_member = existing_member.update([input_member_value], raw=True)
             elif (insert == "last") or (insert is None):
                 # Optimization
                 if len(existing_member.value) > 0:
                     list_entry_last = existing_member[-1]   # type: ArrayEntry
-                    new_member = list_entry_last.insert_after(new_value_item).up()
+                    new_member = list_entry_last.insert_after(input_member_value, raw=True).up()
                 else:
-                    new_member = existing_member.update([new_value_item])
+                    new_member = existing_member.update([input_member_value], raw=True)
             elif (insert == "before") and (point is not None):
                 point_keys_val = point.split(",")  # List key values passed in the "point" query argument
                 if len(list_node_keys) != len(point_keys_val):
@@ -643,7 +651,7 @@ class BaseDatastore:
                 entry_keys = dict(map(lambda i: (list_node_keys[i], point_keys_val[i]), range(len(list_node_keys))))
                 entry_sel = EntryKeys(entry_keys)
                 point_list_entry = entry_sel.goto_step(existing_member)   # type: ArrayEntry
-                new_member = point_list_entry.insert_before(new_value_item).up()
+                new_member = point_list_entry.insert_before(input_member_value, raw=True).up()
             elif (insert == "after") and (point is not None):
                 point_keys_val = point.split(",")  # List key values passed in the "point" query argument
                 if len(list_node_keys) != len(point_keys_val):
@@ -655,7 +663,7 @@ class BaseDatastore:
                 entry_keys = dict(map(lambda i: (list_node_keys[i], point_keys_val[i]), range(len(list_node_keys))))
                 entry_sel = EntryKeys(entry_keys)
                 point_list_entry = entry_sel.goto_step(existing_member)   # type: ArrayEntry
-                new_member = point_list_entry.insert_after(new_value_item).up()
+                new_member = point_list_entry.insert_after(input_member_value, raw=True).up()
             else:
                 raise ValueError("Invalid 'insert'/'point' query values")
         elif isinstance(member_sn, LeafListNode):
@@ -675,14 +683,11 @@ class BaseDatastore:
             else:
                 raise ValueError("Invalid 'insert' query value")
         else:
+            # Create new container member
+
             if existing_member is None:
-                # Create new data node
-
-                # Convert input data from List/Dict to ArrayValue/ObjectValue
-                new_value_item = member_sn.from_raw(input_member_value)
-
                 # Create new node (object member)
-                new_member = n.put_member(input_member_name, new_value_item)
+                new_member = n.put_member(input_member_name, input_member_value, raw=True)
             else:
                 # Data node already exists
                 raise InstanceAlreadyPresent("Member \"{}\" already present in \"{}\"".format(input_member_name, ii))
@@ -929,8 +934,8 @@ class BaseDatastore:
 
 
 class JsonDatastore(BaseDatastore):
-    def __init__(self, dm: DataModel, json_file: str, name: str = "", with_nacm: bool=False):
-        super().__init__(dm, name, with_nacm)
+    def __init__(self, dm: DataModel, json_file: str, with_nacm: bool=False):
+        super().__init__(dm, with_nacm)
         self.json_file = json_file
 
     def load(self):

@@ -33,6 +33,7 @@ CONFIG_HTTP = {
 }
 
 CONFIG_NACM = {
+    "ENABLED": True,
     "ALLOWED_USERS": []
 }
 
