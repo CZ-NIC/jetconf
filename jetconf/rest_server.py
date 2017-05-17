@@ -180,6 +180,7 @@ class H2Protocol(asyncio.Protocol):
             ("Server", CONFIG_HTTP["SERVER_NAME"]),
             ("Cache-Control", "No-Cache"),
             ("Access-Control-Allow-Origin", CONFIG_HTTP["AC_ALLOW_ORIGIN"]),
+            ("Access-Control-Allow-Methods", CONFIG_HTTP["AC_ALLOW_METHODS"]),
             ("Access-Control-Allow-Headers", "Content-Type")
         )
 
