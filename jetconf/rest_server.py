@@ -179,8 +179,8 @@ class H2Protocol(asyncio.Protocol):
             ("Content-Length", str(resp.content_length)),
             ("Server", CONFIG_HTTP["SERVER_NAME"]),
             ("Cache-Control", "No-Cache"),
-            ("Access-Control-Allow-Origin", CONFIG_HTTP["AC_ALLOW_ORIGIN"]),
-            ("Access-Control-Allow-Methods", CONFIG_HTTP["AC_ALLOW_METHODS"]),
+            ("Access-Control-Allow-Origin", "*"),
+            ("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE"),
             ("Access-Control-Allow-Headers", "Content-Type")
         )
 
