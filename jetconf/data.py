@@ -697,6 +697,19 @@ class BaseDatastore:
     # PUT data node
     def update_node_rpc(self, root: InstanceNode, rpc: RpcInfo, value: Any) -> Tuple[InstanceNode, bool]:
         ii = self.parse_ii(rpc.path, rpc.path_format)
+
+        # Get target member name
+        input_member_keys = tuple(value.keys())
+        if len(input_member_keys) != 1:
+            raise ValueError("Received json object must contain exactly one member")
+
+        input_member_name_fq = input_member_keys[0]
+        try:
+            input_member_ns, input_member_name = input_member_name_fq.split(":", maxsplit=1)
+        except ValueError:
+            raise ValueError("Input object name must me in fully-qualified format")
+        input_member_value = value[input_member_name_fq]
+
         n = root.goto(ii)
 
         # Deny any changes of NACM data for non-privileged users
@@ -723,7 +736,7 @@ class BaseDatastore:
             if nrpc.check_data_node_permission(root, ii, Permission.NACM_ACCESS_UPDATE) == Action.DENY:
                 raise NacmForbiddenError()
 
-        new_n = n.update(value, raw=True)
+        new_n = n.update(input_member_value, raw=True)
 
         return new_n.top(), nacm_changed
 
