@@ -1,20 +1,10 @@
-from enum import Enum
-from colorlog import error, warning as warn, info
+from colorlog import info
 
 from .helpers import JsonNodeT
 from .handler_list import OP_HANDLERS
 
 
-class KnotZoneCmd(Enum):
-    SET = 0
-    UNSET = 1
-
-
-class KnotOp:
-    def __init__(self, cmd: KnotZoneCmd, op_input: JsonNodeT):
-        self.cmd = cmd
-        self.op_input = op_input
-
+# ---------- User-defined handlers follow ----------
 
 class OpHandlersContainer:
     def __init__(self):
