@@ -32,7 +32,7 @@ from yangson.instance import (
 )
 
 from .helpers import PathFormat, ErrorHelpers, LogHelpers, DataHelpers, JsonNodeT
-from .config import CONFIG, CONFIG_NACM, CONFIG_HTTP
+from .config import CONFIG, CONFIG_NACM
 from .nacm import NacmConfig, Permission, Action, NacmForbiddenError
 from .handler_list import (
     OP_HANDLERS,
@@ -107,83 +107,65 @@ class RpcInfo:
 
 
 class DataChange:
-    def __init__(self, change_type: ChangeType, rpc_info: RpcInfo, input_data: JsonNodeT, nacm_modified: bool):
+    def __init__(self, change_type: ChangeType, rpc_info: RpcInfo, input_data: JsonNodeT, root_after_change: InstanceNode, nacm_modified: bool):
         self.change_type = change_type
         self.rpc_info = rpc_info
-        self.data = input_data
+        self.input_data = input_data
+        self.root_after_change = root_after_change
         self.nacm_modified = nacm_modified
-
-
-class ChangeList:
-    def __init__(self, root_origin_cl: InstanceNode, changelist_name: str):
-        self.root_list = [root_origin_cl]
-        self.changelist_name = changelist_name
-        self.journal = []   # type: List[DataChange]
-
-    def add(self, change: DataChange, root_after_change: InstanceNode):
-        self.journal.append(change)
-        self.root_list.append(root_after_change)
 
 
 class UsrChangeJournal:
     def __init__(self, root_origin: InstanceNode, transaction_opts: Optional[JsonNodeT]):
-        self.root_origin = root_origin
-        self.transaction_opts = transaction_opts
-        self.clists = []    # type: List[ChangeList]
-
-    def cl_new(self, cl_name: str):
-        self.clists.append(ChangeList(self.get_root_head(), cl_name))
-
-    def cl_drop(self) -> bool:
-        try:
-            self.clists.pop()
-            return True
-        except IndexError:
-            return False
+        self._root_origin = root_origin
+        self._transaction_opts = transaction_opts
+        self._journal = []  # type: List[DataChange]
 
     def get_root_head(self) -> InstanceNode:
-        if len(self.clists) > 0:
-            return self.clists[-1].root_list[-1]
+        if len(self._journal) > 0:
+            return self._journal[-1].root_after_change
         else:
-            return self.root_origin
+            return self._root_origin
 
-    def list(self) -> str:
-        chl_json = {}
-        for chl in self.clists:
-            changes = []
-            for ch in chl.journal:
-                changes.append(
-                    [ch.change_type.name, ch.rpc_info.path]
-                )
+    def get_root_origin(self) -> InstanceNode:
+        return self._root_origin
 
-            chl_json[chl.changelist_name] = changes
+    def add(self, change: DataChange):
+        self._journal.append(change)
 
-        return chl_json
+    def list(self) -> JsonNodeT:
+        changes_info = []
+        for ch in self._journal:
+            changes_info.append([ch.change_type.name, ch.rpc_info.path])
 
-    def commit(self, ds: "BaseDatastore"):
+        return changes_info
+
+    def commit(self, ds: "BaseDatastore") -> bool:
         nacm_modified = False
 
-        if hash(ds.get_data_root()) == hash(self.root_origin):
+        if len(self._journal) == 0:
+            return False
+
+        if hash(ds.get_data_root()) == hash(self.get_root_head()):
             info("Commiting new configuration (swapping roots)")
             # Set new root
             nr = self.get_root_head()
 
-            for cl in self.clists:
-                for change in cl.journal:
-                    nacm_modified = nacm_modified or change.nacm_modified
+            for change in self._journal:
+                nacm_modified = nacm_modified or change.nacm_modified
         else:
             info("Commiting new configuration (re-applying changes)")
             nr = ds.get_data_root()
-            for cl in self.clists:
-                for change in cl.journal:
-                    nacm_modified = nacm_modified or change.nacm_modified
 
-                    if change.change_type == ChangeType.CREATE:
-                        nr = ds.create_node_rpc(nr, change.rpc_info, change.data)[0]
-                    elif change.change_type == ChangeType.REPLACE:
-                        nr = ds.update_node_rpc(nr, change.rpc_info, change.data)[0]
-                    elif change.change_type == ChangeType.DELETE:
-                        nr = ds.delete_node_rpc(nr, change.rpc_info)[0]
+            for change in self._journal:
+                nacm_modified = nacm_modified or change.nacm_modified
+
+                if change.change_type == ChangeType.CREATE:
+                    nr = ds.create_node_rpc(nr, change.rpc_info, change.input_data)[0]
+                elif change.change_type == ChangeType.REPLACE:
+                    nr = ds.update_node_rpc(nr, change.rpc_info, change.input_data)[0]
+                elif change.change_type == ChangeType.DELETE:
+                    nr = ds.delete_node_rpc(nr, change.rpc_info)[0]
 
         try:
             # Validate syntax and semantics of new data
@@ -204,7 +186,7 @@ class UsrChangeJournal:
         # Call commit begin hook
         begin_hook_failed = False
         try:
-            ds.commit_begin_callback(self.transaction_opts)
+            ds.commit_begin_callback(self._transaction_opts)
         except Exception as e:
             error("Exception occured in commit_begin handler: {}".format(epretty(e)))
             begin_hook_failed = True
@@ -213,10 +195,9 @@ class UsrChangeJournal:
         conf_handler_failed = False
         if not begin_hook_failed:
             try:
-                for cl in self.clists:
-                    for change in cl.journal:
-                        ii = ds.parse_ii(change.rpc_info.path, change.rpc_info.path_format)
-                        ds.run_conf_edit_handler(ii, change)
+                for change in self._journal:
+                    ii = ds.parse_ii(change.rpc_info.path, change.rpc_info.path_format)
+                    ds.run_conf_edit_handler(ii, change)
             except Exception as e:
                 error("Exception occured in edit handler: {}".format(epretty(e)))
                 conf_handler_failed = True
@@ -226,7 +207,7 @@ class UsrChangeJournal:
         end_hook_abort_failed = False
         if not (begin_hook_failed or conf_handler_failed):
             try:
-                ds.commit_end_callback(self.transaction_opts, failed=False)
+                ds.commit_end_callback(self._transaction_opts, failed=False)
             except Exception as e:
                 error("Exception occured in commit_end handler: {}".format(epretty(e)))
                 end_hook_failed = True
@@ -234,13 +215,10 @@ class UsrChangeJournal:
         if begin_hook_failed or conf_handler_failed or end_hook_failed:
             try:
                 # Call commit_end callback again with "failed" argument set to True
-                ds.commit_end_callback(self.transaction_opts, failed=True)
+                ds.commit_end_callback(self._transaction_opts, failed=True)
             except Exception as e:
                 error("Exception occured in commit_end handler (abort): {}".format(epretty(e)))
                 end_hook_abort_failed = True
-
-        # Clear user changelists
-        self.clists.clear()
 
         # Return to previous version of data and raise an exception if something went wrong
         if begin_hook_failed or conf_handler_failed or end_hook_failed or end_hook_abort_failed:
@@ -251,6 +229,8 @@ class UsrChangeJournal:
                 ds.nacm.update()
 
             raise ConfHandlerFailedError("(see logged)")
+
+        return True
 
 
 class BaseDatastore:
@@ -287,14 +267,33 @@ class BaseDatastore:
     def get_yl_data_root(self) -> InstanceNode:
         return self._yang_lib_data
 
-    # Returns the root node of data tree
-    def get_data_root_staging(self, username: str) -> InstanceNode:
+    def make_user_journal(self, username: str, transaction_opts: Optional[JsonNodeT]):
         usr_journal = self._usr_journals.get(username)
         if usr_journal is not None:
-            root = usr_journal.get_root_head()
-            return root
+            # TODO Already Exists
+            pass
+        else:
+            self._usr_journals[username] = UsrChangeJournal(self._data, transaction_opts)
+
+    def get_user_journal(self, username: str):
+        usr_journal = self._usr_journals.get(username)
+        if usr_journal is not None:
+            return usr_journal
         else:
             raise NoStagingDataException("No active changelist for user \"{}\"".format(username))
+
+    def drop_user_journal(self, username: str):
+        usr_journal = self._usr_journals.get(username)
+        if usr_journal is not None:
+            del self._usr_journals[username]
+        else:
+            raise NoStagingDataException("No active changelist for user \"{}\"".format(username))
+
+    # Returns the root node of data tree
+    def get_data_root_staging(self, username: str) -> InstanceNode:
+        usr_journal = self.get_user_journal(username)
+        root = usr_journal.get_root_head()
+        return root
 
     # Set a new Instance node as data root, store old root to archive
     def set_data_root(self, new_root: InstanceNode):
@@ -330,7 +329,7 @@ class BaseDatastore:
 
             if ch.change_type == ChangeType.CREATE:
                 # Get target member name
-                input_member_name_fq = tuple(ch.data.keys())[0]
+                input_member_name_fq = tuple(ch.input_data.keys())[0]
                 input_member_name_ns, input_member_name = input_member_name_fq.split(":", maxsplit=1)
                 # Append it to ii
                 sch_pth_list.append(MemberName(input_member_name, None))
@@ -791,93 +790,20 @@ class BaseDatastore:
 
     # Invoke an operation
     def invoke_op_rpc(self, rpc: RpcInfo) -> JsonNodeT:
-        if rpc.op_name == "jetconf:conf-start":
-            try:
-                cl_name = rpc.op_input_args["name"]
-            except (TypeError, KeyError):
-                raise ValueError("This operation expects \"name\" input parameter")
+        if rpc.op_name.startswith("jetconf:"):
+            # Jetconf internal operation
+            op_handler = OP_HANDLERS.get_handler(rpc.op_name)
+            if op_handler is None:
+                raise NoHandlerForOpError(rpc.op_name)
 
-            transaction_opts = rpc.op_input_args.get("options")
-
-            if self._usr_journals.get(rpc.username) is None:
-                self._usr_journals[rpc.username] = UsrChangeJournal(self._data, transaction_opts)
-
-            self._usr_journals[rpc.username].cl_new(cl_name)
-
-            ret_data = {"status": "OK"}
-        elif rpc.op_name == "jetconf:conf-list":
-            usr_journal = self._usr_journals.get(rpc.username)
-            if usr_journal is not None:
-                chl_json = usr_journal.list()
-            else:
-                chl_json = str(None)
-
-            ret_data = {
-                "status": "OK",
-                "changelists": chl_json
-            }
-        elif rpc.op_name == "jetconf:conf-drop":
-            usr_journal = self._usr_journals.get(rpc.username)
-            if usr_journal is not None:
-                if not usr_journal.cl_drop():
-                    del self._usr_journals[rpc.username]
-
-            ret_data = {"status": "OK"}
-        elif rpc.op_name == "jetconf:conf-commit":
-            usr_journal = self._usr_journals.get(rpc.username)
-            if usr_journal is not None:
-                try:
-                    self.lock_data(rpc.username)
-                    usr_journal.commit(self)
-                    if CONFIG["GLOBAL"]["PERSISTENT_CHANGES"] is True:
-                        self.save()
-                finally:
-                    self.unlock_data()
-
-                del self._usr_journals[rpc.username]
-
-                ret_data = {
-                    "status": "OK",
-                    "conf-changed": True
-                }
-            else:
-                info("[{}]: Nothing to commit".format(rpc.username))
-                ret_data = {
-                    "status": "OK",
-                    "conf-changed": False
-                }
-        elif rpc.op_name == "jetconf:get-schema-digest":
-            ret_data = self._dm.schema_digest()
-        elif rpc.op_name == "jetconf:get-list-length":
-            try:
-                list_url = rpc.op_input_args["url"]     # type: str
-            except (TypeError, KeyError):
-                raise ValueError("This operation expects \"url\" input parameter")
-
-            try:
-                staging = rpc.op_input_args["staging"]  # type: str
-            except (TypeError, KeyError):
-                staging = False
-
-            rpc_gll = RpcInfo()
-            rpc_gll.username = rpc.username
-            rpc_gll.skip_nacm_check = rpc.skip_nacm_check
-            rpc_gll.path = list_url.rstrip("/")
-            rpc_gll.qs = {}
-
-            ln_val = self.get_node_rpc(rpc_gll, staging).value
-
-            if isinstance(ln_val, list):
-                ret_data = {"jetconf:list-length": len(ln_val)}
-            else:
-                raise ValueError("Passed URI does not point to List")
+            ret_data = op_handler(rpc)
         else:
             # External operation defined in data model
             if self.nacm and not rpc.skip_nacm_check:
                 nrpc = self.nacm.get_user_rules(rpc.username)
                 if nrpc.check_rpc_name(rpc.op_name) == Action.DENY:
                     raise NacmForbiddenError(
-                        "Op \"{}\" invocation denied for user \"{}\"".format(rpc.op_name, rpc.username)
+                        "Invocation of \"{}\" operation denied for user \"{}\"".format(rpc.op_name, rpc.username)
                     )
 
             op_handler = OP_HANDLERS.get_handler(rpc.op_name)
@@ -888,31 +814,20 @@ class BaseDatastore:
             sn = self._dm.get_schema_node(rpc.path)
             sn_input = sn.get_child("input")
 
-            # if sn_input is not None:
-            #     print("RPC input schema:")
-            #     print(sn_input._ascii_tree(""))
+            # Input arguments are expected, this will validate them
+            op_input_args = sn_input.from_raw(rpc.op_input_args) if sn_input.children else None
 
-            if sn_input.children:
-                # Input arguments are expected
-                op_input_args = sn_input.from_raw(rpc.op_input_args)
-                try:
-                    ret_data = op_handler(op_input_args, rpc.username)
-                except Exception as e:
-                    raise OpHandlerFailedError(epretty(e))
-            else:
-                # Operation with no input
-                try:
-                    ret_data = op_handler(None, rpc.username)
-                except Exception as e:
-                    raise OpHandlerFailedError(epretty(e))
+            try:
+                ret_data = op_handler(op_input_args, rpc.username)
+            except Exception as e:
+                raise OpHandlerFailedError(epretty(e))
 
         return ret_data
 
     def add_to_journal_rpc(self, ch_type: ChangeType, rpc: RpcInfo, value: Optional[JsonNodeT], new_root: InstanceNode, nacm_modified: bool):
         usr_journal = self._usr_journals.get(rpc.username)
         if usr_journal is not None:
-            usr_chs = usr_journal.clists[-1]
-            usr_chs.add(DataChange(ch_type, rpc, value, nacm_modified), new_root)
+            usr_journal.add(DataChange(ch_type, rpc, value, new_root, nacm_modified))
         else:
             raise NoHandlerError("No active changelist for user \"{}\"".format(rpc.username))
 

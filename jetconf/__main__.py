@@ -12,7 +12,7 @@ from yangson.enumerations import ContentType, ValidationScope
 from yangson.exceptions import YangsonException
 from yangson.schemanode import SchemaError, SemanticError
 
-from . import usr_state_data_handlers, usr_conf_data_handlers, usr_op_handlers
+from . import op_internal, usr_state_data_handlers, usr_conf_data_handlers, usr_op_handlers
 from .usr_datastore import UserDatastore
 from .rest_server import RestServer
 from .config import CONFIG_GLOBAL, CONFIG_NACM, load_config, print_config
@@ -158,7 +158,8 @@ def main():
     usr_state_data_handlers.register_state_handlers(datastore)
 
     # Register handlers for operations
-    usr_op_handlers.register_op_handlers()
+    op_internal.register_op_handlers(datastore)
+    usr_op_handlers.register_op_handlers(datastore)
 
     # Create HTTP server
     rest_srv = RestServer()
