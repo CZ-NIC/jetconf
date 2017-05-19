@@ -27,7 +27,8 @@ from .data import (
     InstanceAlreadyPresent,
     ChangeType,
     ConfHandlerFailedError,
-    OpHandlerFailedError
+    OpHandlerFailedError,
+    StagingDataException
 )
 
 QueryStrT = Dict[str, List[str]]
@@ -678,7 +679,7 @@ def create_api_op(ds: BaseDatastore):
                 ERRTAG_INVVALUE,
                 exception=e
             )
-        except (ConfHandlerFailedError, OpHandlerFailedError, YangsonException) as e:
+        except (ConfHandlerFailedError, OpHandlerFailedError, StagingDataException, YangsonException) as e:
             http_resp = HttpResponse.error(
                 HttpStatus.InternalServerError,
                 RestconfErrType.Protocol,

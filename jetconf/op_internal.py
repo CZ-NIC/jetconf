@@ -1,7 +1,7 @@
 from .config import CONFIG
 from .helpers import JsonNodeT
 from .handler_list import OP_HANDLERS
-from .data import BaseDatastore, RpcInfo
+from .data import BaseDatastore, RpcInfo, StagingDataException
 
 
 class OpHandlersContainer:
@@ -9,15 +9,21 @@ class OpHandlersContainer:
         self.ds = ds
 
     def jetconf_conf_start(self, rpc: RpcInfo) -> JsonNodeT:
-        transaction_opts = rpc.op_input_args.get("options")
+        try:
+            transaction_opts = rpc.op_input_args["options"]
+        except (TypeError, KeyError):
+            transaction_opts = None
         self.ds.make_user_journal(rpc.username, transaction_opts)
         ret_data = {"status": "OK"}
 
         return ret_data
 
     def jetconf_conf_status(self, rpc: RpcInfo) -> JsonNodeT:
-        usr_journal = self.ds.get_user_journal(rpc.username)
-        transaction_opened = True if (usr_journal is not None) else False
+        try:
+            usr_journal = self.ds.get_user_journal(rpc.username)
+            transaction_opened = True
+        except StagingDataException:
+            transaction_opened = False
 
         ret_data = {
             "status": "OK",

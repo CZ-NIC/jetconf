@@ -59,7 +59,7 @@ class DataLockError(JetconfError):
     pass
 
 
-class NoStagingDataException(JetconfError):
+class StagingDataException(JetconfError):
     pass
 
 
@@ -270,8 +270,7 @@ class BaseDatastore:
     def make_user_journal(self, username: str, transaction_opts: Optional[JsonNodeT]):
         usr_journal = self._usr_journals.get(username)
         if usr_journal is not None:
-            # TODO Already Exists
-            pass
+            raise StagingDataException("Transaction for user \"{}\" already opened".format(username))
         else:
             self._usr_journals[username] = UsrChangeJournal(self._data, transaction_opts)
 
@@ -280,14 +279,14 @@ class BaseDatastore:
         if usr_journal is not None:
             return usr_journal
         else:
-            raise NoStagingDataException("No active changelist for user \"{}\"".format(username))
+            raise StagingDataException("Transaction for user \"{}\" not opened".format(username))
 
     def drop_user_journal(self, username: str):
         usr_journal = self._usr_journals.get(username)
         if usr_journal is not None:
             del self._usr_journals[username]
         else:
-            raise NoStagingDataException("No active changelist for user \"{}\"".format(username))
+            raise StagingDataException("Transaction for user \"{}\" not opened".format(username))
 
     # Returns the root node of data tree
     def get_data_root_staging(self, username: str) -> InstanceNode:
@@ -380,7 +379,7 @@ class BaseDatastore:
         if staging:
             try:
                 root = self.get_data_root_staging(rpc.username)
-            except NoStagingDataException:
+            except StagingDataException:
                 root = self._data
         else:
             root = self._data
