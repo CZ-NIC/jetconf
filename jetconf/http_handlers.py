@@ -12,7 +12,6 @@ from typing import Dict, List, Optional
 from yangson.exceptions import YangsonException, NonexistentSchemaNode, SchemaError, SemanticError
 from yangson.schemanode import ContainerNode, ListNode, GroupNode, LeafListNode, LeafNode
 from yangson.instance import NonexistentInstance, InstanceValueError, RootNode
-from yangson.datatype import YangTypeError
 
 from .config import CONFIG_GLOBAL, CONFIG_HTTP, CONFIG_NACM, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops
 from .helpers import CertHelpers, DateTimeHelpers, ErrorHelpers, LogHelpers, SSLCertT
@@ -412,7 +411,7 @@ def _post(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse
                 ERRTAG_OPNOTSUPPORTED,
                 exception=e
             )
-        except (InstanceValueError, YangTypeError, ValueError) as e:
+        except (InstanceValueError, StagingDataException, YangsonException, ValueError) as e:
             http_resp = HttpResponse.error(
                 HttpStatus.BadRequest,
                 RestconfErrType.Protocol,
@@ -504,6 +503,13 @@ def _put(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse:
                 ERRTAG_OPNOTSUPPORTED,
                 exception=e
             )
+        except (InstanceValueError, StagingDataException, YangsonException, ValueError) as e:
+            http_resp = HttpResponse.error(
+                HttpStatus.BadRequest,
+                RestconfErrType.Protocol,
+                ERRTAG_INVVALUE,
+                exception=e
+            )
     except DataLockError as e:
         http_resp = HttpResponse.error(
             HttpStatus.Conflict,
@@ -567,6 +573,13 @@ def _delete(ds: BaseDatastore, pth: str, username: str) -> HttpResponse:
                     HttpStatus.BadRequest,
                     RestconfErrType.Protocol,
                     ERRTAG_OPNOTSUPPORTED,
+                    exception=e
+                )
+            except (InstanceValueError, StagingDataException, YangsonException) as e:
+                http_resp = HttpResponse.error(
+                    HttpStatus.BadRequest,
+                    RestconfErrType.Protocol,
+                    ERRTAG_INVVALUE,
                     exception=e
                 )
         except DataLockError as e:
