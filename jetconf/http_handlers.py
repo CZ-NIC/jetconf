@@ -121,7 +121,10 @@ class HttpResponse:
             except AttributeError:
                 pass
 
-            err_body["error-message"] = epretty(exception)
+            try:
+                err_body["error-message"] = exception.message
+            except AttributeError:
+                err_body["error-message"] = str(exception)
 
         if err_apptag is not None:
             err_body["error-app-tag"] = err_apptag
