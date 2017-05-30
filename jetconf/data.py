@@ -404,7 +404,7 @@ class BaseDatastore:
 
             # Append YANG library data
             for member_name, member_val in self._yang_lib_data.value.items():
-                root = root.put_member(member_name, member_val)
+                root = root.put_member(member_name, member_val).top()
 
         # Resolve schema node of the desired data node
         sch_pth_list = filter(lambda isel: isinstance(isel, MemberName), ii)
