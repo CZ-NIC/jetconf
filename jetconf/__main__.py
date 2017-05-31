@@ -5,6 +5,7 @@ import logging
 import sys
 import signal
 
+from importlib import import_module
 from colorlog import error, info
 from yaml.parser import ParserError
 
@@ -12,11 +13,13 @@ from yangson.enumerations import ContentType, ValidationScope
 from yangson.exceptions import YangsonException
 from yangson.schemanode import SchemaError, SemanticError
 
-from . import op_internal, usr_state_data_handlers, usr_conf_data_handlers, usr_op_handlers
-from .usr_datastore import UserDatastore
+from . import op_internal
 from .rest_server import RestServer
 from .config import CONFIG_GLOBAL, CONFIG_NACM, load_config, print_config
 from .helpers import DataHelpers, ErrorHelpers
+
+# from jetconf_jukebox import usr_state_data_handlers, usr_conf_data_handlers, usr_op_handlers
+# from jetconf_jukebox.usr_datastore import UserDatastore
 
 
 def main():
@@ -126,6 +129,18 @@ def main():
     signal.signal(signal.SIGTERM, sig_exit_handler)
     signal.signal(signal.SIGINT, sig_exit_handler)
 
+    # Import backend modules
+    backend_package = CONFIG_GLOBAL["BACKEND_PACKAGE"]
+    try:
+        usr_state_data_handlers = import_module(backend_package + ".usr_state_data_handlers")
+        usr_conf_data_handlers = import_module(backend_package + ".usr_conf_data_handlers")
+        usr_op_handlers = import_module(backend_package + ".usr_op_handlers")
+        usr_datastore = import_module(backend_package + ".usr_datastore")
+    except ImportError as e:
+        error(ErrorHelpers.epretty(e))
+        error("Cannot import backend package \"{}\". Exiting.".format(backend_package))
+        sys.exit(1)
+
     # Load data model
     yang_lib_file = os.path.join(CONFIG_GLOBAL["YANG_LIB_DIR"], "yang-library-data.json")
     datamodel = DataHelpers.load_data_model(
@@ -134,7 +149,7 @@ def main():
     )
 
     # Datastore init
-    datastore = UserDatastore(datamodel, CONFIG_GLOBAL["DATA_JSON_FILE"], with_nacm=CONFIG_NACM["ENABLED"])
+    datastore = usr_datastore.UserDatastore(datamodel, CONFIG_GLOBAL["DATA_JSON_FILE"], with_nacm=CONFIG_NACM["ENABLED"])
     try:
         datastore.load()
         datastore.load_yl_data(yang_lib_file)

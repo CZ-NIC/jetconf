@@ -12,7 +12,8 @@ CONFIG_GLOBAL = {
     "LOG_DBG_MODULES": ["*"],
     "YANG_LIB_DIR": "yang-data/",
     "DATA_JSON_FILE": "data.json",
-    "VALIDATE_TRANSACTIONS": True
+    "VALIDATE_TRANSACTIONS": True,
+    "BACKEND_PACKAGE": "jetconf_jukebox"
 }
 
 CONFIG_HTTP = {
