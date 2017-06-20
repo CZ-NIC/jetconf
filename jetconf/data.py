@@ -598,6 +598,9 @@ class BaseDatastore:
         sn = n.schema_node  # type: InternalNode
         member_sn = sn.get_child(input_member_name)
 
+        if member_sn is None:
+            raise ValueError("Received json object contains unknown member")
+
         # Check if target member already exists
         if sn.ns == member_sn.ns:
             try:
