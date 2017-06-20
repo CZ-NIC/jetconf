@@ -735,6 +735,7 @@ class BaseDatastore:
                 raise NacmForbiddenError()
 
         new_n = n.update(input_member_value, raw=True)
+        new_n.validate(ValidationScope.syntax)
 
         return new_n.top(), nacm_changed
 
