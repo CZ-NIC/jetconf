@@ -6,6 +6,7 @@ GLOBAL:
     LOG_LEVEL: "info"
     LOG_DBG_MODULES: ["usr_conf_data_handlers", "knot_api", "nacm", "data"]
     DATA_JSON_FILE: "/home/user/jetconf/data/example-data.json"
+    BACKEND_PACKAGE: "jetconf_jukebox"
 
 HTTP_SERVER:
     DOC_ROOT: "/home/user/jetconf/data/doc-root"
