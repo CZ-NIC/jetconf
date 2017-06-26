@@ -20,7 +20,7 @@ CONFIG_HTTP = {
     "DOC_ROOT": "doc-root",
     "DOC_DEFAULT_NAME": "index.html",
     "API_ROOT": "/restconf",
-    "API_ROOT_STAGING": "/restconf_staging",
+    "API_ROOT_RUNNING": "/restconf_running",
     "SERVER_NAME": "jetconf-h2",
     "UPLOAD_SIZE_LIMIT": 1,
     "LISTEN_LOCALHOST_ONLY": False,
@@ -49,14 +49,14 @@ CONFIG = {
 }
 
 API_ROOT_data = os.path.join(CONFIG_HTTP["API_ROOT"], "data")
-API_ROOT_STAGING_data = os.path.join(CONFIG_HTTP["API_ROOT_STAGING"], "data")
+API_ROOT_RUNNING_data = os.path.join(CONFIG_HTTP["API_ROOT_RUNNING"], "data")
 API_ROOT_ops = os.path.join(CONFIG_HTTP["API_ROOT"], "operations")
 API_ROOT_ylv = os.path.join(CONFIG_HTTP["API_ROOT"], "yang-library-version")
 
 
 def load_config(filename: str) -> bool:
     global API_ROOT_data
-    global API_ROOT_STAGING_data
+    global API_ROOT_RUNNING_data
     global API_ROOT_ops
     global API_ROOT_ylv
 
@@ -70,7 +70,7 @@ def load_config(filename: str) -> bool:
 
     # Shortcuts
     API_ROOT_data = os.path.join(CONFIG_HTTP["API_ROOT"], "data")
-    API_ROOT_STAGING_data = os.path.join(CONFIG_HTTP["API_ROOT_STAGING"], "data")
+    API_ROOT_RUNNING_data = os.path.join(CONFIG_HTTP["API_ROOT_RUNNING"], "data")
     API_ROOT_ops = os.path.join(CONFIG_HTTP["API_ROOT"], "operations")
     API_ROOT_ylv = os.path.join(CONFIG_HTTP["API_ROOT"], "yang-library-version")
 

@@ -9,11 +9,12 @@ class OpHandlersContainer:
         self.ds = ds
 
     def jetconf_conf_start(self, rpc: RpcInfo) -> JsonNodeT:
-        try:
-            transaction_opts = rpc.op_input_args["options"]
-        except (TypeError, KeyError):
-            transaction_opts = None
-        self.ds.make_user_journal(rpc.username, transaction_opts)
+        # try:
+        #     transaction_opts = rpc.op_input_args["options"]
+        # except (TypeError, KeyError):
+        #     transaction_opts = None
+        # self.ds.make_user_journal(rpc.username, transaction_opts)
+        self.ds.make_user_journal(rpc.username, None)
         ret_data = {"status": "OK"}
 
         return ret_data
@@ -32,7 +33,7 @@ class OpHandlersContainer:
 
         return ret_data
 
-    def jetconf_conf_drop(self, rpc: RpcInfo) -> JsonNodeT:
+    def jetconf_conf_reset(self, rpc: RpcInfo) -> JsonNodeT:
         self.ds.drop_user_journal(rpc.username)
         ret_data = {"status": "OK"}
         return ret_data
@@ -91,7 +92,7 @@ def register_op_handlers(ds: BaseDatastore):
     op_handlers_obj = OpHandlersContainer(ds)
     OP_HANDLERS.register(op_handlers_obj.jetconf_conf_start, "jetconf:conf-start")
     OP_HANDLERS.register(op_handlers_obj.jetconf_conf_status, "jetconf:conf-status")
-    OP_HANDLERS.register(op_handlers_obj.jetconf_conf_drop, "jetconf:conf-drop")
+    OP_HANDLERS.register(op_handlers_obj.jetconf_conf_reset, "jetconf:conf-reset")
     OP_HANDLERS.register(op_handlers_obj.jetconf_conf_commit, "jetconf:conf-commit")
     OP_HANDLERS.register(op_handlers_obj.jetconf_get_schema_digest, "jetconf:get-schema-digest")
     OP_HANDLERS.register(op_handlers_obj.jetconf_get_list_length, "jetconf:get-list-length")

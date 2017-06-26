@@ -146,7 +146,7 @@ class UsrChangeJournal:
         if len(self._journal) == 0:
             return False
 
-        if hash(ds.get_data_root()) == hash(self.get_root_head()):
+        if hash(ds.get_data_root()) == hash(self._root_origin):
             info("Commiting new configuration (swapping roots)")
             # Set new root
             nr = self.get_root_head()
@@ -380,7 +380,10 @@ class BaseDatastore:
             try:
                 root = self.get_data_root_staging(rpc.username)
             except StagingDataException:
-                root = self._data
+                # root = self._data
+                info("Starting transaction for user \"{}\"".format(rpc.username))
+                self.make_user_journal(rpc.username, None)
+                root = self.get_data_root_staging(rpc.username)
         else:
             root = self._data
 

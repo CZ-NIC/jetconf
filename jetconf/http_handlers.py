@@ -13,7 +13,7 @@ from yangson.exceptions import YangsonException, NonexistentSchemaNode, SchemaEr
 from yangson.schemanode import ContainerNode, ListNode, GroupNode, LeafListNode, LeafNode
 from yangson.instance import NonexistentInstance, InstanceValueError, RootNode
 
-from .config import CONFIG_GLOBAL, CONFIG_HTTP, CONFIG_NACM, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops
+from .config import CONFIG_GLOBAL, CONFIG_HTTP, CONFIG_NACM, API_ROOT_data, API_ROOT_RUNNING_data, API_ROOT_ops
 from .helpers import CertHelpers, DateTimeHelpers, ErrorHelpers, LogHelpers, SSLCertT
 from .errors import BackendError
 from .nacm import NacmForbiddenError
@@ -312,19 +312,19 @@ def create_get_api(ds: BaseDatastore):
         info("[{}] api_get: {}".format(username, headers[":path"]))
 
         api_pth = headers[":path"][len(API_ROOT_data):]
-        http_resp = _get(ds, headers, api_pth, username)
+        http_resp = _get(ds, headers, api_pth, username, staging=True)
         return http_resp
 
     return get_api_closure
 
 
-def create_get_staging_api(ds: BaseDatastore):
+def create_get_running_api(ds: BaseDatastore):
     def get_staging_api_closure(headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
         username = CertHelpers.get_field(client_cert, "emailAddress")
         info("[{}] api_get_staging: {}".format(username, headers[":path"]))
 
-        api_pth = headers[":path"][len(API_ROOT_STAGING_data):]
-        http_resp = _get(ds, headers, api_pth, username, staging=True)
+        api_pth = headers[":path"][len(API_ROOT_RUNNING_data):]
+        http_resp = _get(ds, headers, api_pth, username, staging=False)
         return http_resp
 
     return get_staging_api_closure
@@ -390,7 +390,13 @@ def _post(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse
         ds.lock_data(username)
 
         try:
-            new_root = ds.create_node_rpc(ds.get_data_root_staging(rpc1.username), rpc1, json_data)
+            try:
+                staging_root = ds.get_data_root_staging(rpc1.username)
+            except StagingDataException:
+                info("Starting transaction for user \"{}\"".format(rpc1.username))
+                ds.make_user_journal(rpc1.username, None)
+                staging_root = ds.get_data_root_staging(rpc1.username)
+            new_root = ds.create_node_rpc(staging_root, rpc1, json_data)
             ds.add_to_journal_rpc(ChangeType.CREATE, rpc1, json_data, *new_root)
             http_resp = HttpResponse.empty(HttpStatus.Created)
         except NacmForbiddenError as e:
@@ -414,7 +420,7 @@ def _post(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse
                 ERRTAG_OPNOTSUPPORTED,
                 exception=e
             )
-        except (InstanceValueError, StagingDataException, YangsonException, ValueError) as e:
+        except (InstanceValueError, YangsonException, ValueError) as e:
             http_resp = HttpResponse.error(
                 HttpStatus.BadRequest,
                 RestconfErrType.Protocol,
@@ -482,7 +488,13 @@ def _put(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse:
         ds.lock_data(username)
 
         try:
-            new_root = ds.update_node_rpc(ds.get_data_root_staging(rpc1.username), rpc1, json_data)
+            try:
+                staging_root = ds.get_data_root_staging(rpc1.username)
+            except StagingDataException:
+                info("Starting transaction for user \"{}\"".format(rpc1.username))
+                ds.make_user_journal(rpc1.username, None)
+                staging_root = ds.get_data_root_staging(rpc1.username)
+            new_root = ds.update_node_rpc(staging_root, rpc1, json_data)
             ds.add_to_journal_rpc(ChangeType.REPLACE, rpc1, json_data, *new_root)
             http_resp = HttpResponse.empty(HttpStatus.NoContent, status_in_body=False)
         except NacmForbiddenError as e:
@@ -554,7 +566,13 @@ def _delete(ds: BaseDatastore, pth: str, username: str) -> HttpResponse:
             ds.lock_data(username)
 
             try:
-                new_root = ds.delete_node_rpc(ds.get_data_root_staging(rpc1.username), rpc1)
+                try:
+                    staging_root = ds.get_data_root_staging(rpc1.username)
+                except StagingDataException:
+                    info("Starting transaction for user \"{}\"".format(rpc1.username))
+                    ds.make_user_journal(rpc1.username, None)
+                    staging_root = ds.get_data_root_staging(rpc1.username)
+                new_root = ds.delete_node_rpc(staging_root, rpc1)
                 ds.add_to_journal_rpc(ChangeType.DELETE, rpc1, None, *new_root)
                 http_resp = HttpResponse.empty(HttpStatus.NoContent, status_in_body=False)
             except NacmForbiddenError as e:

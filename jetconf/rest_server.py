@@ -13,7 +13,7 @@ from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged, Stre
 
 from . import http_handlers as handlers
 from .http_handlers import HttpResponse, HttpStatus, RestconfErrType, ERRTAG_MALFORMED, ERRTAG_OPNOTSUPPORTED, ERRTAG_REQLARGE
-from .config import CONFIG_HTTP, API_ROOT_data, API_ROOT_STAGING_data, API_ROOT_ops, API_ROOT_ylv
+from .config import CONFIG_HTTP, API_ROOT_data, API_ROOT_RUNNING_data, API_ROOT_ops, API_ROOT_ylv
 from .data import BaseDatastore
 from .helpers import SSLCertT, LogHelpers
 
@@ -260,14 +260,14 @@ class RestServer:
         api_get_root = handlers.api_root_handler
         api_get_ylv = handlers.api_ylv_handler
         api_get = handlers.create_get_api(datastore)
-        api_get_st = handlers.create_get_staging_api(datastore)
+        api_get_run = handlers.create_get_running_api(datastore)
         api_post = handlers.create_post_api(datastore)
         api_put = handlers.create_put_api(datastore)
         api_delete = handlers.create_api_delete(datastore)
         api_op = handlers.create_api_op(datastore)
 
         self.http_handlers.register(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_data)), api_get)
-        self.http_handlers.register(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_STAGING_data)), api_get_st)
+        self.http_handlers.register(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_RUNNING_data)), api_get_run)
         self.http_handlers.register(lambda m, p: (m == "GET") and (p == API_ROOT_ylv), api_get_ylv)
         self.http_handlers.register(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["API_ROOT"]), api_get_root)
         self.http_handlers.register(lambda m, p: (m == "POST") and (p.startswith(API_ROOT_data)), api_post)
