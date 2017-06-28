@@ -114,7 +114,7 @@ class H2Protocol(asyncio.Protocol):
                         if http_method in ("GET", "DELETE", "OPTIONS", "HEAD"):
                             self.run_request_handler(headers, event.stream_id, None)
                         elif http_method in ("PUT", "POST"):
-                            body = request_data.data.getvalue().decode('utf-8')
+                            body = request_data.data.getvalue().decode("utf-8")
                             self.run_request_handler(headers, event.stream_id, body)
                         else:
                             warn("Unknown http method \"{}\"".format(headers[":method"]))

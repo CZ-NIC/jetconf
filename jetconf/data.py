@@ -5,6 +5,7 @@ from enum import Enum
 from colorlog import error, warning as warn, info
 from typing import List, Any, Dict, Callable, Optional, Tuple
 from datetime import datetime
+from pkg_resources import resource_string
 
 from yangson.datamodel import DataModel
 from yangson.enumerations import ContentType, ValidationScope
@@ -252,6 +253,9 @@ class BaseDatastore:
 
         if with_nacm:
             self.nacm = NacmConfig(self, self._dm)
+
+        yang_lib_str = resource_string(CONFIG["GLOBAL"]["BACKEND_PACKAGE"], "yang-library-data.json").decode("utf-8")
+        self._yang_lib_data = self._dm.from_raw(json.loads(yang_lib_str))
 
     # Returns DataModel object
     def get_dm(self) -> DataModel:
@@ -879,11 +883,6 @@ class JsonDatastore(BaseDatastore):
 
         if self.nacm is not None:
             self.nacm.update()
-
-    def load_yl_data(self, filename: str):
-        self._yang_lib_data = None
-        with open(filename, "rt") as fp:
-            self._yang_lib_data = self._dm.from_raw(json.load(fp))
 
     def save(self):
         with open(self.json_file, "w") as jfd:

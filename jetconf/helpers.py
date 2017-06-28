@@ -6,7 +6,6 @@ from typing import List, Dict, Union, Any, Iterable
 from datetime import datetime
 from pytz import timezone
 from yangson.instance import InstanceRoute, MemberName, EntryKeys, InstanceNode, ArrayValue, NonexistentInstance
-from yangson.datamodel import DataModel
 from yangson.schemanode import ListNode, ContainerNode
 
 from .config import CONFIG_GLOBAL, CONFIG_HTTP
@@ -57,13 +56,6 @@ class DataHelpers:
         else:
             ns1 = ""
         return ns1
-
-    @staticmethod
-    def load_data_model(module_dir: str, yang_library_file: str) -> DataModel:
-        with open(yang_library_file) as ylfile:
-            yl = ylfile.read()
-        dm = DataModel(yl, [module_dir])
-        return dm
 
     # Convert InstanceRoute or List[InstanceSelector] to string
     @staticmethod

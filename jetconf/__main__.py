@@ -6,20 +6,19 @@ import sys
 import signal
 
 from importlib import import_module
+from pkg_resources import resource_string
 from colorlog import error, info
 from yaml.parser import ParserError
 
 from yangson.enumerations import ContentType, ValidationScope
 from yangson.exceptions import YangsonException
 from yangson.schemanode import SchemaError, SemanticError
+from yangson.datamodel import DataModel
 
 from . import op_internal
 from .rest_server import RestServer
-from .config import CONFIG_GLOBAL, CONFIG_NACM, load_config, print_config
-from .helpers import DataHelpers, ErrorHelpers
-
-# from jetconf_jukebox import usr_state_data_handlers, usr_conf_data_handlers, usr_op_handlers
-# from jetconf_jukebox.usr_datastore import UserDatastore
+from .config import CONFIG_GLOBAL, CONFIG_NACM, load_config, validate_config, print_config
+from .helpers import ErrorHelpers
 
 
 def main():
@@ -44,6 +43,13 @@ def main():
         sys.exit(1)
     except ParserError as e:
         print("Configuration syntax error: " + str(e))
+        sys.exit(1)
+
+    # Validate configuration
+    try:
+        validate_config()
+    except ValueError as e:
+        print("Error: " + str(e))
         sys.exit(1)
 
     # Set logging level
@@ -142,17 +148,14 @@ def main():
         sys.exit(1)
 
     # Load data model
-    yang_lib_file = os.path.join(CONFIG_GLOBAL["YANG_LIB_DIR"], "yang-library-data.json")
-    datamodel = DataHelpers.load_data_model(
-        CONFIG_GLOBAL["YANG_LIB_DIR"],
-        yang_lib_file
-    )
+    yang_mod_dir = CONFIG_GLOBAL["YANG_LIB_DIR"]
+    yang_lib_str = resource_string(backend_package, "yang-library-data.json").decode("utf-8")
+    datamodel = DataModel(yang_lib_str, [yang_mod_dir])
 
     # Datastore init
     datastore = usr_datastore.UserDatastore(datamodel, CONFIG_GLOBAL["DATA_JSON_FILE"], with_nacm=CONFIG_NACM["ENABLED"])
     try:
         datastore.load()
-        datastore.load_yl_data(yang_lib_file)
     except (FileNotFoundError, YangsonException) as e:
         error("Could not load JSON datastore " + CONFIG_GLOBAL["DATA_JSON_FILE"])
         error(ErrorHelpers.epretty(e))
