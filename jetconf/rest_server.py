@@ -67,12 +67,23 @@ class H2Protocol(asyncio.Protocol):
 
     def connection_made(self, transport: asyncio.Transport):
         self.transport = transport
-        self.conn.initiate_connection()
-        self.transport.write(self.conn.data_to_send())
-        self.client_cert = self.transport.get_extra_info('peercert')
+        self.client_cert = transport.get_extra_info("peercert")
+
+        ssl_context = transport.get_extra_info("ssl_object")
+        if ssl.HAS_ALPN:
+            agreed_protocol = ssl_context.selected_alpn_protocol()
+        else:
+            agreed_protocol = ssl_context.selected_npn_protocol()
+
+        if agreed_protocol is None:
+            error("Connection error, client does not support HTTP/2")
+            transport.close()
+        else:
+            self.conn.initiate_connection()
 
     def data_received(self, data: bytes):
         events = self.conn.receive_data(data)
+
         for event in events:
             if isinstance(event, RequestReceived):
                 # Store request headers
@@ -233,9 +244,9 @@ class RestServer:
         ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         ssl_context.options |= (ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1 | ssl.OP_NO_COMPRESSION)
         ssl_context.load_cert_chain(certfile=CONFIG_HTTP["SERVER_SSL_CERT"], keyfile=CONFIG_HTTP["SERVER_SSL_PRIVKEY"])
-        try:
+        if ssl.HAS_ALPN:
             ssl_context.set_alpn_protocols(["h2"])
-        except AttributeError:
+        else:
             info("Python not compiled with ALPN support, using NPN instead.")
             ssl_context.set_npn_protocols(["h2"])
         if not CONFIG_HTTP["DBG_DISABLE_CERTS"]:

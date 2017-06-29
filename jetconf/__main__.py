@@ -24,6 +24,11 @@ from .helpers import ErrorHelpers
 def main():
     config_file = "config.yaml"
 
+    # Check for Python version
+    if sys.version_info < (3, 5):
+        print("Jetconf requires Python version 3.5 or higher")
+        sys.exit(1)
+
     # Parse command line arguments
     try:
         opts, args = getopt.getopt(sys.argv[1:], "c:")
