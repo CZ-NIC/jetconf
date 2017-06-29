@@ -31,9 +31,12 @@ def main():
 
     # Parse command line arguments
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "c:")
+        opts, args = getopt.getopt(sys.argv[1:], "c:v")
     except getopt.GetoptError:
-        print("Invalid argument detected. Possible options are: -c (config file)")
+        print("Invalid argument detected. Possible options are:")
+        print("-c [config file]        | Pass the configuration file in YAML format")
+        print("-v                      | Print version info")
+        print("-h                      | Display this help")
         sys.exit(1)
 
     for opt, arg in opts:
