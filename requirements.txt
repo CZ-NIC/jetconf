@@ -1,5 +1,5 @@
 colorlog==2.10.0
-h2==2.6.1
+h2==3.0.1
 hpack==2.3.0
 hyperframe==5.0.0
 pyaml==16.12.2

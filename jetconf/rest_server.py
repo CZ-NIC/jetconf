@@ -6,16 +6,24 @@ from collections import OrderedDict
 from colorlog import error, warning as warn, info
 from typing import List, Tuple, Dict, Callable, Optional
 
+from h2.config import H2Configuration
 from h2.connection import H2Connection
-from h2.errors import PROTOCOL_ERROR, ENHANCE_YOUR_CALM
+from h2.errors import ErrorCodes as H2ErrorCodes
 from h2.exceptions import ProtocolError
 from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged, StreamEnded, WindowUpdated
 
 from . import http_handlers as handlers
-from .http_handlers import HttpResponse, HttpStatus, RestconfErrType, ERRTAG_MALFORMED, ERRTAG_OPNOTSUPPORTED, ERRTAG_REQLARGE
 from .config import CONFIG_HTTP, API_ROOT_data, API_ROOT_RUNNING_data, API_ROOT_ops, API_ROOT_ylv
-from .data import BaseDatastore
 from .helpers import SSLCertT, LogHelpers
+from .data import BaseDatastore
+from .http_handlers import (
+    HttpResponse,
+    HttpStatus,
+    RestconfErrType,
+    ERRTAG_MALFORMED,
+    ERRTAG_OPNOTSUPPORTED,
+    ERRTAG_REQLARGE
+)
 
 
 HandlerConditionT = Callable[[str, str], bool]  # Function(method, path) -> bool
@@ -59,7 +67,7 @@ class HttpHandlerList:
 
 class H2Protocol(asyncio.Protocol):
     def __init__(self):
-        self.conn = H2Connection(client_side=False)
+        self.conn = H2Connection(H2Configuration(client_side=False, header_encoding="utf-8"))
         self.transport = None
         self.stream_data = {}       # type: Dict[int, RequestData]
         self.resp_stream_data = {}  # type: Dict[int, ResponseData]
@@ -95,14 +103,14 @@ class H2Protocol(asyncio.Protocol):
                 try:
                     stream_data = self.stream_data[event.stream_id]
                 except KeyError:
-                    self.conn.reset_stream(event.stream_id, error_code=PROTOCOL_ERROR)
+                    self.conn.reset_stream(event.stream_id, error_code=H2ErrorCodes.PROTOCOL_ERROR)
                 else:
                     # Check if incoming data are not excessively large
                     if (stream_data.data.tell() + len(event.data)) < (CONFIG_HTTP["UPLOAD_SIZE_LIMIT"] * 1048576):
                         stream_data.data.write(event.data)
                     else:
                         stream_data.data_overflow = True
-                        self.conn.reset_stream(event.stream_id, error_code=ENHANCE_YOUR_CALM)
+                        self.conn.reset_stream(event.stream_id, error_code=H2ErrorCodes.ENHANCE_YOUR_CALM)
             elif isinstance(event, StreamEnded):
                 # Process request
                 try:
