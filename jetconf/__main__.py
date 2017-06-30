@@ -6,7 +6,7 @@ import sys
 import signal
 
 from importlib import import_module
-from pkg_resources import resource_string
+from pkg_resources import resource_string, get_distribution
 from colorlog import error, info
 from yaml.parser import ParserError
 
@@ -21,6 +21,13 @@ from .config import CONFIG_GLOBAL, CONFIG_NACM, load_config, validate_config, pr
 from .helpers import ErrorHelpers
 
 
+def print_help():
+    print("Jetconf command line options:")
+    print("-c [config file]        | Pass the configuration file in YAML format")
+    print("-v                      | Print version info")
+    print("-h                      | Display this help")
+
+
 def main():
     config_file = "config.yaml"
 
@@ -29,19 +36,26 @@ def main():
         print("Jetconf requires Python version 3.5 or higher")
         sys.exit(1)
 
+    # Get Jetconf version
+    jetconf_version = get_distribution("jetconf").version
+
     # Parse command line arguments
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "c:v")
+        opts, args = getopt.getopt(sys.argv[1:], "c:vh")
     except getopt.GetoptError:
-        print("Invalid argument detected. Possible options are:")
-        print("-c [config file]        | Pass the configuration file in YAML format")
-        print("-v                      | Print version info")
-        print("-h                      | Display this help")
+        print("Error: invalid argument detected.")
+        print_help()
         sys.exit(1)
 
     for opt, arg in opts:
         if opt == "-c":
             config_file = arg
+        elif opt == "-v":
+            print("Jetconf version {}".format(jetconf_version))
+            sys.exit(0)
+        elif opt == "-h":
+            print_help()
+            sys.exit(0)
 
     # Load configuration
     try:
@@ -119,6 +133,9 @@ def main():
         logger = colorlog.getLogger()
         logger.addHandler(log_handler)
         logger.setLevel(log_level)
+
+    # Print version
+    info("Jetconf version {}".format(jetconf_version))
 
     # Print configuration
     print_config()
