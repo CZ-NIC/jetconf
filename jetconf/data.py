@@ -601,7 +601,7 @@ class BaseDatastore:
 
         # Get target schema node
         sn = n.schema_node  # type: InternalNode
-        member_sn = sn.get_child(input_member_name)
+        member_sn = sn.get_child(input_member_name, input_member_ns)
 
         if member_sn is None:
             raise ValueError("Received json object contains unknown member")
@@ -627,7 +627,8 @@ class BaseDatastore:
 
             # Create list if necessary
             if existing_member is None:
-                existing_member = n.put_member(input_member_name, ArrayValue([]))
+                new_member_name = input_member_name if n.namespace == input_member_ns else input_member_name_fq
+                existing_member = n.put_member(new_member_name, ArrayValue([]))
 
             # Get ListNode key names
             list_node_keys = member_sn.keys     # Key names in the form [(key, ns), ]
@@ -677,7 +678,8 @@ class BaseDatastore:
 
             # Create leaf list if necessary
             if existing_member is None:
-                existing_member = n.put_member(input_member_name, ArrayValue([]))
+                new_member_name = input_member_name if n.namespace == input_member_ns else input_member_name_fq
+                existing_member = n.put_member(new_member_name, ArrayValue([]))
 
             # Convert input data from List/Dict to ArrayValue/ObjectValue
             new_value_item = member_sn.entry_from_raw(input_member_value)
@@ -693,7 +695,8 @@ class BaseDatastore:
 
             if existing_member is None:
                 # Create new node (object member)
-                new_member = n.put_member(input_member_name, input_member_value, raw=True)
+                new_member_name = input_member_name if n.namespace == input_member_ns else input_member_name_fq
+                new_member = n.put_member(new_member_name, input_member_value, raw=True)
             else:
                 # Data node already exists
                 raise InstanceAlreadyPresent("Member \"{}\" already present in \"{}\"".format(input_member_name, ii))
