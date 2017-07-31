@@ -39,16 +39,23 @@ class OpHandlersContainer:
         return ret_data
 
     def jetconf_conf_commit(self, rpc: RpcInfo) -> JsonNodeT:
-        usr_journal = self.ds.get_user_journal(rpc.username)
         try:
-            self.ds.lock_data(rpc.username)
-            commit_res = usr_journal.commit(self.ds)
-            if CONFIG["GLOBAL"]["PERSISTENT_CHANGES"] is True:
-                self.ds.save()
-        finally:
-            self.ds.unlock_data()
+            usr_journal = self.ds.get_user_journal(rpc.username)
+        except StagingDataException:
+            usr_journal = None
 
-        self.ds.drop_user_journal(rpc.username)
+        if usr_journal is not None:
+            try:
+                self.ds.lock_data(rpc.username)
+                commit_res = usr_journal.commit(self.ds)
+                if CONFIG["GLOBAL"]["PERSISTENT_CHANGES"] is True:
+                    self.ds.save()
+            finally:
+                self.ds.unlock_data()
+
+            self.ds.drop_user_journal(rpc.username)
+        else:
+            commit_res = False
 
         ret_data = {
             "status": "OK",
@@ -90,7 +97,7 @@ class OpHandlersContainer:
 
 def register_op_handlers(ds: BaseDatastore):
     op_handlers_obj = OpHandlersContainer(ds)
-    OP_HANDLERS.register(op_handlers_obj.jetconf_conf_start, "jetconf:conf-start")
+    # OP_HANDLERS.register(op_handlers_obj.jetconf_conf_start, "jetconf:conf-start")
     OP_HANDLERS.register(op_handlers_obj.jetconf_conf_status, "jetconf:conf-status")
     OP_HANDLERS.register(op_handlers_obj.jetconf_conf_reset, "jetconf:conf-reset")
     OP_HANDLERS.register(op_handlers_obj.jetconf_conf_commit, "jetconf:conf-commit")

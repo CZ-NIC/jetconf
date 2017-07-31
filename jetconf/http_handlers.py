@@ -15,6 +15,7 @@ from yangson.instance import NonexistentInstance, InstanceValueError, RootNode
 
 from .config import CONFIG_GLOBAL, CONFIG_HTTP, CONFIG_NACM, API_ROOT_data, API_ROOT_RUNNING_data, API_ROOT_ops
 from .helpers import CertHelpers, DateTimeHelpers, ErrorHelpers, LogHelpers, SSLCertT
+from .handler_list import OP_HANDLERS
 from .errors import BackendError
 from .nacm import NacmForbiddenError
 from .data import (
@@ -122,9 +123,9 @@ class HttpResponse:
                 pass
 
             try:
-                err_body["error-message"] = exception.message
+                err_body["error-message"] = exception.__class__.__name__ + ": " + exception.message
             except AttributeError:
-                err_body["error-message"] = str(exception)
+                err_body["error-message"] = exception.__class__.__name__ + ": " + str(exception)
 
         if err_apptag is not None:
             err_body["error-app-tag"] = err_apptag
@@ -727,6 +728,58 @@ def create_api_op(ds: BaseDatastore):
                 ERRTAG_INVVALUE,
                 exception=e
             )
+
+        return http_resp
+
+    return api_op_closure
+
+
+def create_api_get_op(ds: BaseDatastore):
+    def api_op_closure(headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
+        username = CertHelpers.get_field(client_cert, "emailAddress")
+        info("[{}] get_op: {}".format(username, headers[":path"]))
+
+        api_pth = headers[":path"][len(API_ROOT_ops):].rstrip("/")
+        op_name_fq = api_pth[1:].split("/", maxsplit=1)[0]
+
+        op_names_dict = dict(map(lambda n: (n[0], None), OP_HANDLERS.handlers))
+
+        if api_pth == "":
+            # GET root
+            ret_data = {
+                "ietf-restconf:operations": op_names_dict
+            }
+        else:
+            # GET particular operation
+            try:
+                ns, op_name = op_name_fq.split(":", maxsplit=1)
+            except ValueError:
+                return HttpResponse.error(
+                    HttpStatus.BadRequest,
+                    RestconfErrType.Protocol,
+                    ERRTAG_MALFORMED,
+                    "Operation name must be in fully-qualified format"
+                )
+
+            if op_names_dict.get(op_name_fq, -1) != -1:
+                ret_data = {
+                    op_name_fq: None
+                }
+            else:
+                # Not found
+                ret_data = None
+
+        if ret_data is None:
+            http_resp = HttpResponse.error(
+                HttpStatus.NotFound,
+                RestconfErrType.Protocol,
+                ERRTAG_INVVALUE,
+                err_path=api_pth,
+                err_msg="Operation name not found"
+            )
+        else:
+            response = json.dumps(ret_data, indent=4)
+            http_resp = HttpResponse(HttpStatus.Ok, response.encode(), CT_YANG_JSON)
 
         return http_resp
 

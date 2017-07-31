@@ -283,6 +283,7 @@ class RestServer:
         api_post = handlers.create_post_api(datastore)
         api_put = handlers.create_put_api(datastore)
         api_delete = handlers.create_api_delete(datastore)
+        api_get_op = handlers.create_api_get_op(datastore)
         api_op = handlers.create_api_op(datastore)
 
         self.http_handlers.register(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_data)), api_get)
@@ -292,6 +293,7 @@ class RestServer:
         self.http_handlers.register(lambda m, p: (m == "POST") and (p.startswith(API_ROOT_data)), api_post)
         self.http_handlers.register(lambda m, p: (m == "PUT") and (p.startswith(API_ROOT_data)), api_put)
         self.http_handlers.register(lambda m, p: (m == "DELETE") and (p.startswith(API_ROOT_data)), api_delete)
+        self.http_handlers.register(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_ops)), api_get_op)
         self.http_handlers.register(lambda m, p: (m == "POST") and (p.startswith(API_ROOT_ops)), api_op)
         self.http_handlers.register(lambda m, p: m == "OPTIONS", handlers.options_api)
 
