@@ -182,7 +182,7 @@ def main():
     try:
         datastore.load()
     except (FileNotFoundError, YangsonException) as e:
-        error("Could not load JSON datastore " + CONFIG_GLOBAL["DATA_JSON_FILE"])
+        error("Cannot load JSON datastore " + CONFIG_GLOBAL["DATA_JSON_FILE"])
         error(ErrorHelpers.epretty(e))
         sig_exit_handler(0, None)
 
