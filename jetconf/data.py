@@ -325,54 +325,51 @@ class BaseDatastore:
 
     # Notify data observers about change in datastore
     def run_conf_edit_handler(self, ii: InstanceRoute, ch: DataChange):
-        try:
-            sch_pth_list = list(filter(lambda n: isinstance(n, MemberName), ii))
+        sch_pth_list = list(filter(lambda n: isinstance(n, MemberName), ii))
 
-            if ch.change_type == ChangeType.CREATE:
-                # Get target member name
-                input_member_name_fq = tuple(ch.input_data.keys())[0]
-                input_member_name_ns, input_member_name = input_member_name_fq.split(":", maxsplit=1)
-                # Append it to ii
-                sch_pth_list.append(MemberName(input_member_name, None))
+        if ch.change_type == ChangeType.CREATE:
+            # Get target member name
+            input_member_name_fq = tuple(ch.input_data.keys())[0]
+            input_member_name_ns, input_member_name = input_member_name_fq.split(":", maxsplit=1)
+            # Append it to ii
+            sch_pth_list.append(MemberName(input_member_name, None))
 
-            sch_pth = DataHelpers.ii2str(sch_pth_list)
-            sn = self.get_schema_node(sch_pth)
+        sch_pth = DataHelpers.ii2str(sch_pth_list)
+        sn = self.get_schema_node(sch_pth)
 
-            if sn is None:
-                return
+        if sn is None:
+            return
 
-            h = CONF_DATA_HANDLES.get_handler(str(id(sn)))
-            if h is not None:
-                info("handler for actual data node triggered")
-                if isinstance(h, ConfDataObjectHandler):
-                    if ch.change_type == ChangeType.CREATE:
-                        h.create(ii, ch)
-                    elif ch.change_type == ChangeType.REPLACE:
-                        h.replace(ii, ch)
-                    elif ch.change_type == ChangeType.DELETE:
-                        h.delete(ii, ch)
-                if isinstance(h, ConfDataListHandler):
-                    if ch.change_type == ChangeType.CREATE:
-                        h.create_item(ii, ch)
-                    elif ch.change_type == ChangeType.REPLACE:
-                        h.replace_item(ii, ch)
-                    elif ch.change_type == ChangeType.DELETE:
-                        h.delete_item(ii, ch)
-            else:
+        h = CONF_DATA_HANDLES.get_handler(str(id(sn)))
+        if h is not None:
+            info("handler for actual data node triggered")
+            if isinstance(h, ConfDataObjectHandler):
+                if ch.change_type == ChangeType.CREATE:
+                    h.create(ii, ch)
+                elif ch.change_type == ChangeType.REPLACE:
+                    h.replace(ii, ch)
+                elif ch.change_type == ChangeType.DELETE:
+                    h.delete(ii, ch)
+            if isinstance(h, ConfDataListHandler):
+                if ch.change_type == ChangeType.CREATE:
+                    h.create_item(ii, ch)
+                elif ch.change_type == ChangeType.REPLACE:
+                    h.replace_item(ii, ch)
+                elif ch.change_type == ChangeType.DELETE:
+                    h.delete_item(ii, ch)
+        else:
+            sn = sn.parent
+            while sn is not None:
+                h = CONF_DATA_HANDLES.get_handler(str(id(sn)))
+                if h is not None and isinstance(h, ConfDataObjectHandler):
+                    info("handler for superior data node triggered, replace")
+                    # print(h.schema_path)
+                    # print(h.__class__.__name__)
+                    h.replace(ii, ch)
+                if h is not None and isinstance(h, ConfDataListHandler):
+                    info("handler for superior data node triggered, replace_item")
+                    h.replace_item(ii, ch)
                 sn = sn.parent
-                while sn is not None:
-                    h = CONF_DATA_HANDLES.get_handler(str(id(sn)))
-                    if h is not None and isinstance(h, ConfDataObjectHandler):
-                        info("handler for superior data node triggered, replace")
-                        # print(h.schema_path)
-                        # print(h.__class__.__name__)
-                        h.replace(ii, ch)
-                    if h is not None and isinstance(h, ConfDataListHandler):
-                        info("handler for superior data node triggered, replace_item")
-                        h.replace_item(ii, ch)
-                    sn = sn.parent
-        except NonexistentInstance:
-            warn("Cannnot notify {}, parent container removed".format(ii))
 
     # Get data node, evaluate NACM if required
     def get_node_rpc(self, rpc: RpcInfo, staging=False) -> InstanceNode:
