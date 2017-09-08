@@ -331,8 +331,12 @@ class BaseDatastore:
             # Get target member name
             input_member_name_fq = tuple(ch.input_data.keys())[0]
             input_member_name_ns, input_member_name = input_member_name_fq.split(":", maxsplit=1)
+
             # Append it to ii
-            sch_pth_list.append(MemberName(input_member_name, None))
+            if (len(sch_pth_list) == 0) or (sch_pth_list[-1].namespace != input_member_name_ns):
+                sch_pth_list.append(MemberName(input_member_name, input_member_name_ns))
+            else:
+                sch_pth_list.append(MemberName(input_member_name, None))
 
         sch_pth = DataHelpers.ii2str(sch_pth_list)
         sn = self.get_schema_node(sch_pth)
