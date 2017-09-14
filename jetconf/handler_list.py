@@ -116,8 +116,7 @@ class ConfDataHandlerList:
         self.handlers = []  # type: List[Tuple[HandlerSelectorT, BaseDataListener]]
 
     def register(self, handler: "BaseDataListener"):
-        schema_node = handler.schema_node  # type: SchemaNode
-        sch_node_id = str(id(schema_node))
+        sch_node_id = id(handler.schema_node)
         self.handlers.append((sch_node_id, handler))
 
     def get_handler(self, sch_node_id: str) -> "BaseDataListener":

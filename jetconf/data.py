@@ -344,7 +344,7 @@ class BaseDatastore:
         if sn is None:
             return
 
-        h = CONF_DATA_HANDLES.get_handler(str(id(sn)))
+        h = CONF_DATA_HANDLES.get_handler(id(sn))
         if h is not None:
             info("handler for actual data node triggered")
             if isinstance(h, ConfDataObjectHandler):
@@ -364,7 +364,7 @@ class BaseDatastore:
         else:
             sn = sn.parent
             while sn is not None:
-                h = CONF_DATA_HANDLES.get_handler(str(id(sn)))
+                h = CONF_DATA_HANDLES.get_handler(id(sn))
                 if h is not None and isinstance(h, ConfDataObjectHandler):
                     info("handler for superior data node triggered, replace")
                     # print(h.schema_path)

@@ -204,6 +204,19 @@ def main():
     op_internal.register_op_handlers(datastore)
     usr_op_handlers.register_op_handlers(datastore)
 
+    # Write datastore content to the backend application (if required)
+    try:
+        confh_ros = usr_conf_data_handlers.run_on_startup
+    except AttributeError:
+        pass
+    else:
+        try:
+            confh_ros()
+        except Exception as e:
+            error("Writing configuration to backend failed")
+            error(ErrorHelpers.epretty(e))
+            sig_exit_handler(0, None)
+
     # Create HTTP server
     rest_srv = RestServer()
     rest_srv.register_api_handlers(datastore)
