@@ -2,85 +2,110 @@ import os
 import yaml
 
 from colorlog import info
+from yaml.parser import ParserError
 
-_yang_mod_dir_env = os.environ.get("YANG_MODPATH")
+# For backward compatibility
+CONFIG_GLOBAL = {}
+CONFIG_HTTP = {}
+CONFIG_NACM = {}
+CONFIG = {}
 
-CONFIG_GLOBAL = {
-    "TIMEZONE": "GMT",
-    "LOGFILE": "-",
-    "PIDFILE": "/tmp/jetconf.pid",
-    "PERSISTENT_CHANGES": True,
-    "LOG_LEVEL": "info",
-    "LOG_DBG_MODULES": ["*"],
-    "YANG_LIB_DIR": _yang_mod_dir_env,
-    "DATA_JSON_FILE": "data.json",
-    "VALIDATE_TRANSACTIONS": True,
-    "BACKEND_PACKAGE": "jetconf_jukebox"
-}
-
-CONFIG_HTTP = {
-    "DOC_ROOT": "doc-root",
-    "DOC_DEFAULT_NAME": "index.html",
-    "API_ROOT": "/restconf",
-    "API_ROOT_RUNNING": "/restconf_running",
-    "SERVER_NAME": "jetconf-h2",
-    "UPLOAD_SIZE_LIMIT": 1,
-    "LISTEN_LOCALHOST_ONLY": False,
-    "PORT": 8443,
-
-    "SERVER_SSL_CERT": "server.crt",
-    "SERVER_SSL_PRIVKEY": "server.key",
-    "CA_CERT": "ca.pem",
-    "DBG_DISABLE_CERTS": False
-}
-
-CONFIG_NACM = {
-    "ENABLED": True,
-    "ALLOWED_USERS": []
-}
-
-CONFIG_KNOT = {
-    "SOCKET": "/tmp/knot.sock"
-}
-
-CONFIG = {
-    "GLOBAL": CONFIG_GLOBAL,
-    "HTTP_SERVER": CONFIG_HTTP,
-    "NACM": CONFIG_NACM,
-    "KNOT": CONFIG_KNOT
-}
-
-API_ROOT_data = os.path.join(CONFIG_HTTP["API_ROOT"], "data")
-API_ROOT_RUNNING_data = os.path.join(CONFIG_HTTP["API_ROOT_RUNNING"], "data")
-API_ROOT_ops = os.path.join(CONFIG_HTTP["API_ROOT"], "operations")
-API_ROOT_ylv = os.path.join(CONFIG_HTTP["API_ROOT"], "yang-library-version")
+CFG = None  # type: JcConfig
 
 
-def load_config(filename: str) -> bool:
-    global API_ROOT_data
-    global API_ROOT_RUNNING_data
-    global API_ROOT_ops
-    global API_ROOT_ylv
+class JcConfig:
+    def __init__(self):
+        yang_mod_dir_env = os.environ.get("YANG_MODPATH")
 
-    with open(filename) as conf_fd:
-        conf_yaml = yaml.load(conf_fd)
-        for conf_key in CONFIG.keys():
+        glob_def = {
+            "TIMEZONE": "GMT",
+            "LOGFILE": "-",
+            "PIDFILE": "/tmp/jetconf.pid",
+            "PERSISTENT_CHANGES": True,
+            "LOG_LEVEL": "info",
+            "LOG_DBG_MODULES": ["*"],
+            "YANG_LIB_DIR": yang_mod_dir_env,
+            "DATA_JSON_FILE": "data.json",
+            "VALIDATE_TRANSACTIONS": True,
+            "BACKEND_PACKAGE": "jetconf_jukebox"
+        }
+
+        http_def = {
+            "DOC_ROOT": "doc-root",
+            "DOC_DEFAULT_NAME": "index.html",
+            "API_ROOT": "/restconf",
+            "API_ROOT_RUNNING": "/restconf_running",
+            "SERVER_NAME": "jetconf-h2",
+            "UPLOAD_SIZE_LIMIT": 1,
+            "LISTEN_LOCALHOST_ONLY": False,
+            "PORT": 8443,
+
+            "SERVER_SSL_CERT": "server.crt",
+            "SERVER_SSL_PRIVKEY": "server.key",
+            "CA_CERT": "ca.pem",
+            "DBG_DISABLE_CERTS": False
+        }
+
+        nacm_def = {
+            "ENABLED": True,
+            "ALLOWED_USERS": []
+        }
+
+        root_def = {
+            "GLOBAL": glob_def,
+            "HTTP_SERVER": http_def,
+            "NACM": nacm_def
+        }
+
+        self.glob = glob_def
+        self.http = http_def
+        self.nacm = nacm_def
+        self.root = root_def
+
+        # Shortcuts
+        self.api_root_data = None
+        self.api_root_running_data = None
+        self.api_root_ops = None
+        self.api_root_ylv = None
+
+        self._gen_shortcuts()
+
+    def _gen_shortcuts(self):
+        global CONFIG_GLOBAL
+        global CONFIG_HTTP
+        global CONFIG_NACM
+        global CONFIG
+
+        CONFIG_GLOBAL.update(self.glob)
+        CONFIG_HTTP.update(self.http)
+        CONFIG_NACM.update(self.nacm)
+        CONFIG.update(self.root)
+
+        api_root = self.http["API_ROOT"]
+        api_root_running = self.http["API_ROOT_RUNNING"]
+        self.api_root_data = os.path.join(api_root, "data")
+        self.api_root_running_data = os.path.join(api_root_running, "data")
+        self.api_root_ops = os.path.join(api_root, "operations")
+        self.api_root_ylv = os.path.join(api_root, "yang-library-version")
+
+    def load_file(self, file_path: str) -> bool:
+        with open(file_path) as conf_fd:
             try:
-                CONFIG[conf_key].update(conf_yaml[conf_key])
-            except KeyError:
-                pass
+                conf_yaml = yaml.load(conf_fd)
+            except ParserError as e:
+                raise ValueError(str(e))
 
-    # Shortcuts
-    API_ROOT_data = os.path.join(CONFIG_HTTP["API_ROOT"], "data")
-    API_ROOT_RUNNING_data = os.path.join(CONFIG_HTTP["API_ROOT_RUNNING"], "data")
-    API_ROOT_ops = os.path.join(CONFIG_HTTP["API_ROOT"], "operations")
-    API_ROOT_ylv = os.path.join(CONFIG_HTTP["API_ROOT"], "yang-library-version")
+            for conf_key in self.root.keys():
+                try:
+                    self.root[conf_key].update(conf_yaml[conf_key])
+                except KeyError:
+                    pass
 
+        self._gen_shortcuts()
 
-def validate_config():
-    if CONFIG_GLOBAL["YANG_LIB_DIR"] is None:
-        raise ValueError("YANG module directory must be specified (in config file or YANG_MODPATH env variable)")
+    def validate(self):
+        if self.glob["YANG_LIB_DIR"] is None:
+            raise ValueError("YANG module directory must be specified (in config file or YANG_MODPATH env variable)")
 
-
-def print_config():
-    info("Using config:\n" + yaml.dump(CONFIG, default_flow_style=False))
+    def print(self):
+        info("Using config:\n" + yaml.dump(self.root, default_flow_style=False))

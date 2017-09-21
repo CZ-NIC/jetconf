@@ -3,22 +3,12 @@ import colorlog
 import getopt
 import logging
 import sys
-import signal
 
-from importlib import import_module
-from pkg_resources import resource_string, get_distribution
+from pkg_resources import get_distribution
 from colorlog import error, info
-from yaml.parser import ParserError
 
-from yangson.enumerations import ContentType, ValidationScope
-from yangson.exceptions import YangsonException
-from yangson.schemanode import SchemaError, SemanticError
-from yangson.datamodel import DataModel
-
-from . import op_internal
-from .rest_server import RestServer
-from .config import CONFIG_GLOBAL, CONFIG_NACM, load_config, validate_config, print_config
-from .helpers import ErrorHelpers
+from . import config, jetconf
+from .errors import JetconfInitError
 
 
 def print_help():
@@ -29,8 +19,6 @@ def print_help():
 
 
 def main():
-    config_file = "config.yaml"
-
     # Check for Python version
     if sys.version_info < (3, 5):
         print("Jetconf requires Python version 3.5 or higher")
@@ -40,6 +28,8 @@ def main():
     jetconf_version = get_distribution("jetconf").version
 
     # Parse command line arguments
+    config_file = "config.yaml"
+
     try:
         opts, args = getopt.getopt(sys.argv[1:], "c:vh")
     except getopt.GetoptError:
@@ -58,38 +48,41 @@ def main():
             sys.exit(0)
 
     # Load configuration
+    jc_config = config.JcConfig()
+    config.CFG = jc_config
+
     try:
-        load_config(config_file)
+        jc_config.load_file(config_file)
     except FileNotFoundError:
         print("Configuration file does not exist")
         sys.exit(1)
-    except ParserError as e:
+    except ValueError as e:
         print("Configuration syntax error: " + str(e))
         sys.exit(1)
 
     # Validate configuration
     try:
-        validate_config()
+        jc_config.validate()
     except ValueError as e:
         print("Error: " + str(e))
         sys.exit(1)
-
+    
     # Set logging level
     log_level = {
         "error": logging.ERROR,
         "warning": logging.WARNING,
         "info": logging.INFO,
         "debug": logging.INFO
-    }.get(CONFIG_GLOBAL["LOG_LEVEL"], logging.INFO)
+    }.get(jc_config.glob["LOG_LEVEL"], logging.INFO)
     logging.root.handlers.clear()
 
     # Daemonize
-    if CONFIG_GLOBAL["LOGFILE"] not in ("-", "stdout"):
+    if jc_config.glob["LOGFILE"] not in ("-", "stdout"):
         # Setup basic logging
         logging.basicConfig(
             format="%(asctime)s %(levelname)-8s %(message)s",
             level=log_level,
-            filename=CONFIG_GLOBAL["LOGFILE"]
+            filename=jc_config.glob["LOGFILE"]
         )
 
         # Go to background
@@ -138,92 +131,30 @@ def main():
     info("Jetconf version {}".format(jetconf_version))
 
     # Print configuration
-    print_config()
+    jc_config.print()
 
-    # Create pidfile
-    fl = os.open(CONFIG_GLOBAL["PIDFILE"], os.O_WRONLY + os.O_CREAT, 0o666)
+    # Instantiate Jetconf main class
+    jc = jetconf.Jetconf(jc_config)
+    jetconf.JC = jc
+
     try:
-        os.lockf(fl, os.F_TLOCK, 0)
-        os.write(fl, str(os.getpid()).encode())
-        os.fsync(fl)
-    except BlockingIOError:
-        error("Jetconf daemon already running (pidfile exists). Exiting.")
+        jc.init()
+    except JetconfInitError as e:
+        error(str(e))
+        jc.cleanup()
+
+        # Exit
+        info("Exiting (error)")
         sys.exit(1)
 
-    # Set signal handlers
-    def sig_exit_handler(signum, frame):
-        os.close(fl)
-        os.unlink(CONFIG_GLOBAL["PIDFILE"])
-        info("Exiting.")
-        sys.exit(0)
+    # Run Jetconf (this will block until shutdown)
+    jc.run()
 
-    signal.signal(signal.SIGTERM, sig_exit_handler)
-    signal.signal(signal.SIGINT, sig_exit_handler)
+    jc.cleanup()
 
-    # Import backend modules
-    backend_package = CONFIG_GLOBAL["BACKEND_PACKAGE"]
-    try:
-        usr_state_data_handlers = import_module(backend_package + ".usr_state_data_handlers")
-        usr_conf_data_handlers = import_module(backend_package + ".usr_conf_data_handlers")
-        usr_op_handlers = import_module(backend_package + ".usr_op_handlers")
-        usr_datastore = import_module(backend_package + ".usr_datastore")
-    except ImportError as e:
-        error(ErrorHelpers.epretty(e))
-        error("Cannot import backend package \"{}\". Exiting.".format(backend_package))
-        sys.exit(1)
-
-    # Load data model
-    yang_mod_dir = CONFIG_GLOBAL["YANG_LIB_DIR"]
-    yang_lib_str = resource_string(backend_package, "yang-library-data.json").decode("utf-8")
-    datamodel = DataModel(yang_lib_str, [yang_mod_dir])
-
-    # Datastore init
-    datastore = usr_datastore.UserDatastore(datamodel, CONFIG_GLOBAL["DATA_JSON_FILE"], with_nacm=CONFIG_NACM["ENABLED"])
-    try:
-        datastore.load()
-    except (FileNotFoundError, YangsonException) as e:
-        error("Cannot load JSON datastore " + CONFIG_GLOBAL["DATA_JSON_FILE"])
-        error(ErrorHelpers.epretty(e))
-        sig_exit_handler(0, None)
-
-    # Validate datastore on startup
-    try:
-        datastore.get_data_root().validate(ValidationScope.all, ContentType.config)
-    except (SchemaError, SemanticError) as e:
-        error("Initial validation of datastore failed")
-        error(ErrorHelpers.epretty(e))
-        sig_exit_handler(0, None)
-
-    # Register handlers for configuration data
-    usr_conf_data_handlers.register_conf_handlers(datastore)
-
-    # Register handlers for state data
-    usr_state_data_handlers.register_state_handlers(datastore)
-
-    # Register handlers for operations
-    op_internal.register_op_handlers(datastore)
-    usr_op_handlers.register_op_handlers(datastore)
-
-    # Write datastore content to the backend application (if required)
-    try:
-        confh_ros = usr_conf_data_handlers.run_on_startup
-    except AttributeError:
-        pass
-    else:
-        try:
-            confh_ros()
-        except Exception as e:
-            error("Writing configuration to backend failed")
-            error(ErrorHelpers.epretty(e))
-            sig_exit_handler(0, None)
-
-    # Create HTTP server
-    rest_srv = RestServer()
-    rest_srv.register_api_handlers(datastore)
-    rest_srv.register_static_handlers()
-
-    # Run HTTP server
-    rest_srv.run()
+    # Exit
+    info("Exiting")
+    sys.exit(0)
 
 
 if __name__ == "__main__":

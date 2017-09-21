@@ -12,8 +12,7 @@ from h2.errors import ErrorCodes as H2ErrorCodes
 from h2.exceptions import ProtocolError
 from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged, StreamEnded, WindowUpdated
 
-from . import http_handlers as handlers
-from .config import CONFIG_HTTP, API_ROOT_data, API_ROOT_RUNNING_data, API_ROOT_ops, API_ROOT_ylv
+from . import config, http_handlers as handlers
 from .helpers import SSLCertT, LogHelpers
 from .data import BaseDatastore
 from .http_handlers import (
@@ -29,8 +28,6 @@ from .http_handlers import (
 HandlerConditionT = Callable[[str, str], bool]  # Function(method, path) -> bool
 HttpHandlerT = Callable[[OrderedDict, Optional[str], SSLCertT], handlers.HttpResponse]
 debug_srv = LogHelpers.create_module_dbg_logger(__name__)
-
-h2_handlers = None  # type: HttpHandlerList
 
 
 class RequestData:
@@ -66,6 +63,8 @@ class HttpHandlerList:
 
 
 class H2Protocol(asyncio.Protocol):
+    HTTP_HANDLERS = None    # type: HttpHandlerList
+    
     def __init__(self):
         self.conn = H2Connection(H2Configuration(client_side=False, header_encoding="utf-8"))
         self.transport = None
@@ -106,7 +105,7 @@ class H2Protocol(asyncio.Protocol):
                     self.conn.reset_stream(event.stream_id, error_code=H2ErrorCodes.PROTOCOL_ERROR)
                 else:
                     # Check if incoming data are not excessively large
-                    if (stream_data.data.tell() + len(event.data)) < (CONFIG_HTTP["UPLOAD_SIZE_LIMIT"] * 1048576):
+                    if (stream_data.data.tell() + len(event.data)) < (config.CFG.http["UPLOAD_SIZE_LIMIT"] * 1048576):
                         stream_data.data.write(event.data)
                     else:
                         stream_data.data_overflow = True
@@ -175,9 +174,9 @@ class H2Protocol(asyncio.Protocol):
         method = headers[":method"]
 
         if method == "HEAD":
-            h = h2_handlers.get_handler("GET", url_path)
+            h = self.HTTP_HANDLERS.get_handler("GET", url_path)
         else:
-            h = h2_handlers.get_handler(method, url_path)
+            h = self.HTTP_HANDLERS.get_handler(method, url_path)
 
         if not h:
             self.send_response(
@@ -196,7 +195,7 @@ class H2Protocol(asyncio.Protocol):
             (":status", resp.status_code),
             ("Content-Type", resp.content_type),
             ("Content-Length", str(resp.content_length)),
-            ("Server", CONFIG_HTTP["SERVER_NAME"]),
+            ("Server", config.CFG.http["SERVER_NAME"]),
             ("Cache-Control", "No-Cache"),
             ("Access-Control-Allow-Origin", "*"),
             ("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE"),
@@ -248,34 +247,38 @@ class H2Protocol(asyncio.Protocol):
 class RestServer:
     def __init__(self):
         # HTTP server init
-        self.http_handlers = HttpHandlerList()
         ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         ssl_context.options |= (ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1 | ssl.OP_NO_COMPRESSION)
-        ssl_context.load_cert_chain(certfile=CONFIG_HTTP["SERVER_SSL_CERT"], keyfile=CONFIG_HTTP["SERVER_SSL_PRIVKEY"])
+        ssl_context.load_cert_chain(certfile=config.CFG.http["SERVER_SSL_CERT"], keyfile=config.CFG.http["SERVER_SSL_PRIVKEY"])
+
         if ssl.HAS_ALPN:
             ssl_context.set_alpn_protocols(["h2"])
         else:
             info("Python not compiled with ALPN support, using NPN instead.")
             ssl_context.set_npn_protocols(["h2"])
-        if not CONFIG_HTTP["DBG_DISABLE_CERTS"]:
+
+        if not config.CFG.http["DBG_DISABLE_CERTS"]:
             ssl_context.verify_mode = ssl.CERT_REQUIRED
-        ssl_context.load_verify_locations(cafile=CONFIG_HTTP["CA_CERT"])
+
+        ssl_context.load_verify_locations(cafile=config.CFG.http["CA_CERT"])
 
         self.loop = asyncio.get_event_loop()
 
         # Each client connection will create a new H2Protocol instance
         listener = self.loop.create_server(
             H2Protocol,
-            "127.0.0.1" if CONFIG_HTTP["LISTEN_LOCALHOST_ONLY"] else "",
-            CONFIG_HTTP["PORT"],
+            "127.0.0.1" if config.CFG.http["LISTEN_LOCALHOST_ONLY"] else "",
+            config.CFG.http["PORT"],
             ssl=ssl_context
         )
         self.server = self.loop.run_until_complete(listener)
+        
+        # Set H2Protocol class variables
+        H2Protocol.HTTP_HANDLERS = HttpHandlerList()
 
-    def register_api_handlers(self, datastore: BaseDatastore):
-        global h2_handlers
-
-        # Register HTTP handlers
+    # Register HTTP handlers
+    @staticmethod
+    def register_api_handlers(datastore: BaseDatastore):
         api_get_root = handlers.api_root_handler
         api_get_ylv = handlers.api_ylv_handler
         api_get = handlers.create_get_api(datastore)
@@ -283,34 +286,40 @@ class RestServer:
         api_post = handlers.create_post_api(datastore)
         api_put = handlers.create_put_api(datastore)
         api_delete = handlers.create_api_delete(datastore)
-        api_get_op = handlers.create_api_get_op(datastore)
+        api_get_op = handlers.create_api_op(datastore)
         api_op = handlers.create_api_op(datastore)
 
-        self.http_handlers.register(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_data)), api_get)
-        self.http_handlers.register(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_RUNNING_data)), api_get_run)
-        self.http_handlers.register(lambda m, p: (m == "GET") and (p == API_ROOT_ylv), api_get_ylv)
-        self.http_handlers.register(lambda m, p: (m == "GET") and (p == CONFIG_HTTP["API_ROOT"]), api_get_root)
-        self.http_handlers.register(lambda m, p: (m == "POST") and (p.startswith(API_ROOT_data)), api_post)
-        self.http_handlers.register(lambda m, p: (m == "PUT") and (p.startswith(API_ROOT_data)), api_put)
-        self.http_handlers.register(lambda m, p: (m == "DELETE") and (p.startswith(API_ROOT_data)), api_delete)
-        self.http_handlers.register(lambda m, p: (m == "GET") and (p.startswith(API_ROOT_ops)), api_get_op)
-        self.http_handlers.register(lambda m, p: (m == "POST") and (p.startswith(API_ROOT_ops)), api_op)
-        self.http_handlers.register(lambda m, p: m == "OPTIONS", handlers.options_api)
+        api_root = config.CFG.http["API_ROOT"]
+        api_root_data = config.CFG.api_root_data
+        api_root_running_data = config.CFG.api_root_running_data
+        api_root_ylv = config.CFG.api_root_ylv
+        api_root_ops = config.CFG.api_root_ops
+        
+        H2Protocol.HTTP_HANDLERS.register(lambda m, p: (m == "GET") and (p.startswith(api_root_data)), api_get)
+        H2Protocol.HTTP_HANDLERS.register(lambda m, p: (m == "GET") and (p.startswith(api_root_running_data)), api_get_run)
+        H2Protocol.HTTP_HANDLERS.register(lambda m, p: (m == "GET") and (p == api_root_ylv), api_get_ylv)
+        H2Protocol.HTTP_HANDLERS.register(lambda m, p: (m == "GET") and (p == api_root), api_get_root)
+        H2Protocol.HTTP_HANDLERS.register(lambda m, p: (m == "POST") and (p.startswith(api_root_data)), api_post)
+        H2Protocol.HTTP_HANDLERS.register(lambda m, p: (m == "PUT") and (p.startswith(api_root_data)), api_put)
+        H2Protocol.HTTP_HANDLERS.register(lambda m, p: (m == "DELETE") and (p.startswith(api_root_data)), api_delete)
+        H2Protocol.HTTP_HANDLERS.register(lambda m, p: (m == "GET") and (p.startswith(api_root_ops)), api_get_op)
+        H2Protocol.HTTP_HANDLERS.register(lambda m, p: (m == "POST") and (p.startswith(api_root_ops)), api_op)
+        H2Protocol.HTTP_HANDLERS.register(lambda m, p: m == "OPTIONS", handlers.options_api)
 
-        h2_handlers = self.http_handlers
+    # Register static HTTP handlers
+    @staticmethod
+    def register_static_handlers():
+        api_root = config.CFG.http["API_ROOT"]
 
-    def register_static_handlers(self):
-        global h2_handlers
+        H2Protocol.HTTP_HANDLERS.register(lambda m, p: (m == "GET") and not (p.startswith(api_root)), handlers.get_file)
+        H2Protocol.HTTP_HANDLERS.register_default(handlers.unknown_req_handler)
 
-        self.http_handlers.register(lambda m, p: (m == "GET") and not (p.startswith(CONFIG_HTTP["API_ROOT"])), handlers.get_file)
-        self.http_handlers.register_default(handlers.unknown_req_handler)
-
-        h2_handlers = self.http_handlers
-
+    # Start server event loop (this will block until shutdown)
     def run(self):
         info("Server started on {}".format(self.server.sockets[0].getsockname()))
         self.loop.run_forever()
 
+    # Stop server event loop and wait for shutdown
     def shutdown(self):
         self.server.close()
         self.loop.run_until_complete(self.server.wait_closed())

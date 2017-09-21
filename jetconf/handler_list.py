@@ -1,4 +1,4 @@
-from typing import List, Tuple, Callable, Any
+from typing import Dict, Callable
 
 from yangson.schemanode import SchemaNode
 from yangson.schemadata import SchemaData
@@ -7,17 +7,15 @@ from yangson.instance import InstanceRoute
 from .helpers import JsonNodeT
 
 
-HandlerSelectorT = Any
-
-
-# ---------- Conf data base objects ----------
-
-class ConfDataObjectHandler:
+# ---------- Base classes for conf data handlers ----------
+class ConfDataHandlerBase:
     def __init__(self, ds: "BaseDatastore", sch_pth: str):
         self.ds = ds
         self.schema_path = sch_pth                          # type: str
         self.schema_node = ds.get_schema_node(sch_pth)      # type: SchemaNode
 
+
+class ConfDataObjectHandler(ConfDataHandlerBase):
     def create(self, ii: InstanceRoute, ch: "DataChange"):
         pass
 
@@ -31,12 +29,7 @@ class ConfDataObjectHandler:
         return self.__class__.__name__ + ": listening at " + self.schema_path
 
 
-class ConfDataListHandler:
-    def __init__(self, ds: "BaseDatastore", sch_pth: str):
-        self.ds = ds
-        self.schema_path = sch_pth                          # type: str
-        self.schema_node = ds.get_schema_node(sch_pth)      # type: SchemaNode
-
+class ConfDataListHandler(ConfDataHandlerBase):
     def create_item(self, ii: InstanceRoute, ch: "DataChange"):
         pass
 
@@ -59,8 +52,7 @@ class ConfDataListHandler:
         return self.__class__.__name__ + ": listening at " + self.schema_path
 
 
-# ---------- State data base objects ----------
-
+# ---------- Base classes for state data handlers ----------
 class StateDataHandlerBase:
     def __init__(self, datastore: "BaseDatastore", schema_path: str):
         self.ds = datastore
@@ -82,56 +74,29 @@ class StateDataListHandler(StateDataHandlerBase):
         pass
 
 
-# ---------- Handles lists ----------
-
-class BaseHandlerList:
-    def __init__(self):
-        self.handlers = []              # type: List[Tuple[HandlerSelectorT, Callable]]
-        self.default_handler = None     # type: Callable
-
-    def register(self, identifier: str, handler: Callable):
-        raise NotImplementedError("Not implemented in base class")
-
-    def register_default(self, handler: Callable):
-        self.default_handler = handler
-
-    def get_handler(self, identifier: str) -> Any:
-        raise NotImplementedError("Not implemented in base class")
-
-
-class OpHandlerList(BaseHandlerList):
-    def register(self, handler: Callable, op_name: str):
-        self.handlers.append((op_name, handler))
-
-    def get_handler(self, op_name: str) -> Callable:
-        for h in self.handlers:
-            if h[0] == op_name:
-                return h[1]
-
-        return self.default_handler
-
-
+# ---------- Handler lists ----------
 class ConfDataHandlerList:
     def __init__(self):
-        self.handlers = []  # type: List[Tuple[HandlerSelectorT, BaseDataListener]]
+        self.handlers = {}  # type: Dict[int, ConfDataHandlerBase]
+        self.handlers_pth = {}  # type: Dict[str, ConfDataHandlerBase]
 
-    def register(self, handler: "BaseDataListener"):
+    def register(self, handler: ConfDataHandlerBase):
         sch_node_id = id(handler.schema_node)
-        self.handlers.append((sch_node_id, handler))
+        self.handlers[sch_node_id] = handler
+        self.handlers_pth[handler.schema_path] = handler
 
-    def get_handler(self, sch_node_id: str) -> "BaseDataListener":
-        for h in self.handlers:
-            if h[0] == sch_node_id:
-                return h[1]
+    def get_handler(self, sch_node_id: int) -> ConfDataHandlerBase:
+        return self.handlers.get(sch_node_id)
 
-        return None
+    def get_handler_by_pth(self, sch_pth: str) -> ConfDataHandlerBase:
+        return self.handlers_pth.get(sch_pth)
 
 
 class StateDataHandlerList:
     def __init__(self):
         self.handlers = []
 
-    def register(self, handler: "StateNodeHandlerBase"):
+    def register(self, handler: "StateDataHandlerBase"):
         saddr = SchemaData.path2route(handler.sch_pth)
         self.handlers.append((saddr, handler))
 
@@ -151,8 +116,22 @@ class StateDataHandlerList:
         return None
 
 
-# ---------- Handler list globals ----------
+class OpHandlerList:
+    def __init__(self):
+        self.handlers = {}  # type: Dict[str, Callable]
+        self.default_handler = None  # type: Callable
 
+    def register(self, handler: Callable, op_name: str):
+        self.handlers[op_name] = handler
+
+    def register_default(self, handler: Callable):
+        self.default_handler = handler
+
+    def get_handler(self, op_name: str) -> Callable:
+        return self.handlers.get(op_name, self.default_handler)
+
+
+# ---------- Handler list globals ----------
 OP_HANDLERS = OpHandlerList()
 STATE_DATA_HANDLES = StateDataHandlerList()
 CONF_DATA_HANDLES = ConfDataHandlerList()

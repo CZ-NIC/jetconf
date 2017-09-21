@@ -10,30 +10,31 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from yangson.exceptions import YangsonException, NonexistentSchemaNode, SchemaError, SemanticError
-from yangson.schemanode import ContainerNode, ListNode, GroupNode, LeafListNode, LeafNode
+from yangson.schemanode import ContainerNode, ListNode, GroupNode, LeafNode
 from yangson.instance import NonexistentInstance, InstanceValueError, RootNode
 
-from .config import CONFIG_GLOBAL, CONFIG_HTTP, CONFIG_NACM, API_ROOT_data, API_ROOT_RUNNING_data, API_ROOT_ops
+from . import config
 from .helpers import CertHelpers, DateTimeHelpers, ErrorHelpers, LogHelpers, SSLCertT
 from .handler_list import OP_HANDLERS
-from .errors import BackendError
-from .nacm import NacmForbiddenError
 from .data import (
     BaseDatastore,
     RpcInfo,
-    DataLockError,
-    NoHandlerError,
+    ChangeType,
+)
+from .errors import (
+    BackendError,
+    ConfHandlerFailedError,
+    StagingDataException,
     NoHandlerForOpError,
     InstanceAlreadyPresent,
-    ChangeType,
-    ConfHandlerFailedError,
     OpHandlerFailedError,
-    StagingDataException
+    NoHandlerError,
+    DataLockError,
+    NacmForbiddenError
 )
 
 QueryStrT = Dict[str, List[str]]
 epretty = ErrorHelpers.epretty
-errtag = ErrorHelpers.errtag
 debug_httph = LogHelpers.create_module_dbg_logger(__name__)
 
 
@@ -159,7 +160,7 @@ def unknown_req_handler(headers: OrderedDict, data: Optional[str], client_cert: 
 
 def _get_yl_date() -> str:
     try:
-        yang_lib_date_ts = os.path.getmtime(os.path.join(CONFIG_GLOBAL["YANG_LIB_DIR"], "yang-library-data.json"))
+        yang_lib_date_ts = os.path.getmtime(os.path.join(config.CFG.glob["YANG_LIB_DIR"], "yang-library-data.json"))
         yang_lib_date = datetime.fromtimestamp(yang_lib_date_ts).strftime("%Y-%m-%d")
     except OSError:
         yang_lib_date = None
@@ -205,7 +206,7 @@ def _get(ds: BaseDatastore, req_headers: OrderedDict, pth: str, username: str, s
     rpc1.qs = query_string
 
     # Skip NACM check for privileged users
-    if username in CONFIG_NACM["ALLOWED_USERS"]:
+    if username in config.CFG.nacm["ALLOWED_USERS"]:
         rpc1.skip_nacm_check = True
 
     try:
@@ -281,7 +282,7 @@ def _get(ds: BaseDatastore, req_headers: OrderedDict, pth: str, username: str, s
             add_headers = OrderedDict()
             add_headers["ETag"] = n_etag
             try:
-                lm_time = DateTimeHelpers.to_httpdate_str(n.value.timestamp, CONFIG_GLOBAL["TIMEZONE"])
+                lm_time = DateTimeHelpers.to_httpdate_str(n.value.timestamp, config.CFG.glob["TIMEZONE"])
                 add_headers["Last-Modified"] = lm_time
             except AttributeError:
                 # Only arrays and objects have last_modified attribute
@@ -312,7 +313,7 @@ def create_get_api(ds: BaseDatastore):
         username = CertHelpers.get_field(client_cert, "emailAddress")
         info("[{}] api_get: {}".format(username, headers[":path"]))
 
-        api_pth = headers[":path"][len(API_ROOT_data):]
+        api_pth = headers[":path"][len(config.CFG.api_root_data):]
         http_resp = _get(ds, headers, api_pth, username, staging=True)
         return http_resp
 
@@ -324,7 +325,7 @@ def create_get_running_api(ds: BaseDatastore):
         username = CertHelpers.get_field(client_cert, "emailAddress")
         info("[{}] api_get_staging: {}".format(username, headers[":path"]))
 
-        api_pth = headers[":path"][len(API_ROOT_RUNNING_data):]
+        api_pth = headers[":path"][len(config.CFG.api_root_running_data):]
         http_resp = _get(ds, headers, api_pth, username, staging=False)
         return http_resp
 
@@ -336,10 +337,10 @@ def get_file(headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -
     username = CertHelpers.get_field(client_cert, "emailAddress")
     url_path = headers[":path"].split("?")[0]
     url_path_safe = "".join(filter(lambda c: c.isalpha() or c in "/-_.", url_path)).replace("..", "").strip("/")
-    file_path = os.path.join(CONFIG_HTTP["DOC_ROOT"], url_path_safe)
+    file_path = os.path.join(config.CFG.http["DOC_ROOT"], url_path_safe)
 
     if os.path.isdir(file_path):
-        file_path = os.path.join(file_path, CONFIG_HTTP["DOC_DEFAULT_NAME"])
+        file_path = os.path.join(file_path, config.CFG.http["DOC_DEFAULT_NAME"])
 
     ctype = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
 
@@ -373,7 +374,7 @@ def _post(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse
     rpc1.qs = query_string
 
     # Skip NACM check for privileged users
-    if username in CONFIG_NACM["ALLOWED_USERS"]:
+    if username in config.CFG.nacm["ALLOWED_USERS"]:
         rpc1.skip_nacm_check = True
 
     try:
@@ -453,7 +454,7 @@ def create_post_api(ds: BaseDatastore):
         username = CertHelpers.get_field(client_cert, "emailAddress")
         info("[{}] api_post: {}".format(username, headers[":path"]))
 
-        api_pth = headers[":path"][len(API_ROOT_data):]
+        api_pth = headers[":path"][len(config.CFG.api_root_data):]
         http_resp = _post(ds, api_pth, username, data)
         return http_resp
 
@@ -471,7 +472,7 @@ def _put(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse:
     rpc1.path = url_path.rstrip("/")
 
     # Skip NACM check for privileged users
-    if username in CONFIG_NACM["ALLOWED_USERS"]:
+    if username in config.CFG.nacm["ALLOWED_USERS"]:
         rpc1.skip_nacm_check = True
 
     try:
@@ -544,7 +545,7 @@ def create_put_api(ds: BaseDatastore):
         username = CertHelpers.get_field(client_cert, "emailAddress")
         info("[{}] api_put: {}".format(username, headers[":path"]))
 
-        api_pth = headers[":path"][len(API_ROOT_data):]
+        api_pth = headers[":path"][len(config.CFG.api_root_data):]
         http_resp = _put(ds, api_pth, username, data)
         return http_resp
 
@@ -560,7 +561,7 @@ def _delete(ds: BaseDatastore, pth: str, username: str) -> HttpResponse:
         rpc1.path = url_path.rstrip("/")
 
         # Skip NACM check for privileged users
-        if username in CONFIG_NACM["ALLOWED_USERS"]:
+        if username in config.CFG.nacm["ALLOWED_USERS"]:
             rpc1.skip_nacm_check = True
 
         try:
@@ -622,7 +623,7 @@ def create_api_delete(ds: BaseDatastore):
         username = CertHelpers.get_field(client_cert, "emailAddress")
         info("[{}] api_delete: {}".format(username, headers[":path"]))
 
-        api_pth = headers[":path"][len(API_ROOT_data):]
+        api_pth = headers[":path"][len(config.CFG.api_root_data):]
         http_resp = _delete(ds, api_pth, username)
         return http_resp
 
@@ -634,7 +635,7 @@ def create_api_op(ds: BaseDatastore):
         username = CertHelpers.get_field(client_cert, "emailAddress")
         info("[{}] invoke_op: {}".format(username, headers[":path"]))
 
-        api_pth = headers[":path"][len(API_ROOT_ops):]
+        api_pth = headers[":path"][len(config.CFG.api_root_ops):]
         op_name_fq = api_pth[1:].split("/", maxsplit=1)[0]
 
         try:
@@ -666,7 +667,7 @@ def create_api_op(ds: BaseDatastore):
         rpc1.op_input_args = input_args
 
         # Skip NACM check for privileged users
-        if username in CONFIG_NACM["ALLOWED_USERS"]:
+        if username in config.CFG.nacm["ALLOWED_USERS"]:
             rpc1.skip_nacm_check = True
 
         try:
@@ -739,7 +740,7 @@ def create_api_get_op(ds: BaseDatastore):
         username = CertHelpers.get_field(client_cert, "emailAddress")
         info("[{}] get_op: {}".format(username, headers[":path"]))
 
-        api_pth = headers[":path"][len(API_ROOT_ops):].rstrip("/")
+        api_pth = headers[":path"][len(config.CFG.api_root_ops):].rstrip("/")
         op_name_fq = api_pth[1:].split("/", maxsplit=1)[0]
 
         op_names_dict = dict(map(lambda n: (n[0], None), OP_HANDLERS.handlers))

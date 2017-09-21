@@ -31,9 +31,9 @@ from yangson.instance import (
     ObjectMember
 )
 
+from . import config
 from .helpers import PathFormat, ErrorHelpers, LogHelpers, DataHelpers, JsonNodeT
-from .config import CONFIG, CONFIG_NACM
-from .nacm import NacmConfig, Permission, Action, NacmForbiddenError
+from .nacm import NacmConfig, Permission, Action
 from .handler_list import (
     OP_HANDLERS,
     STATE_DATA_HANDLES,
@@ -43,7 +43,17 @@ from .handler_list import (
     StateDataContainerHandler,
     StateDataListHandler
 )
-from .errors import JetconfError
+from .errors import (
+    ConfHandlerFailedError,
+    StagingDataException,
+    NoHandlerForStateDataError,
+    NoHandlerForOpError,
+    InstanceAlreadyPresent,
+    OpHandlerFailedError,
+    NoHandlerError,
+    DataLockError,
+    NacmForbiddenError
+)
 
 epretty = ErrorHelpers.epretty
 debug_data = LogHelpers.create_module_dbg_logger(__name__)
@@ -53,46 +63,6 @@ class ChangeType(Enum):
     CREATE = 0,
     REPLACE = 1,
     DELETE = 2
-
-
-class DataLockError(JetconfError):
-    pass
-
-
-class StagingDataException(JetconfError):
-    pass
-
-
-class InstanceAlreadyPresent(JetconfError):
-    pass
-
-
-class HandlerError(JetconfError):
-    pass
-
-
-class NoHandlerError(HandlerError):
-    pass
-
-
-class ConfHandlerFailedError(HandlerError):
-    pass
-
-
-class OpHandlerFailedError(HandlerError):
-    pass
-
-
-class NoHandlerForOpError(NoHandlerError):
-    def __init__(self, op_name: str):
-        self.op_name = op_name
-
-    def __str__(self):
-        return "Nonexistent handler for operation \"{}\"".format(self.op_name)
-
-
-class NoHandlerForStateDataError(NoHandlerError):
-    pass
 
 
 class RpcInfo:
@@ -169,7 +139,7 @@ class UsrChangeJournal:
 
         try:
             # Validate syntax and semantics of new data
-            if CONFIG["GLOBAL"]["VALIDATE_TRANSACTIONS"] is True:
+            if config.CFG.glob["VALIDATE_TRANSACTIONS"] is True:
                 nr.validate(ValidationScope.all, ContentType.config)
         except (SchemaError, SemanticError) as e:
             error("Data validation error:")
@@ -394,7 +364,7 @@ class BaseDatastore:
         if (len(ii) > 0) and (isinstance(ii[0], MemberName)):
             # Not getting root
             ns_first = ii[0].namespace
-            if (ns_first == "ietf-netconf-acm") and (rpc.username not in CONFIG_NACM["ALLOWED_USERS"]):
+            if (ns_first == "ietf-netconf-acm") and (rpc.username not in config.CFG.nacm["ALLOWED_USERS"]):
                 raise NacmForbiddenError(rpc.username + " not allowed to access NACM data")
             elif ns_first == "ietf-yang-library":
                 root = self._yang_lib_data
@@ -402,7 +372,7 @@ class BaseDatastore:
         else:
             # Root node requested
             # Remove NACM data if user is not NACM privieged
-            if rpc.username not in CONFIG_NACM["ALLOWED_USERS"]:
+            if rpc.username not in config.CFG.nacm["ALLOWED_USERS"]:
                 try:
                     root = root.delete_item("ietf-netconf-acm:nacm")
                 except NonexistentInstance:
@@ -583,13 +553,13 @@ class BaseDatastore:
             ns_first = ii[0].namespace
             if ns_first == "ietf-netconf-acm":
                 nacm_changed = True
-                if rpc.username not in CONFIG_NACM["ALLOWED_USERS"]:
+                if rpc.username not in config.CFG.nacm["ALLOWED_USERS"]:
                     raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
         else:
             # Editing root node
             if input_member_ns == "ietf-netconf-acm":
                 nacm_changed = True
-                if rpc.username not in CONFIG_NACM["ALLOWED_USERS"]:
+                if rpc.username not in config.CFG.nacm["ALLOWED_USERS"]:
                     raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
 
         # Evaluate NACM
@@ -729,7 +699,7 @@ class BaseDatastore:
             ns_first = ii[0].namespace
             if ns_first == "ietf-netconf-acm":
                 nacm_changed = True
-                if rpc.username not in CONFIG_NACM["ALLOWED_USERS"]:
+                if rpc.username not in config.CFG.nacm["ALLOWED_USERS"]:
                     raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
         else:
             # Replacing root node
@@ -737,7 +707,7 @@ class BaseDatastore:
             nacm_val = n.value.get("ietf-netconf-acm:nacm")
             if nacm_val is not None:
                 nacm_changed = True
-                if rpc.username not in CONFIG_NACM["ALLOWED_USERS"]:
+                if rpc.username not in config.CFG.nacm["ALLOWED_USERS"]:
                     raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
 
         # Evaluate NACM
@@ -763,7 +733,7 @@ class BaseDatastore:
             ns_first = ii[0].namespace
             if ns_first == "ietf-netconf-acm":
                 nacm_changed = True
-                if rpc.username not in CONFIG_NACM["ALLOWED_USERS"]:
+                if rpc.username not in config.CFG.nacm["ALLOWED_USERS"]:
                     raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
         else:
             # Deleting root node
@@ -771,7 +741,7 @@ class BaseDatastore:
             nacm_val = n.value.get("ietf-netconf-acm:nacm")
             if nacm_val is not None:
                 nacm_changed = True
-                if rpc.username not in CONFIG_NACM["ALLOWED_USERS"]:
+                if rpc.username not in config.CFG.nacm["ALLOWED_USERS"]:
                     raise NacmForbiddenError(rpc.username + " not allowed to modify NACM data")
 
         # Evaluate NACM

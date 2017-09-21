@@ -2,13 +2,12 @@ import collections
 from io import StringIO
 from threading import Lock
 from enum import Enum
-from typing import Union
 
 from colorlog import error, warning as warn, info
 from typing import List, Set, Optional
 
 from yangson.datamodel import DataModel
-from yangson.instvalue import Value, ArrayValue, ObjectValue
+from yangson.instvalue import ArrayValue, ObjectValue
 from yangson.instance import (
     InstanceNode,
     NonexistentSchemaNode,
@@ -46,21 +45,7 @@ class NacmRuleType(Enum):
     NACM_RULE_DATA = 3
 
 
-class NacmError(JetconfError):
-    pass
 
-
-class NonexistentUserError(NacmError):
-    pass
-
-
-class NacmForbiddenError(NacmError):
-    def __init__(self, msg="Access to data node rejected by NACM", rule=None):
-        self.msg = msg
-        self.rule = rule
-
-    def __str__(self):
-        return "{} (rule: {})".format(self.msg, str(self.rule))
 
 
 class NacmGroup:

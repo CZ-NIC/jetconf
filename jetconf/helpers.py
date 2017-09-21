@@ -5,10 +5,11 @@ from enum import Enum
 from typing import List, Dict, Union, Any, Iterable
 from datetime import datetime
 from pytz import timezone
+
 from yangson.instance import InstanceRoute, MemberName, EntryKeys, InstanceNode, ArrayValue, NonexistentInstance
 from yangson.schemanode import ListNode, ContainerNode
 
-from .config import CONFIG_GLOBAL, CONFIG_HTTP
+from . import config
 
 JsonNodeT = Union[Dict[str, Any], List]
 SSLCertT = Dict[str, Any]
@@ -22,7 +23,7 @@ class PathFormat(Enum):
 class CertHelpers:
     @staticmethod
     def get_field(cert: SSLCertT, key: str) -> str:
-        if CONFIG_HTTP["DBG_DISABLE_CERTS"] and (key == "emailAddress"):
+        if config.CFG.http["DBG_DISABLE_CERTS"] and (key == "emailAddress"):
             return "test-user"
 
         try:
@@ -33,29 +34,17 @@ class CertHelpers:
 
 
 class DataHelpers:
-    # Create parent data nodes to JSON subtree up to top level
-    @staticmethod
-    def node2doc(ii: InstanceRoute, val: Any) -> Dict[str, Any]:
-        n = val
-        for isel in reversed(ii):
-            if isinstance(isel, MemberName):
-                n = {isel.key: n}
-            if isinstance(isel, EntryKeys):
-                n.update(isel.keys)
-                n = [n]
-        return n
-
     # Get the namespace of the first segment in path
     # Raises ValueError if the first segment is not in fully-qualified format
     # Returns empty string if api_pth is empty
-    @staticmethod
-    def path_first_ns(api_pth: str) -> str:
-        if (len(api_pth) > 0) and (api_pth[0] == "/"):
-            first_seg = api_pth[1:].split("/", maxsplit=1)[0]
-            ns1, sel1 = first_seg.split(":", maxsplit=1)
-        else:
-            ns1 = ""
-        return ns1
+    # @staticmethod
+    # def path_first_ns(api_pth: str) -> str:
+    #     if (len(api_pth) > 0) and (api_pth[0] == "/"):
+    #         first_seg = api_pth[1:].split("/", maxsplit=1)[0]
+    #         ns1, sel1 = first_seg.split(":", maxsplit=1)
+    #     else:
+    #         ns1 = ""
+    #     return ns1
 
     # Convert InstanceRoute or List[InstanceSelector] to string
     @staticmethod
@@ -115,15 +104,6 @@ class ErrorHelpers:
         else:
             return err_str
 
-    @staticmethod
-    def errtag(e: BaseException) -> str:
-        try:
-            tag = e.tag
-        except AttributeError:
-            tag = None
-
-        return tag
-
 
 class LogHelpers:
     @staticmethod
@@ -131,7 +111,7 @@ class LogHelpers:
         module_name_simple = module_name.split(".")[-1]
 
         def module_dbg_logger(msg: str):
-            if ({module_name_simple, "*"} & set(CONFIG_GLOBAL["LOG_DBG_MODULES"])) and (CONFIG_GLOBAL["LOG_LEVEL"] == "debug"):
+            if ({module_name_simple, "*"} & set(config.CFG.glob["LOG_DBG_MODULES"])) and (config.CFG.glob["LOG_LEVEL"] == "debug"):
                 logger = getLogger()
                 logger.setLevel(logging.DEBUG)
                 debug(module_name_simple + ": " + msg)

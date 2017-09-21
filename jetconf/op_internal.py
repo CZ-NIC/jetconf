@@ -1,4 +1,4 @@
-from .config import CONFIG
+from . import config
 from .helpers import JsonNodeT
 from .handler_list import OP_HANDLERS
 from .data import BaseDatastore, RpcInfo, StagingDataException
@@ -48,7 +48,7 @@ class OpHandlersContainer:
             try:
                 self.ds.lock_data(rpc.username)
                 commit_res = usr_journal.commit(self.ds)
-                if CONFIG["GLOBAL"]["PERSISTENT_CHANGES"] is True:
+                if config.CFG.glob["PERSISTENT_CHANGES"] is True:
                     self.ds.save()
             finally:
                 self.ds.unlock_data()
