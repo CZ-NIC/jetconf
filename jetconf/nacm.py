@@ -3,7 +3,7 @@ from io import StringIO
 from threading import Lock
 from enum import Enum
 
-from colorlog import error, warning as warn, info
+from colorlog import error, info
 from typing import List, Set, Optional
 
 from yangson.datamodel import DataModel
@@ -19,7 +19,6 @@ from yangson.instance import (
 )
 
 from .helpers import DataHelpers, ErrorHelpers, LogHelpers
-from .errors import JetconfError
 
 epretty = ErrorHelpers.epretty
 debug_nacm = LogHelpers.create_module_dbg_logger(__name__)
@@ -43,9 +42,6 @@ class NacmRuleType(Enum):
     NACM_RULE_OPERATION = 1
     NACM_RULE_NOTIF = 2
     NACM_RULE_DATA = 3
-
-
-
 
 
 class NacmGroup:
@@ -149,7 +145,7 @@ class DataRuleTree:
             else:
                 self._print_rule_tree(io_str, rule_node.children, depth + 1, vbars + [depth])
 
-    def print_rule_tree(self) -> str:
+    def __str__(self) -> str:
         io_str = StringIO()
         io_str.write("----- NACM Data Rule tree -----\n")
         self._print_rule_tree(io_str, self.root, 0, [])
@@ -180,14 +176,17 @@ class NacmConfig:
         self.nacm_groups = []
         self.rule_lists = []
         self._user_nacm_rpc = {}
+        self.enabled = False
 
         try:
-            nacm_json = self.nacm_ds.get_data_root()["ietf-netconf-acm:nacm"].value
+            nacm_n = self.nacm_ds.get_data_root()["ietf-netconf-acm:nacm"]
         except NonexistentInstance:
-            warn("Data does not contain \"ietf-netconf-acm:nacm\" node, NACM rules will be empty")
+            debug_nacm("Data does not contain \"/ietf-netconf-acm:nacm\" branch, NACM will not be enabled")
             return
 
+        nacm_json = nacm_n.add_defaults().value
         self.enabled = nacm_json["enable-nacm"]
+
         if not self.enabled:
             # NACM not enabled, no need to continue
             self.internal_data_lock.release()
@@ -197,15 +196,15 @@ class NacmConfig:
         self.default_write = Action.PERMIT if nacm_json["write-default"] == "permit" else Action.DENY
         self.default_exec = Action.PERMIT if nacm_json["exec-default"] == "permit" else Action.DENY
 
-        for group in nacm_json["groups"]["group"]:
+        for group in nacm_json.get("groups", {}).get("group", []):
             self.nacm_groups.append(NacmGroup(group["name"], group["user-name"]))
 
-        for rule_list_json in nacm_json["rule-list"]:
+        for rule_list_json in nacm_json.get("rule-list", []):
             rl = NacmRuleList()
             rl.name = rule_list_json["name"]
             rl.groups = rule_list_json["group"]
 
-            for rule_json in rule_list_json["rule"]:
+            for rule_json in rule_list_json.get("rule", []):
                 rule = NacmRule()
                 rule.name = rule_json.get("name")
                 rule.comment = rule_json.get("comment")
@@ -216,15 +215,14 @@ class NacmConfig:
                     if isinstance(access_perm_list, str) and (access_perm_list == "*"):
                         rule.access = set(Permission)
                     elif isinstance(access_perm_list, collections.Iterable):
-                        def perm_str2enum(perm_str: str):
-                            return {
-                                "read": Permission.NACM_ACCESS_READ,
-                                "create": Permission.NACM_ACCESS_CREATE,
-                                "update": Permission.NACM_ACCESS_UPDATE,
-                                "delete": Permission.NACM_ACCESS_DELETE,
-                                "exec": Permission.NACM_ACCESS_EXEC,
-                            }.get(perm_str)
-                        rule.access.update(map(perm_str2enum, access_perm_list))
+                        perm_str2enum = {
+                            "read": Permission.NACM_ACCESS_READ,
+                            "create": Permission.NACM_ACCESS_CREATE,
+                            "update": Permission.NACM_ACCESS_UPDATE,
+                            "delete": Permission.NACM_ACCESS_DELETE,
+                            "exec": Permission.NACM_ACCESS_EXEC,
+                        }
+                        rule.access.update(map(lambda x: perm_str2enum[x], access_perm_list))
 
                 if rule_json.get("rpc-name") is not None:
                     if rule.type != NacmRuleType.NACM_RULE_NOTSET:
@@ -298,7 +296,7 @@ class UserRuleSet:
         self.rule_lists = list(filter(lambda x: (set(user_groups_names) & set(x.groups)), config.rule_lists))
 
         self.rule_tree = DataRuleTree(dm, self.rule_lists)
-        debug_nacm("Rule tree for user \"{}\":\n{}".format(username, self.rule_tree.print_rule_tree()))
+        debug_nacm("Rule tree for user \"{}\":\n{}".format(username, str(self.rule_tree)))
 
     def check_data_node_permission(self, root: InstanceNode, ii: InstanceRoute, access: Permission) -> Action:
         if not self.nacm_enabled:

@@ -4,7 +4,7 @@ import getopt
 import logging
 import sys
 
-from pkg_resources import get_distribution
+from pkg_resources import get_distribution, DistributionNotFound
 from colorlog import error, info
 
 from . import config, jetconf
@@ -25,7 +25,10 @@ def main():
         sys.exit(1)
 
     # Get Jetconf version
-    jetconf_version = get_distribution("jetconf").version
+    try:
+        jetconf_version = get_distribution("jetconf").version
+    except DistributionNotFound:
+        jetconf_version = "(not found)"
 
     # Parse command line arguments
     config_file = "config.yaml"

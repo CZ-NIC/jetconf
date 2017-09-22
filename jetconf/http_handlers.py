@@ -392,12 +392,7 @@ def _post(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse
         ds.lock_data(username)
 
         try:
-            try:
-                staging_root = ds.get_data_root_staging(rpc1.username)
-            except StagingDataException:
-                info("Starting transaction for user \"{}\"".format(rpc1.username))
-                ds.make_user_journal(rpc1.username, None)
-                staging_root = ds.get_data_root_staging(rpc1.username)
+            staging_root = ds.get_data_root_staging(rpc1.username)
             new_root = ds.create_node_rpc(staging_root, rpc1, json_data)
             ds.add_to_journal_rpc(ChangeType.CREATE, rpc1, json_data, *new_root)
             http_resp = HttpResponse.empty(HttpStatus.Created)
@@ -490,12 +485,7 @@ def _put(ds: BaseDatastore, pth: str, username: str, data: str) -> HttpResponse:
         ds.lock_data(username)
 
         try:
-            try:
-                staging_root = ds.get_data_root_staging(rpc1.username)
-            except StagingDataException:
-                info("Starting transaction for user \"{}\"".format(rpc1.username))
-                ds.make_user_journal(rpc1.username, None)
-                staging_root = ds.get_data_root_staging(rpc1.username)
+            staging_root = ds.get_data_root_staging(rpc1.username)
             new_root = ds.update_node_rpc(staging_root, rpc1, json_data)
             ds.add_to_journal_rpc(ChangeType.REPLACE, rpc1, json_data, *new_root)
             http_resp = HttpResponse.empty(HttpStatus.NoContent, status_in_body=False)
@@ -568,12 +558,7 @@ def _delete(ds: BaseDatastore, pth: str, username: str) -> HttpResponse:
             ds.lock_data(username)
 
             try:
-                try:
-                    staging_root = ds.get_data_root_staging(rpc1.username)
-                except StagingDataException:
-                    info("Starting transaction for user \"{}\"".format(rpc1.username))
-                    ds.make_user_journal(rpc1.username, None)
-                    staging_root = ds.get_data_root_staging(rpc1.username)
+                staging_root = ds.get_data_root_staging(rpc1.username)
                 new_root = ds.delete_node_rpc(staging_root, rpc1)
                 ds.add_to_journal_rpc(ChangeType.DELETE, rpc1, None, *new_root)
                 http_resp = HttpResponse.empty(HttpStatus.NoContent, status_in_body=False)

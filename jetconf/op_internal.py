@@ -8,17 +8,6 @@ class OpHandlersContainer:
     def __init__(self, ds: BaseDatastore):
         self.ds = ds
 
-    def jetconf_conf_start(self, rpc: RpcInfo) -> JsonNodeT:
-        # try:
-        #     transaction_opts = rpc.op_input_args["options"]
-        # except (TypeError, KeyError):
-        #     transaction_opts = None
-        # self.ds.make_user_journal(rpc.username, transaction_opts)
-        self.ds.make_user_journal(rpc.username, None)
-        ret_data = {"status": "OK"}
-
-        return ret_data
-
     def jetconf_conf_status(self, rpc: RpcInfo) -> JsonNodeT:
         try:
             usr_journal = self.ds.get_user_journal(rpc.username)
@@ -97,7 +86,6 @@ class OpHandlersContainer:
 
 def register_op_handlers(ds: BaseDatastore):
     op_handlers_obj = OpHandlersContainer(ds)
-    # OP_HANDLERS.register(op_handlers_obj.jetconf_conf_start, "jetconf:conf-start")
     OP_HANDLERS.register(op_handlers_obj.jetconf_conf_status, "jetconf:conf-status")
     OP_HANDLERS.register(op_handlers_obj.jetconf_conf_reset, "jetconf:conf-reset")
     OP_HANDLERS.register(op_handlers_obj.jetconf_conf_commit, "jetconf:conf-commit")

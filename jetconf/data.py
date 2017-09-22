@@ -86,9 +86,8 @@ class DataChange:
 
 
 class UsrChangeJournal:
-    def __init__(self, root_origin: InstanceNode, transaction_opts: Optional[JsonNodeT]):
+    def __init__(self, root_origin: InstanceNode):
         self._root_origin = root_origin
-        self._transaction_opts = transaction_opts
         self._journal = []  # type: List[DataChange]
 
     def get_root_head(self) -> InstanceNode:
@@ -156,7 +155,7 @@ class UsrChangeJournal:
         # Call commit begin hook
         begin_hook_failed = False
         try:
-            ds.commit_begin_callback(self._transaction_opts)
+            ds.commit_begin_callback()
         except Exception as e:
             error("Exception occured in commit_begin handler: {}".format(epretty(e)))
             begin_hook_failed = True
@@ -177,7 +176,7 @@ class UsrChangeJournal:
         end_hook_abort_failed = False
         if not (begin_hook_failed or conf_handler_failed):
             try:
-                ds.commit_end_callback(self._transaction_opts, failed=False)
+                ds.commit_end_callback(failed=False)
             except Exception as e:
                 error("Exception occured in commit_end handler: {}".format(epretty(e)))
                 end_hook_failed = True
@@ -185,7 +184,7 @@ class UsrChangeJournal:
         if begin_hook_failed or conf_handler_failed or end_hook_failed:
             try:
                 # Call commit_end callback again with "failed" argument set to True
-                ds.commit_end_callback(self._transaction_opts, failed=True)
+                ds.commit_end_callback(failed=True)
             except Exception as e:
                 error("Exception occured in commit_end handler (abort): {}".format(epretty(e)))
                 end_hook_abort_failed = True
@@ -205,10 +204,6 @@ class UsrChangeJournal:
 
 class BaseDatastore:
     def __init__(self, dm: DataModel, with_nacm: bool=False):
-        def _blankfn(*args, **kwargs):
-            pass
-
-        self.name = ""
         self.nacm = None    # type: NacmConfig
         self._data = None   # type: InstanceNode
         self._data_history = []     # type: List[InstanceNode]
@@ -217,6 +212,10 @@ class BaseDatastore:
         self._data_lock = Lock()
         self._lock_username = None  # type: str
         self._usr_journals = {}     # type: Dict[str, UsrChangeJournal]
+
+        def _blankfn(*args, **kwargs):
+            pass
+
         self.commit_begin_callback = _blankfn   # type: Callable[..., bool]
         self.commit_end_callback = _blankfn     # type: Callable[..., bool]
 
@@ -236,15 +235,17 @@ class BaseDatastore:
         else:
             return self._data
 
+    # Returns the root node of YANG library data tree
     def get_yl_data_root(self) -> InstanceNode:
         return self._yang_lib_data
 
+    # Journal manipulation methods
     def make_user_journal(self, username: str, transaction_opts: Optional[JsonNodeT]):
         usr_journal = self._usr_journals.get(username)
         if usr_journal is not None:
             raise StagingDataException("Transaction for user \"{}\" already opened".format(username))
         else:
-            self._usr_journals[username] = UsrChangeJournal(self._data, transaction_opts)
+            self._usr_journals[username] = UsrChangeJournal(self._data)
 
     def get_user_journal(self, username: str):
         usr_journal = self._usr_journals.get(username)
@@ -260,9 +261,15 @@ class BaseDatastore:
         else:
             raise StagingDataException("Transaction for user \"{}\" not opened".format(username))
 
-    # Returns the root node of data tree
+    # Returns the root node of staging data tree (starts a new transaction if nonexistent)
     def get_data_root_staging(self, username: str) -> InstanceNode:
-        usr_journal = self.get_user_journal(username)
+        try:
+            usr_journal = self.get_user_journal(username)
+        except StagingDataException:
+            info("Starting new transaction for user \"{}\"".format(username))
+            self.make_user_journal(username, None)
+            usr_journal = self.get_user_journal(username)
+
         root = usr_journal.get_root_head()
         return root
 
@@ -293,7 +300,7 @@ class BaseDatastore:
             debug_data("Cannot find schema node for " + sch_pth)
         return sn
 
-    # Notify data observers about change in datastore
+    # Run configuration data handlers
     def run_conf_edit_handler(self, ii: InstanceRoute, ch: DataChange):
         sch_pth_list = list(filter(lambda n: isinstance(n, MemberName), ii))
 
@@ -350,13 +357,7 @@ class BaseDatastore:
         ii = self.parse_ii(rpc.path, rpc.path_format)
 
         if staging:
-            try:
-                root = self.get_data_root_staging(rpc.username)
-            except StagingDataException:
-                # root = self._data
-                info("Starting transaction for user \"{}\"".format(rpc.username))
-                self.make_user_journal(rpc.username, None)
-                root = self.get_data_root_staging(rpc.username)
+            root = self.get_data_root_staging(rpc.username)
         else:
             root = self._data
 
@@ -420,6 +421,8 @@ class BaseDatastore:
                             else:
                                 state_handler_val = sdh.generate_item(ii, rpc.username, staging)
                                 state_root_n = sdh.schema_node.orphan_entry(state_handler_val)
+                        else:
+                            state_root_n = None
 
                         # Select desired subnode from handler-generated content
                         ii_prefix, ii_rel = sdh.schema_node.split_instance_route(ii)
@@ -439,13 +442,15 @@ class BaseDatastore:
                         if isinstance(node.value, ObjectValue):
                             if node.schema_node is state_root_sn.parent:
                                 ii_gen = DataHelpers.node_get_ii(node)
-                                sdh = STATE_DATA_HANDLES.get_handler(state_root_sch_pth)
-                                if sdh is not None:
+                                _sdh = STATE_DATA_HANDLES.get_handler(state_root_sch_pth)
+                                if _sdh is not None:
                                     try:
-                                        if isinstance(sdh, StateDataContainerHandler):
-                                            state_handler_val = sdh.generate_node(ii_gen, rpc.username, staging)
-                                        elif isinstance(sdh, StateDataListHandler):
-                                            state_handler_val = sdh.generate_list(ii_gen, rpc.username, staging)
+                                        if isinstance(_sdh, StateDataContainerHandler):
+                                            _state_handler_val = _sdh.generate_node(ii_gen, rpc.username, staging)
+                                        elif isinstance(_sdh, StateDataListHandler):
+                                            _state_handler_val = _sdh.generate_list(ii_gen, rpc.username, staging)
+                                        else:
+                                            _state_handler_val = None
                                     except Exception as e:
                                         error("Error occured in state data generator (sn: {})".format(state_root_sch_pth))
                                         error(epretty(e))
@@ -457,7 +462,7 @@ class BaseDatastore:
                                             nm_name = state_root_sn.qual_name[1] + ":" + state_root_sn.qual_name[0]
 
                                         # print("nm={}".format(nm_name))
-                                        node = node.put_member(nm_name, state_handler_val, raw=True).up()
+                                        node = node.put_member(nm_name, _state_handler_val, raw=True).up()
                             else:
                                 for key in node:
                                     member = node[key]
@@ -813,16 +818,15 @@ class BaseDatastore:
         else:
             raise NoHandlerError("No active changelist for user \"{}\"".format(rpc.username))
 
-    # Locks datastore data
+    # Lock datastore data
     def lock_data(self, username: str = None, blocking: bool=True):
         ret = self._data_lock.acquire(blocking=blocking, timeout=1)
         if ret:
             self._lock_username = username or "(unknown)"
-            debug_data("Acquired lock in datastore \"{}\" for user \"{}\"".format(self.name, username))
+            debug_data("Acquired datastore lock for user \"{}\"".format(username))
         else:
             raise DataLockError(
-                "Failed to acquire lock in datastore \"{}\" for user \"{}\", already locked by \"{}\"".format(
-                    self.name,
+                "Failed to acquire datastore lock for user \"{}\", already locked by \"{}\"".format(
                     username,
                     self._lock_username
                 )
@@ -831,7 +835,7 @@ class BaseDatastore:
     # Unlock datastore data
     def unlock_data(self):
         self._data_lock.release()
-        debug_data("Released lock in datastore \"{}\" for user \"{}\"".format(self.name, self._lock_username))
+        debug_data("Released datastore lockfor user \"{}\"".format(self._lock_username))
         self._lock_username = None
 
     # Load data from persistent storage
