@@ -240,7 +240,7 @@ class BaseDatastore:
         return self._yang_lib_data
 
     # Journal manipulation methods
-    def make_user_journal(self, username: str, transaction_opts: Optional[JsonNodeT]):
+    def make_user_journal(self, username: str):
         usr_journal = self._usr_journals.get(username)
         if usr_journal is not None:
             raise StagingDataException("Transaction for user \"{}\" already opened".format(username))
@@ -267,7 +267,7 @@ class BaseDatastore:
             usr_journal = self.get_user_journal(username)
         except StagingDataException:
             info("Starting new transaction for user \"{}\"".format(username))
-            self.make_user_journal(username, None)
+            self.make_user_journal(username)
             usr_journal = self.get_user_journal(username)
 
         root = usr_journal.get_root_head()
