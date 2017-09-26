@@ -111,7 +111,7 @@ class UsrChangeJournal:
         # Call commit begin hook
         begin_hook_failed = False
         try:
-            ds.commit_begin_callback()
+            ds.handlers.commit_begin()
         except Exception as e:
             error("Exception occured in commit_begin handler: {}".format(epretty(e)))
             begin_hook_failed = True
@@ -132,7 +132,7 @@ class UsrChangeJournal:
         end_hook_abort_failed = False
         if not (begin_hook_failed or conf_handler_failed):
             try:
-                ds.commit_end_callback(failed=False)
+                ds.handlers.commit_end(failed=False)
             except Exception as e:
                 error("Exception occured in commit_end handler: {}".format(epretty(e)))
                 end_hook_failed = True
@@ -140,7 +140,7 @@ class UsrChangeJournal:
         if begin_hook_failed or conf_handler_failed or end_hook_failed:
             try:
                 # Call commit_end callback again with "failed" argument set to True
-                ds.commit_end_callback(failed=True)
+                ds.handlers.commit_end(failed=True)
             except Exception as e:
                 error("Exception occured in commit_end handler (abort): {}".format(epretty(e)))
                 end_hook_abort_failed = True
