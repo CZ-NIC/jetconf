@@ -1,6 +1,5 @@
 from . import config
 from .helpers import JsonNodeT
-from .handler_list import OP_HANDLERS
 from .data import BaseDatastore, RpcInfo, StagingDataException
 
 
@@ -85,9 +84,9 @@ class OpHandlersContainer:
 
 
 def register_op_handlers(ds: BaseDatastore):
-    op_handlers_obj = OpHandlersContainer(ds)
-    OP_HANDLERS.register(op_handlers_obj.jetconf_conf_status, "jetconf:conf-status")
-    OP_HANDLERS.register(op_handlers_obj.jetconf_conf_reset, "jetconf:conf-reset")
-    OP_HANDLERS.register(op_handlers_obj.jetconf_conf_commit, "jetconf:conf-commit")
-    OP_HANDLERS.register(op_handlers_obj.jetconf_get_schema_digest, "jetconf:get-schema-digest")
-    OP_HANDLERS.register(op_handlers_obj.jetconf_get_list_length, "jetconf:get-list-length")
+    ds.handlers.op_obj = OpHandlersContainer(ds)
+    ds.handlers.op.register(ds.handlers.op_obj.jetconf_conf_status, "jetconf:conf-status")
+    ds.handlers.op.register(ds.handlers.op_obj.jetconf_conf_reset, "jetconf:conf-reset")
+    ds.handlers.op.register(ds.handlers.op_obj.jetconf_conf_commit, "jetconf:conf-commit")
+    ds.handlers.op.register(ds.handlers.op_obj.jetconf_get_schema_digest, "jetconf:get-schema-digest")
+    ds.handlers.op.register(ds.handlers.op_obj.jetconf_get_list_length, "jetconf:get-list-length")

@@ -111,7 +111,6 @@ class Jetconf:
         # Create HTTP server
         self.rest_srv = RestServer()
         self.rest_srv.register_api_handlers(datastore)
-        self.rest_srv.register_static_handlers()
 
     def run(self):
         # Set signal handlers

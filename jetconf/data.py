@@ -1,22 +1,13 @@
 import json
 
 from threading import Lock
-from enum import Enum
 from colorlog import error, warning as warn, info
 from typing import List, Any, Dict, Callable, Optional, Tuple
 from datetime import datetime
 
 from yangson.datamodel import DataModel
-from yangson.enumerations import ContentType, ValidationScope
-from yangson.schemanode import (
-    SchemaNode,
-    ListNode,
-    LeafListNode,
-    SchemaError,
-    SemanticError,
-    InternalNode,
-    ContainerNode
-)
+from yangson.enumerations import ValidationScope
+from yangson.schemanode import SchemaNode, ListNode, LeafListNode, InternalNode
 from yangson.instvalue import ArrayValue, ObjectValue
 from yangson.instance import (
     InstanceNode,
@@ -27,24 +18,16 @@ from yangson.instance import (
     EntryIndex,
     InstanceRoute,
     ArrayEntry,
-    RootNode,
-    ObjectMember
+    RootNode
 )
 
 from . import config
 from .helpers import PathFormat, ErrorHelpers, LogHelpers, DataHelpers, JsonNodeT
 from .nacm import NacmConfig, Permission, Action
-from .handler_list import (
-    OP_HANDLERS,
-    STATE_DATA_HANDLES,
-    CONF_DATA_HANDLES,
-    ConfDataObjectHandler,
-    ConfDataListHandler,
-    StateDataContainerHandler,
-    StateDataListHandler
-)
+from .journal import ChangeType, UsrChangeJournal, RpcInfo, DataChange
+from .handler_base import ConfDataObjectHandler, ConfDataListHandler, StateDataContainerHandler, StateDataListHandler
+from .handler_list import ConfDataHandlerList, StateDataHandlerList, OpHandlerList
 from .errors import (
-    ConfHandlerFailedError,
     StagingDataException,
     NoHandlerForStateDataError,
     NoHandlerForOpError,
@@ -59,170 +42,31 @@ epretty = ErrorHelpers.epretty
 debug_data = LogHelpers.create_module_dbg_logger(__name__)
 
 
-class ChangeType(Enum):
-    CREATE = 0,
-    REPLACE = 1,
-    DELETE = 2
-
-
-class RpcInfo:
+class BackendHandlers:
     def __init__(self):
-        self.username = None    # type: str
-        self.path = None        # type: str
-        self.qs = None          # type: Dict[str, List[str]]
-        self.path_format = PathFormat.URL   # type: PathFormat
-        self.skip_nacm_check = False        # type: bool
-        self.op_name = None                 # type: str
-        self.op_input_args = None           # type: ObjectValue
-
-
-class DataChange:
-    def __init__(self, change_type: ChangeType, rpc_info: RpcInfo, input_data: JsonNodeT, root_after_change: InstanceNode, nacm_modified: bool):
-        self.change_type = change_type
-        self.rpc_info = rpc_info
-        self.input_data = input_data
-        self.root_after_change = root_after_change
-        self.nacm_modified = nacm_modified
-
-
-class UsrChangeJournal:
-    def __init__(self, root_origin: InstanceNode):
-        self._root_origin = root_origin
-        self._journal = []  # type: List[DataChange]
-
-    def get_root_head(self) -> InstanceNode:
-        if len(self._journal) > 0:
-            return self._journal[-1].root_after_change
-        else:
-            return self._root_origin
-
-    def get_root_origin(self) -> InstanceNode:
-        return self._root_origin
-
-    def add(self, change: DataChange):
-        self._journal.append(change)
-
-    def list(self) -> JsonNodeT:
-        changes_info = []
-        for ch in self._journal:
-            changes_info.append([ch.change_type.name, ch.rpc_info.path])
-
-        return changes_info
-
-    def commit(self, ds: "BaseDatastore") -> bool:
-        nacm_modified = False
-
-        if len(self._journal) == 0:
-            return False
-
-        if hash(ds.get_data_root()) == hash(self._root_origin):
-            info("Commiting new configuration (swapping roots)")
-            # Set new root
-            nr = self.get_root_head()
-
-            for change in self._journal:
-                nacm_modified = nacm_modified or change.nacm_modified
-        else:
-            info("Commiting new configuration (re-applying changes)")
-            nr = ds.get_data_root()
-
-            for change in self._journal:
-                nacm_modified = nacm_modified or change.nacm_modified
-
-                if change.change_type == ChangeType.CREATE:
-                    nr = ds.create_node_rpc(nr, change.rpc_info, change.input_data)[0]
-                elif change.change_type == ChangeType.REPLACE:
-                    nr = ds.update_node_rpc(nr, change.rpc_info, change.input_data)[0]
-                elif change.change_type == ChangeType.DELETE:
-                    nr = ds.delete_node_rpc(nr, change.rpc_info)[0]
-
-        try:
-            # Validate syntax and semantics of new data
-            if config.CFG.glob["VALIDATE_TRANSACTIONS"] is True:
-                nr.validate(ValidationScope.all, ContentType.config)
-        except (SchemaError, SemanticError) as e:
-            error("Data validation error:")
-            error(epretty(e))
-            raise e
-
-        # Set new data root
-        ds.set_data_root(nr)
-
-        # Update NACM if NACM data has been affected by any edit
-        if nacm_modified and ds.nacm is not None:
-            ds.nacm.update()
-
-        # Call commit begin hook
-        begin_hook_failed = False
-        try:
-            ds.commit_begin_callback()
-        except Exception as e:
-            error("Exception occured in commit_begin handler: {}".format(epretty(e)))
-            begin_hook_failed = True
-
-        # Run schema node handlers
-        conf_handler_failed = False
-        if not begin_hook_failed:
-            try:
-                for change in self._journal:
-                    ii = ds.parse_ii(change.rpc_info.path, change.rpc_info.path_format)
-                    ds.run_conf_edit_handler(ii, change)
-            except Exception as e:
-                error("Exception occured in edit handler: {}".format(epretty(e)))
-                conf_handler_failed = True
-
-        # Call commit end hook
-        end_hook_failed = False
-        end_hook_abort_failed = False
-        if not (begin_hook_failed or conf_handler_failed):
-            try:
-                ds.commit_end_callback(failed=False)
-            except Exception as e:
-                error("Exception occured in commit_end handler: {}".format(epretty(e)))
-                end_hook_failed = True
-
-        if begin_hook_failed or conf_handler_failed or end_hook_failed:
-            try:
-                # Call commit_end callback again with "failed" argument set to True
-                ds.commit_end_callback(failed=True)
-            except Exception as e:
-                error("Exception occured in commit_end handler (abort): {}".format(epretty(e)))
-                end_hook_abort_failed = True
-
-        # Return to previous version of data and raise an exception if something went wrong
-        if begin_hook_failed or conf_handler_failed or end_hook_failed or end_hook_abort_failed:
-            ds.data_root_rollback(history_steps=1, store_current=False)
-
-            # Update NACM again after rollback
-            if nacm_modified and ds.nacm is not None:
-                ds.nacm.update()
-
-            raise ConfHandlerFailedError("(see logged)")
-
-        return True
-
-
-class BaseDatastore:
-    def __init__(self, dm: DataModel, with_nacm: bool=False):
-        self.nacm = None    # type: NacmConfig
-        self._data = None   # type: InstanceNode
-        self._data_history = []     # type: List[InstanceNode]
-        self._yang_lib_data = None  # type: InstanceNode
-        self._dm = dm       # type: DataModel
-        self._data_lock = Lock()
-        self._lock_username = None  # type: str
-        self._usr_journals = {}     # type: Dict[str, UsrChangeJournal]
+        self.conf = ConfDataHandlerList()
+        self.state = StateDataHandlerList()
+        self.op = OpHandlerList()
 
         def _blankfn(*args, **kwargs):
             pass
 
-        self.commit_begin_callback = _blankfn   # type: Callable[..., bool]
-        self.commit_end_callback = _blankfn     # type: Callable[..., bool]
+        self.commit_begin = _blankfn   # type: Callable[[], None]
+        self.commit_end = _blankfn     # type: Callable[[bool], None]
 
-        if with_nacm:
-            self.nacm = NacmConfig(self, self._dm)
 
-        self._yang_lib_data = self._dm.from_raw(self._dm.yang_library)
+class BaseDatastore:
+    def __init__(self, dm: DataModel, with_nacm: bool=False):
+        self._dm = dm       # type: DataModel
+        self._data = None   # type: InstanceNode
+        self._yang_lib_data = self._dm.from_raw(self._dm.yang_library)  # type: InstanceNode
+        self._data_history = []     # type: List[InstanceNode]
+        self._data_lock = Lock()
+        self._lock_username = None  # type: str
+        self._usr_journals = {}     # type: Dict[str, UsrChangeJournal]
+        self.nacm = None    # type: NacmConfig
+        self.handlers = BackendHandlers()
+        self.nacm = NacmConfig(self, self._dm) if with_nacm else None
 
     # Returns DataModel object
     def get_dm(self) -> DataModel:
@@ -321,7 +165,7 @@ class BaseDatastore:
         if sn is None:
             return
 
-        h = CONF_DATA_HANDLES.get_handler(id(sn))
+        h = self.handlers.conf.get_handler(id(sn))
         if h is not None:
             info("handler for actual data node triggered")
             if isinstance(h, ConfDataObjectHandler):
@@ -341,7 +185,7 @@ class BaseDatastore:
         else:
             sn = sn.parent
             while sn is not None:
-                h = CONF_DATA_HANDLES.get_handler(id(sn))
+                h = self.handlers.conf.get_handler(id(sn))
                 if h is not None and isinstance(h, ConfDataObjectHandler):
                     info("handler for superior data node triggered, replace")
                     # print(h.schema_path)
@@ -409,7 +253,7 @@ class BaseDatastore:
 
                 if is_child:
                     # Direct request for the state data
-                    sdh = STATE_DATA_HANDLES.get_handler(state_root_sch_pth)
+                    sdh = self.handlers.state.get_handler(state_root_sch_pth)
                     if sdh is not None:
                         if isinstance(sdh, StateDataContainerHandler):
                             state_handler_val = sdh.generate_node(ii, rpc.username, staging)
@@ -442,7 +286,7 @@ class BaseDatastore:
                         if isinstance(node.value, ObjectValue):
                             if node.schema_node is state_root_sn.parent:
                                 ii_gen = DataHelpers.node_get_ii(node)
-                                _sdh = STATE_DATA_HANDLES.get_handler(state_root_sch_pth)
+                                _sdh = self.handlers.state.get_handler(state_root_sch_pth)
                                 if _sdh is not None:
                                     try:
                                         if isinstance(_sdh, StateDataContainerHandler):
@@ -779,7 +623,7 @@ class BaseDatastore:
     def invoke_op_rpc(self, rpc: RpcInfo) -> JsonNodeT:
         if rpc.op_name.startswith("jetconf:"):
             # Jetconf internal operation
-            op_handler = OP_HANDLERS.get_handler(rpc.op_name)
+            op_handler = self.handlers.op.get_handler(rpc.op_name)
             if op_handler is None:
                 raise NoHandlerForOpError(rpc.op_name)
 
@@ -793,7 +637,7 @@ class BaseDatastore:
                         "Invocation of \"{}\" operation denied for user \"{}\"".format(rpc.op_name, rpc.username)
                     )
 
-            op_handler = OP_HANDLERS.get_handler(rpc.op_name)
+            op_handler = self.handlers.op.get_handler(rpc.op_name)
             if op_handler is None:
                 raise NoHandlerForOpError(rpc.op_name)
 
