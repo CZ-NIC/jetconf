@@ -4,15 +4,15 @@ import ssl
 from io import BytesIO
 from collections import OrderedDict
 from colorlog import error, warning as warn, info
-from typing import List, Tuple, Dict, Callable, Optional
+from typing import Dict, Optional
 
 from h2.config import H2Configuration
 from h2.connection import H2Connection
 from h2.errors import ErrorCodes as H2ErrorCodes
 from h2.exceptions import ProtocolError
-from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged, StreamEnded, WindowUpdated
+from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged, StreamEnded, WindowUpdated, ConnectionTerminated
 
-from . import config, http_handlers as handlers
+from . import config
 from .helpers import SSLCertT, LogHelpers
 from .data import BaseDatastore
 from .http_handlers import (
@@ -44,6 +44,7 @@ class ResponseData:
 
 class H2Protocol(asyncio.Protocol):
     HTTP_HANDLERS = None    # type: HttpHandlersImpl
+    LOOP = None     # type: asyncio.BaseEventLoop
     
     def __init__(self):
         self.conn = H2Connection(H2Configuration(client_side=False, header_encoding="utf-8"))
@@ -64,7 +65,7 @@ class H2Protocol(asyncio.Protocol):
 
         if agreed_protocol is None:
             error("Connection error, client does not support HTTP/2")
-            transport.close()
+            self.transport.close()
         else:
             self.conn.initiate_connection()
 
@@ -87,6 +88,7 @@ class H2Protocol(asyncio.Protocol):
                     # Check if incoming data are not excessively large
                     if (stream_data.data.tell() + len(event.data)) < (config.CFG.http["UPLOAD_SIZE_LIMIT"] * 1048576):
                         stream_data.data.write(event.data)
+                        self.conn.acknowledge_received_data(len(event.data), event.stream_id)
                     else:
                         stream_data.data_overflow = True
                         self.conn.reset_stream(event.stream_id, error_code=H2ErrorCodes.ENHANCE_YOUR_CALM)
@@ -131,15 +133,12 @@ class H2Protocol(asyncio.Protocol):
                 self.conn.update_settings(changed_settings)
             elif isinstance(event, WindowUpdated):
                 try:
-                    debug_srv(
-                        "str {} nw={}".format(event.stream_id, self.conn.local_flow_control_window(event.stream_id))
-                    )
+                    debug_srv("str {} nw={}".format(event.stream_id, self.conn.local_flow_control_window(event.stream_id)))
                     self.send_response_continue(event.stream_id)
                 except (ProtocolError, KeyError) as e:
-                    # debug_srv("wupdexception strid={}: {}".format(event.stream_id, str(e)))
-                    pass
-            # else:
-            #     print(type(event))
+                    debug_srv("wupexception strid={}: {}".format(event.stream_id, str(e)))
+            elif isinstance(event, ConnectionTerminated):
+                self.transport.close()
 
             dts = self.conn.data_to_send()
             if dts:
@@ -152,6 +151,29 @@ class H2Protocol(asyncio.Protocol):
     def run_request_handler(self, headers: OrderedDict, stream_id: int, data: Optional[str]):
         url_path = headers[":path"].split("?")[0].rstrip("/")
         method = headers[":method"]
+
+        ################
+        # if url_path == "/evtest":
+        #     self.ev_stream_start_response(stream_id)
+        #     i = 0
+        #
+        #     def cb():
+        #         self.ev_stream_send_data("ahoj\ncau\n1", stream_id)
+        #
+        #         nonlocal i
+        #         i += 1
+        #         if i < 5:
+        #             self.LOOP.call_later(1, cb)
+        #         elif stream_id in self.conn.streams.keys():
+        #                 self.conn.end_stream(stream_id)
+        #
+        #         dts = self.conn.data_to_send()
+        #         if dts:
+        #             self.transport.write(dts)
+        #
+        #     cb()
+        #     return
+        ###############
 
         if method == "HEAD":
             h = self.HTTP_HANDLERS.list.get("GET", url_path)
@@ -223,6 +245,30 @@ class H2Protocol(asyncio.Protocol):
         self.conn.send_data(stream_id, bytes(), end_stream=True)
         del self.resp_stream_data[stream_id]
 
+    def ev_stream_start_response(self, stream_id: int):
+        resp_headers = (
+            (":status", "200"),
+            ("Transfer-Encoding", "Chunked"),
+            ("Content-Type", "text/event-stream"),
+            ("Server", config.CFG.http["SERVER_NAME"]),
+            ("Cache-Control", "No-Cache"),
+            ("Access-Control-Allow-Origin", "*"),
+            ("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE"),
+            ("Access-Control-Allow-Headers", "Content-Type")
+        )
+
+        self.conn.send_headers(stream_id, resp_headers)
+
+    def ev_stream_send_data(self, data: str, stream_id: int):
+        if stream_id not in self.conn.streams.keys():
+            return
+
+        data_lines = data.splitlines()
+        data_lines_pfxed = list(map(lambda l: "data: " + l + "\n", data_lines))
+        data_to_send = "".join(data_lines_pfxed) + "\n"
+
+        self.conn.send_data(stream_id, data_to_send.encode(), end_stream=False)
+
 
 class RestServer:
     def __init__(self):
@@ -252,6 +298,8 @@ class RestServer:
             ssl=ssl_context
         )
         self.server = self.loop.run_until_complete(listener)
+
+        H2Protocol.LOOP = self.loop
 
     # Register HTTP handlers
     @staticmethod

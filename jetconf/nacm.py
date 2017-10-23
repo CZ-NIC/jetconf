@@ -290,6 +290,10 @@ class UserRuleSet:
         self.default_write = config.default_write
         self.default_exec = config.default_exec
         self.rule_lists = []
+        self.rule_tree = None
+
+        if not self.nacm_enabled:
+            return
 
         user_groups = list(filter(lambda x: username in x.users, config.nacm_groups))
         user_groups_names = list(map(lambda x: x.name, user_groups))

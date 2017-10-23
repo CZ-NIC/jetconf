@@ -39,13 +39,6 @@ class Jetconf:
             self.fl = -1
             raise JetconfInitError("Jetconf already running (pidfile exists)")
 
-        # Set signal handlers
-        # def sig_exit_handler(signum, frame):
-        #     self.exit_clean(0)
-        #
-        # signal.signal(signal.SIGTERM, sig_exit_handler)
-        # signal.signal(signal.SIGINT, sig_exit_handler)
-
         # Import backend modules
         backend_package = self.config.glob["BACKEND_PACKAGE"]
         try:

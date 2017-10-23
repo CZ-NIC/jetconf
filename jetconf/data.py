@@ -679,7 +679,7 @@ class BaseDatastore:
     # Unlock datastore data
     def unlock_data(self):
         self._data_lock.release()
-        debug_data("Released datastore lockfor user \"{}\"".format(self._lock_username))
+        debug_data("Released datastore lock for user \"{}\"".format(self._lock_username))
         self._lock_username = None
 
     # Load data from persistent storage

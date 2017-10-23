@@ -1,3 +1,4 @@
+import sys
 import logging
 
 from colorlog import debug, getLogger
@@ -97,12 +98,12 @@ class DateTimeHelpers:
 
 class ErrorHelpers:
     @staticmethod
-    def epretty(e: BaseException, module_name: str=None) -> str:
-        err_str = e.__class__.__name__ + ": " + str(e)
-        if module_name is not None:
-            return "In module " + module_name + ": " + err_str
-        else:
-            return err_str
+    def epretty(e: BaseException) -> str:
+        ex_type, ex_val, ex_tb = sys.exc_info()
+        line_no = ex_tb.tb_lineno
+        filename = ex_tb.tb_frame.f_code.co_filename
+
+        return "{}: {} (file {}, line {})".format(e.__class__.__name__, str(e), filename, line_no)
 
 
 class LogHelpers:

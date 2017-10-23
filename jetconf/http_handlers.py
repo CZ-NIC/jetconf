@@ -6,12 +6,12 @@ from collections import OrderedDict
 from enum import Enum
 from colorlog import error, warning as warn, info
 from urllib.parse import parse_qs
-from datetime import datetime
 from typing import Dict, List, Tuple, Any, Optional, Callable
 
 from yangson.exceptions import YangsonException, NonexistentSchemaNode, SchemaError, SemanticError
 from yangson.schemanode import ContainerNode, ListNode, GroupNode, LeafNode
 from yangson.instance import NonexistentInstance, InstanceValueError, RootNode
+from yangson.instvalue import ArrayValue
 
 from . import config
 from .helpers import CertHelpers, DateTimeHelpers, ErrorHelpers, LogHelpers, SSLCertT
@@ -202,15 +202,16 @@ class HttpHandlersImpl:
             "unknown_request"
         )
 
-    @staticmethod
-    def _get_yl_date() -> str:
-        try:
-            yang_lib_date_ts = os.path.getmtime(os.path.join(config.CFG.glob["YANG_LIB_DIR"], "yang-library-data.json"))
-            yang_lib_date = datetime.fromtimestamp(yang_lib_date_ts).strftime("%Y-%m-%d")
-        except OSError:
-            yang_lib_date = None
+    def _get_yl_date(self) -> str:
+        yl_modules = self.ds.get_yl_data_root()["ietf-yang-library:modules-state"]["module"].value  # type: ArrayValue
+        revision_val = None
 
-        return yang_lib_date
+        for module in yl_modules:
+            if module["name"] == "ietf-yang-library":
+                revision_val = module["revision"]
+                break
+
+        return revision_val
 
     def get_api_root(self, headers: OrderedDict, data: Optional[str], client_cert: SSLCertT):
         # Top level api resource (appendix B.1.1)
@@ -372,7 +373,7 @@ class HttpHandlersImpl:
         api_pth = headers[":path"][len(config.CFG.api_root_ops):].rstrip("/")
         op_name_fq = api_pth[1:].split("/", maxsplit=1)[0]
 
-        op_names_dict = dict(map(lambda n: (n[0], None), self.ds.handlers.op.handlers))
+        op_names_dict = dict(map(lambda n: (n, None), self.ds.handlers.op.handlers))
 
         if api_pth == "":
             # GET root
