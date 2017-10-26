@@ -4,12 +4,6 @@ import yaml
 from colorlog import info
 from yaml.parser import ParserError
 
-# For backward compatibility
-CONFIG_GLOBAL = {}
-CONFIG_HTTP = {}
-CONFIG_NACM = {}
-CONFIG = {}
-
 CFG = None  # type: JcConfig
 
 
@@ -71,16 +65,6 @@ class JcConfig:
         self._gen_shortcuts()
 
     def _gen_shortcuts(self):
-        global CONFIG_GLOBAL
-        global CONFIG_HTTP
-        global CONFIG_NACM
-        global CONFIG
-
-        CONFIG_GLOBAL.update(self.glob)
-        CONFIG_HTTP.update(self.http)
-        CONFIG_NACM.update(self.nacm)
-        CONFIG.update(self.root)
-
         api_root = self.http["API_ROOT"]
         api_root_running = self.http["API_ROOT_RUNNING"]
         self.api_root_data = os.path.join(api_root, "data")
@@ -95,11 +79,12 @@ class JcConfig:
             except ParserError as e:
                 raise ValueError(str(e))
 
-            for conf_key in self.root.keys():
+            for conf_key in conf_yaml.keys():
                 try:
                     self.root[conf_key].update(conf_yaml[conf_key])
                 except KeyError:
-                    pass
+                    self.root[conf_key] = {}
+                    self.root[conf_key].update(conf_yaml[conf_key])
 
         self._gen_shortcuts()
 

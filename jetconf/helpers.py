@@ -100,9 +100,13 @@ class ErrorHelpers:
     @staticmethod
     def epretty(e: BaseException) -> str:
         ex_type, ex_val, ex_tb = sys.exc_info()
-        line_no = ex_tb.tb_lineno
-        filename = ex_tb.tb_frame.f_code.co_filename
+        tb_last = ex_tb
 
+        while tb_last.tb_next is not None:
+            tb_last = tb_last.tb_next
+
+        line_no = tb_last.tb_lineno
+        filename = tb_last.tb_frame.f_code.co_filename
         return "{}: {} (file {}, line {})".format(e.__class__.__name__, str(e), filename, line_no)
 
 
