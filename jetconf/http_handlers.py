@@ -120,7 +120,7 @@ class HttpResponse:
                 pass
 
             try:
-                err_body["error-message"] = exception.__class__.__name__ + ": " + exception.message
+                err_body["error-message"] = exception.__class__.__name__ + ": " + str(exception.message)
             except AttributeError:
                 err_body["error-message"] = exception.__class__.__name__ + ": " + str(exception)
 
