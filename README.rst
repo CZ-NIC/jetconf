@@ -30,7 +30,8 @@ Prerequisites
 
 These requirements should be installed by running *Instalation*
 
-```
+::
+
     colorlog==2.10.0
     h2==3.0.1
     hpack==2.3.0
@@ -40,14 +41,15 @@ These requirements should be installed by running *Instalation*
     PyXB==1.2.5
     PyYAML==3.12
     yangson==1.3.16
-```
+
 
 Installation
 ============
 
-```
+::
+
    $ python3 -m pip install jetconf
-```
+
 
 Note that *JetConf* requires Python 3.5.
 
@@ -56,10 +58,11 @@ Running
 
 Running JetConf
 
-```
+::
+
     $ cd jetconf
     $ ./run.py -c <path_to_config_file.yaml>
-```
+
 
 Example configuration (template)
 ============
@@ -68,9 +71,9 @@ In folder 'data' is example template for configuring paths, certificates etc.
 
 example config file
 
-```
+::
     example-config.yaml
-```
+
 
 In this configuration file you have to setup paths.
 
