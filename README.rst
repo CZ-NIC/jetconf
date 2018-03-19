@@ -21,8 +21,7 @@ Python 3. Main features:
 Prerequisites
 =============
 
-*JetConf* requires Python 3.5
-::
+*JetConf* requires Python 3.5 ::
 
     $ sudo apt-get install python3
     $ sudo apt-get install python3-pip
