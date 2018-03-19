@@ -23,10 +23,11 @@ Prerequisites
 
 *JetConf* requires Python 3.5
 
-```
+::
+
     $ sudo apt-get install python3
     $ sudo apt-get install python3-pip
-```
+
 
 These requirements should be installed by running *Instalation*
 
@@ -41,6 +42,7 @@ These requirements should be installed by running *Instalation*
     PyXB==1.2.5
     PyYAML==3.12
     yangson==1.3.16
+    
 
 
 Installation
@@ -62,6 +64,7 @@ Running JetConf
 
     $ cd jetconf
     $ ./run.py -c <path_to_config_file.yaml>
+    
 
 
 Example configuration (template)
@@ -72,7 +75,9 @@ In folder 'data' is example template for configuring paths, certificates etc.
 example config file
 
 ::
+
     example-config.yaml
+    
 
 
 In this configuration file you have to setup paths.
