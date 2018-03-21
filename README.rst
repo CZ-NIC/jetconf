@@ -18,7 +18,7 @@ Python 3. Main features:
 
 * Support for NACM_
 
-Prerequisites
+Requirements
 =============
 
 *JetConf* requires Python 3.5 ::
