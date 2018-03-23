@@ -21,7 +21,7 @@ Python 3. Main features:
 Requirements
 =============
 
-*JetConf* requires Python 3.5 ::
+*JetConf* requires Python 3.5 or newer::
 
     $ sudo apt-get install python3
     $ sudo apt-get install python3-pip
@@ -46,31 +46,35 @@ These requirements should be installed by running *Instalation*
 Installation
 ============
 
+*JetConf* can be installed by PyPI:
+
 ::
 
    $ python3 -m pip install jetconf
 
 
-Note that *JetConf* requires Python 3.5.
-
 Running
 ============
 
-Running JetConf
+Running *JetConf*
 
 ::
 
-    $ cd jetconf
+    $ jetconf -c <path_to_config_file.yaml>
+
+For development purposes, *JetConf* can also be started directly
+from Git repository with run.py script:
+
+::
+
     $ ./run.py -c <path_to_config_file.yaml>
     
-
 
 Example configuration (template)
 ============
 
-In folder 'data' is example template for configuring paths, certificates etc.
-
-example config file
+In the 'data' folder, there is an example template for
+configuring paths, certificates etc.
 
 ::
 
@@ -78,7 +82,8 @@ example config file
     
 
 
-In this configuration file you have to setup paths.
+In this configuration file, you have to modify all paths to match
+your actual file locations.
 
 
 Links
