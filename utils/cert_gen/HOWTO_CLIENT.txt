@@ -1,0 +1,23 @@
+Generating a basic client SSL certificate for testing purposes
+--------------------------------------------------------------------------------
+
+The SSL certificates can be generated using the 'openssl' utility. To automate
+this task, the 'gen_client_cert.sh' script is provided. This will issue a new
+client certificate using the 'CA.pem' as the certification authority.
+
+Note: such certificates are of course not considered trustworthy by common web
+browsers and operating systems, they are only suitable for testing.
+
+To generate a client certificate, just run the provided script as follows:
+./gen_client_cert.sh <username>
+
+The issued certificate will have the "emailAddress" DN in the form of
+username@mail.cz. This will be used as the username by Jetconf server.
+
+The following files will be generated:
+username.pem - the client certificate
+username.key - the client private key
+username_curl.pem - the concateration of previous 2 files. Some utilities, like
+CURL, expect the client certificate in this form.
+username.pfx - certificate and private key in PKCS#12 format. Required for
+importing into web browsers (Chrome, Firefox, ...).
