@@ -1,0 +1,29 @@
+Generating a server SSL certificate for testing purposes
+--------------------------------------------------------------------------------
+
+To generate a new server certificate for Jetconf, which will be in the correct
+form and accepted even by the more pedantic web browsers like Chrome, just run
+the provided gen_server_cert.sh script in the following way:
+
+    ./gen_server_cert.sh <out_file_suffix> <domain/ip>
+or:
+    ./gen_server_cert.sh <out_file_suffix> <domain/ip> <server_key>
+
+The first form will generate a new server private key, while the second one
+lets you to pass the private key file as an argument.
+
+I.e.
+    ./gen_server_cert.sh example example.com
+will create a certificate "server_example.crt" for example.com domain with new
+private key.
+
+The script will autodetect if the certificate is being issued for a domain
+name or an IP address, and sets the appropriate SAN value.
+
+If you want this certificate to be recognized as valid by your web browser,
+the issuing CA's certificate needs to be imported to your browser.
+
+WARNING: It is strongly recommended not to import the provided CA's
+certificate (ca.pem) to your production browser, as it's private key is
+publicly known. If you do so, someone could perform a MITM attack to
+any connection with an SSL-protected website.
