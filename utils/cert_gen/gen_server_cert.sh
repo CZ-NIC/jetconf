@@ -54,7 +54,7 @@ echo -e "\n1. Generating CSR:"
 openssl req -new -key $KEY_FILE -out server_$1.csr -sha256 -config $CSR_CNF_FILE
 
 echo -e "\n2. Signing CSR with test CA's key:"
-openssl x509 -req -in server_$1.csr -CA ca.pem -CAkey ca.key -days 3650 -sha256 -extfile $V3EXT_FILE -out server_$1.crt
+openssl x509 -req -in server_$1.csr -CAcreateserial -CA ca.pem -CAkey ca.key -days 3650 -sha256 -extfile $V3EXT_FILE -out server_$1.crt
 
 rm -f server_$1.csr $CSR_CNF_FILE $V3EXT_FILE
 echo -e "\nDone"
