@@ -11,7 +11,7 @@ echo -e "\n2. Generating CSR:"
 openssl req -new -key $1.key -out $1.req -subj "/CN=Test/emailAddress=$1@mail.cz"
 
 echo -e "\n3. Signing CSR with test CA's key:"
-openssl x509 -req -in $1.req -CA ca.pem -CAkey ca.key -days 3650 -out $1.pem
+openssl x509 -req -in $1.req -CAcreateserial -CA ca.pem -CAkey ca.key -days 3650 -out $1.pem
 rm $1.req
 
 echo -e "\n4. Creating $1_curl.pem (concaterated certificate and key for curl etc.):"
