@@ -18,20 +18,77 @@ Python 3. Main features:
 
 * Support for NACM_
 
-Installation
-============
+Requirements
+=============
+
+*JetConf* requires Python 3.5 or newer::
+
+    $ sudo apt-get install python3
+    $ sudo apt-get install python3-pip
+
+
+These requirements should be installed by running *Instalation*
 
 ::
 
-   python -m pip install jetconf
+    colorlog==2.10.0
+    h2==3.0.1
+    hpack==2.3.0
+    hyperframe==5.0.0
+    pyaml==16.12.2
+    pytz==2016.10
+    PyXB==1.2.5
+    PyYAML==3.12
+    yangson==1.3.16
+    
 
-Note that *JetConf* requires Python 3.5.
+
+Installation
+============
+
+*JetConf* can be installed by PyPI:
+
+::
+
+   $ python3 -m pip install jetconf
+
+
+Running
+============
+
+Running *JetConf*
+
+::
+
+    $ jetconf -c <path_to_config_file.yaml>
+
+For development purposes, *JetConf* can also be started directly
+from Git repository with run.py script:
+
+::
+
+    $ ./run.py -c <path_to_config_file.yaml>
+    
+
+Example configuration (template)
+============
+
+In the 'data' folder, there is an example template for
+configuring paths, certificates etc.
+
+::
+
+    example-config.yaml
+    
+
+
+In this configuration file, you have to modify all paths to match
+your actual file locations.
+
 
 Links
 =====
-
 * `Git repository`_
-
 * `Documentation`_
 
 .. _RESTCONF: https://tools.ietf.org/html/draft-ietf-netconf-restconf-18
