@@ -154,7 +154,12 @@ class BaseDatastore:
             input_member_name_ns, input_member_name = input_member_name_fq.split(":", maxsplit=1)
 
             # Append it to ii
-            if (len(sch_pth_list) == 0) or (sch_pth_list[-1].namespace != input_member_name_ns):
+            schpth_last_ns = None
+            for schpth_seg in sch_pth_list:
+                if schpth_seg.namespace is not None:
+                    schpth_last_ns = schpth_seg.namespace
+
+            if (len(sch_pth_list) == 0) or (schpth_last_ns != input_member_name_ns):
                 sch_pth_list.append(MemberName(input_member_name, input_member_name_ns))
             else:
                 sch_pth_list.append(MemberName(input_member_name, None))
