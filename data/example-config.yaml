@@ -15,13 +15,13 @@ HTTP_SERVER:
     API_ROOT: "/restconf"
     SERVER_NAME: "jetconf-h2"
 
-    SERVER_SSL_CERT: "/home/user/jetconf-conf/server.crt"
-    SERVER_SSL_PRIVKEY: "/home/user/jetconf-conf/server.key"
+    SERVER_SSL_CERT: "/home/user/jetconf-conf/server_localhost.crt"
+    SERVER_SSL_PRIVKEY: "/home/user/jetconf-conf/server_localhost.key"
     CA_CERT: "/home/user/jetconf-conf/ca.pem"
     DBG_DISABLE_CERTS: false
 
 NACM:
-    ALLOWED_USERS: ["lojza@mail.cz"]
+    ALLOWED_USERS: ["example@mail.cz"]
 
 KNOT:
     SOCKET: "/home/user/knot-conf/knot.sock"
