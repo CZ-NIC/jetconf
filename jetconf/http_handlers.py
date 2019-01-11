@@ -10,7 +10,7 @@ from typing import Dict, List, Tuple, Any, Optional, Callable
 
 from yangson.exceptions import YangsonException, NonexistentSchemaNode, SchemaError, SemanticError
 from yangson.schemanode import ContainerNode, ListNode, GroupNode, LeafNode
-from yangson.instance import NonexistentInstance, InstanceValueError, RootNode
+from yangson.instance import NonexistentInstance, InstanceValueError, RootNode, ActionName
 from yangson.instvalue import ArrayValue
 
 from . import config
@@ -469,58 +469,129 @@ class HttpHandlersImpl:
                 exception=e
             )
 
-        try:
-            self.ds.lock_data(username)
-
+        # Check if we are calling an action
+        ii = self.ds.parse_ii(rpc1.path, rpc1.path_format)
+        if isinstance(ii[-1], ActionName):
+            # Calling action on a node
+            ns = tuple(filter(lambda seg: hasattr(seg, "namespace") and (seg.namespace is not None), ii))[-1].namespace
             try:
-                staging_root = self.ds.get_data_root_staging(rpc1.username)
-                new_root = self.ds.create_node_rpc(staging_root, rpc1, json_data)
-                self.ds.add_to_journal_rpc(ChangeType.CREATE, rpc1, json_data, *new_root)
-                http_resp = HttpResponse.empty(HttpStatus.Created)
-            except NacmForbiddenError as e:
-                http_resp = HttpResponse.error(
-                    HttpStatus.Forbidden,
-                    RestconfErrType.Protocol,
-                    ERRTAG_ACCDENIED,
-                    exception=e
-                )
-            except (NonexistentSchemaNode, NonexistentInstance) as e:
-                http_resp = HttpResponse.error(
-                    HttpStatus.NotFound,
-                    RestconfErrType.Protocol,
-                    ERRTAG_INVVALUE,
-                    exception=e
-                )
-            except NoHandlerError as e:
-                http_resp = HttpResponse.error(
-                    HttpStatus.BadRequest,
-                    RestconfErrType.Protocol,
-                    ERRTAG_OPNOTSUPPORTED,
-                    exception=e
-                )
-            except (InstanceValueError, YangsonException, ValueError) as e:
+                input_args = json_data[ns + ":input"]
+            except KeyError as e:
                 http_resp = HttpResponse.error(
                     HttpStatus.BadRequest,
                     RestconfErrType.Protocol,
                     ERRTAG_INVVALUE,
                     exception=e
                 )
-            except InstanceAlreadyPresent as e:
+            else:
+                rpc1.op_input_args = input_args
+                try:
+                    root_running = self.ds.get_data_root()
+                    ret_data = self.ds.invoke_action_rpc(root_running, rpc1)
+                    if ret_data is None:
+                        http_resp = HttpResponse.empty(HttpStatus.NoContent, status_in_body=False)
+                    else:
+                        if not isinstance(ret_data, str):
+                            response = json.dumps(ret_data, indent=4)
+                        else:
+                            response = ret_data
+                        http_resp = HttpResponse(HttpStatus.Ok, response.encode(), CTYPE_YANG_JSON)
+                except NacmForbiddenError as e:
+                    http_resp = HttpResponse.error(
+                        HttpStatus.Forbidden,
+                        RestconfErrType.Protocol,
+                        ERRTAG_ACCDENIED,
+                        exception=e
+                    )
+                except (NonexistentSchemaNode, NonexistentInstance) as e:
+                    http_resp = HttpResponse.error(
+                        HttpStatus.NotFound,
+                        RestconfErrType.Protocol,
+                        ERRTAG_INVVALUE,
+                        exception=e
+                    )
+                except NoHandlerForOpError as e:
+                    http_resp = HttpResponse.error(
+                        HttpStatus.BadRequest,
+                        RestconfErrType.Protocol,
+                        ERRTAG_OPNOTSUPPORTED,
+                        exception=e
+                    )
+                except (SchemaError, SemanticError) as e:
+                    http_resp = HttpResponse.error(
+                        HttpStatus.BadRequest,
+                        RestconfErrType.Protocol,
+                        ERRTAG_INVVALUE,
+                        exception=e
+                    )
+                except (OpHandlerFailedError, StagingDataException, YangsonException) as e:
+                    http_resp = HttpResponse.error(
+                        HttpStatus.InternalServerError,
+                        RestconfErrType.Protocol,
+                        ERRTAG_OPFAILED,
+                        exception=e
+                    )
+                except ValueError as e:
+                    http_resp = HttpResponse.error(
+                        HttpStatus.BadRequest,
+                        RestconfErrType.Protocol,
+                        ERRTAG_INVVALUE,
+                        exception=e
+                    )
+        else:
+            # Creating new node
+            try:
+                self.ds.lock_data(username)
+
+                try:
+                    staging_root = self.ds.get_data_root_staging(rpc1.username)
+                    new_root = self.ds.create_node_rpc(staging_root, rpc1, json_data)
+                    self.ds.add_to_journal_rpc(ChangeType.CREATE, rpc1, json_data, *new_root)
+                    http_resp = HttpResponse.empty(HttpStatus.Created)
+                except NacmForbiddenError as e:
+                    http_resp = HttpResponse.error(
+                        HttpStatus.Forbidden,
+                        RestconfErrType.Protocol,
+                        ERRTAG_ACCDENIED,
+                        exception=e
+                    )
+                except (NonexistentSchemaNode, NonexistentInstance) as e:
+                    http_resp = HttpResponse.error(
+                        HttpStatus.NotFound,
+                        RestconfErrType.Protocol,
+                        ERRTAG_INVVALUE,
+                        exception=e
+                    )
+                except NoHandlerError as e:
+                    http_resp = HttpResponse.error(
+                        HttpStatus.BadRequest,
+                        RestconfErrType.Protocol,
+                        ERRTAG_OPNOTSUPPORTED,
+                        exception=e
+                    )
+                except (InstanceValueError, YangsonException, ValueError) as e:
+                    http_resp = HttpResponse.error(
+                        HttpStatus.BadRequest,
+                        RestconfErrType.Protocol,
+                        ERRTAG_INVVALUE,
+                        exception=e
+                    )
+                except InstanceAlreadyPresent as e:
+                    http_resp = HttpResponse.error(
+                        HttpStatus.Conflict,
+                        RestconfErrType.Protocol,
+                        ERRTAG_EXISTS,
+                        exception=e
+                    )
+            except DataLockError as e:
                 http_resp = HttpResponse.error(
                     HttpStatus.Conflict,
                     RestconfErrType.Protocol,
-                    ERRTAG_EXISTS,
+                    ERRTAG_LOCKDENIED,
                     exception=e
                 )
-        except DataLockError as e:
-            http_resp = HttpResponse.error(
-                HttpStatus.Conflict,
-                RestconfErrType.Protocol,
-                ERRTAG_LOCKDENIED,
-                exception=e
-            )
-        finally:
-            self.ds.unlock_data()
+            finally:
+                self.ds.unlock_data()
 
         return http_resp
 

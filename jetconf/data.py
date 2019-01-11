@@ -26,7 +26,7 @@ from .helpers import PathFormat, ErrorHelpers, LogHelpers, DataHelpers, JsonNode
 from .nacm import NacmConfig, Permission, Action
 from .journal import ChangeType, UsrChangeJournal, RpcInfo, DataChange
 from .handler_base import ConfDataObjectHandler, ConfDataListHandler, StateDataContainerHandler, StateDataListHandler
-from .handler_list import ConfDataHandlerList, StateDataHandlerList, OpHandlerList
+from .handler_list import ConfDataHandlerList, StateDataHandlerList, OpHandlerList, ActionHandlerList
 from .errors import (
     StagingDataException,
     NoHandlerForStateDataError,
@@ -43,10 +43,11 @@ debug_data = LogHelpers.create_module_dbg_logger(__name__)
 
 
 class BackendHandlers:
-    def __init__(self):
+    def __init__(self, dm: DataModel):
         self.conf = ConfDataHandlerList()
         self.state = StateDataHandlerList()
         self.op = OpHandlerList()
+        self.action = ActionHandlerList(dm)
 
         def _blankfn(*args, **kwargs):
             pass
@@ -65,7 +66,7 @@ class BaseDatastore:
         self._lock_username = None  # type: str
         self._usr_journals = {}     # type: Dict[str, UsrChangeJournal]
         self.nacm = None    # type: NacmConfig
-        self.handlers = BackendHandlers()
+        self.handlers = BackendHandlers(self._dm)
         self.nacm = NacmConfig(self, self._dm) if with_nacm else None
 
     # Returns DataModel object
@@ -657,6 +658,41 @@ class BaseDatastore:
                 ret_data = op_handler(op_input_args, rpc.username)
             except Exception as e:
                 raise OpHandlerFailedError(epretty(e))
+
+        return ret_data
+
+    # Invoke a node action
+    def invoke_action_rpc(self, root: InstanceNode, rpc: RpcInfo) -> JsonNodeT:
+        ii = self.parse_ii(rpc.path, rpc.path_format)
+        node_ii = ii[0:-1]
+        n = root.goto(node_ii)
+
+        # Evaluate NACM
+        if self.nacm and not rpc.skip_nacm_check:
+            nrpc = self.nacm.get_user_rules(rpc.username)
+            if nrpc.check_data_node_permission(root, node_ii, Permission.NACM_ACCESS_EXEC) == Action.DENY:
+                raise NacmForbiddenError(
+                    "Invocation of \"{}\" operation denied for user \"{}\"".format(rpc.op_name, rpc.username)
+                )
+
+        ii_an = ii[-1]
+        node_sn = n.schema_node
+        sn = node_sn.get_child(ii_an.name, ii_an.namespace)
+
+        action_handler = self.handlers.action.get_handler(id(sn))
+        if action_handler is None:
+            raise NoHandlerForOpError(rpc.path)
+
+        # Get operation input schema
+        sn_input = sn.get_child("input")
+
+        # Input arguments are expected, this will validate them
+        op_input_args = sn_input.from_raw(rpc.op_input_args) if sn_input.children else None
+
+        try:
+            ret_data = action_handler(ii, op_input_args, rpc.username)
+        except Exception as e:
+            raise OpHandlerFailedError(epretty(e))
 
         return ret_data
 

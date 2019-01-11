@@ -5,7 +5,7 @@ from importlib import import_module
 from pkg_resources import resource_string
 
 from yangson.enumerations import ContentType, ValidationScope
-from yangson.exceptions import YangsonException
+from yangson.exceptions import YangsonException, ModuleNotFound
 from yangson.schemanode import SchemaError, SemanticError
 from yangson.datamodel import DataModel
 
@@ -45,6 +45,7 @@ class Jetconf:
             usr_state_data_handlers = import_module(backend_package + ".usr_state_data_handlers")
             usr_conf_data_handlers = import_module(backend_package + ".usr_conf_data_handlers")
             usr_op_handlers = import_module(backend_package + ".usr_op_handlers")
+            usr_action_handlers = import_module(backend_package + ".usr_action_handlers")
             usr_datastore = import_module(backend_package + ".usr_datastore")
         except ImportError as e:
             raise JetconfInitError(
@@ -59,7 +60,10 @@ class Jetconf:
         # Load data model
         yang_mod_dir = self.config.glob["YANG_LIB_DIR"]
         yang_lib_str = resource_string(backend_package, "yang-library-data.json").decode("utf-8")
-        datamodel = DataModel(yang_lib_str, [yang_mod_dir])
+        try:
+            datamodel = DataModel(yang_lib_str, [yang_mod_dir])
+        except ModuleNotFound as e:
+            raise JetconfInitError("Cannot find YANG module \"{} ({})\" in YANG library".format(e.name, e.rev))
 
         # Datastore init
         datastore = usr_datastore.UserDatastore(
@@ -92,6 +96,9 @@ class Jetconf:
         # Register handlers for operations
         op_internal.register_op_handlers(datastore)
         usr_op_handlers.register_op_handlers(datastore)
+
+        # Register handlers for actions
+        usr_action_handlers.register_action_handlers(datastore)
 
         # Init backend package
         if self.usr_init is not None:

@@ -3,7 +3,7 @@ from typing import Callable, Union
 from yangson.schemanode import SchemaNode
 from yangson.instance import InstanceRoute
 
-from .journal import DataChange, RpcInfo
+from .journal import DataChange
 from .helpers import JsonNodeT
 
 
@@ -77,4 +77,5 @@ class StateDataListHandler(StateDataHandlerBase):
 # ---------- Types ----------
 ConfDataHandler = Union[ConfDataObjectHandler, ConfDataListHandler]
 StateDataHandler = Union[StateDataContainerHandler, StateDataListHandler]
-OpHandler = Callable[[RpcInfo], JsonNodeT]
+OpHandler = Callable[[JsonNodeT, str], JsonNodeT]
+ActionHandler = Callable[[InstanceRoute, JsonNodeT, str], JsonNodeT]

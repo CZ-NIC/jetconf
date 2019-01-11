@@ -1,9 +1,10 @@
-from typing import List, Dict, Tuple, Callable
+from typing import List, Dict, Tuple
 
+from yangson.datamodel import DataModel
 from yangson.schemadata import SchemaData
 from yangson.typealiases import SchemaRoute
 
-from .handler_base import ConfDataHandlerBase, StateDataHandlerBase, ConfDataHandler, StateDataHandler, OpHandler
+from .handler_base import ConfDataHandlerBase, StateDataHandlerBase, ConfDataHandler, StateDataHandler, OpHandler, ActionHandler
 
 
 # ---------- Handler lists ----------
@@ -52,8 +53,21 @@ class OpHandlerList:
     def __init__(self):
         self.handlers = {}  # type: Dict[str, OpHandler]
 
-    def register(self, handler: Callable, op_name: str):
+    def register(self, handler: OpHandler, op_name: str):
         self.handlers[op_name] = handler
 
     def get_handler(self, op_name: str) -> OpHandler:
         return self.handlers.get(op_name)
+
+
+class ActionHandlerList:
+    def __init__(self, dm: DataModel):
+        self.handlers = {}  # type: Dict[int, ActionHandler]
+        self._dm = dm
+
+    def register(self, handler: ActionHandler, sch_pth: str):
+        sn = self._dm.get_schema_node(sch_pth)
+        self.handlers[id(sn)] = handler
+
+    def get_handler(self, sch_node_id: int) -> ActionHandler:
+        return self.handlers.get(sch_node_id)
