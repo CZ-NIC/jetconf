@@ -1,19 +1,19 @@
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 
 from yangson.datamodel import DataModel
 from yangson.schemadata import SchemaData
 from yangson.typealiases import SchemaRoute
 
-from .handler_base import ConfDataHandlerBase, StateDataHandlerBase, ConfDataHandler, StateDataHandler, OpHandler, ActionHandler
+from .handler_base import ConfDataHandler, StateDataHandler, OpHandler, ActionHandler
 
 
 # ---------- Handler lists ----------
 class ConfDataHandlerList:
     def __init__(self):
-        self.handlers = {}  # type: Dict[int, ConfDataHandlerBase]
-        self.handlers_pth = {}  # type: Dict[str, ConfDataHandlerBase]
+        self.handlers = {}  # type: Dict[int, ConfDataHandler]
+        self.handlers_pth = {}  # type: Dict[str, ConfDataHandler]
 
-    def register(self, handler: ConfDataHandlerBase):
+    def register(self, handler: ConfDataHandler):
         sch_node_id = id(handler.schema_node)
         self.handlers[sch_node_id] = handler
         self.handlers_pth[handler.schema_path] = handler
@@ -27,13 +27,13 @@ class ConfDataHandlerList:
 
 class StateDataHandlerList:
     def __init__(self):
-        self.handlers = []  # type: List[Tuple[SchemaRoute, StateDataHandlerBase]]
+        self.handlers = []  # type: List[Tuple[SchemaRoute, StateDataHandler]]
 
-    def register(self, handler: StateDataHandlerBase):
+    def register(self, handler: StateDataHandler):
         saddr = SchemaData.path2route(handler.sch_pth)
         self.handlers.append((saddr, handler))
 
-    def get_handler(self, sch_pth: str, allow_superior: bool = True) -> StateDataHandler:
+    def get_handler(self, sch_pth: str, allow_superior: bool = True) -> Optional[StateDataHandler]:
         saddr = SchemaData.path2route(sch_pth)
         if allow_superior:
             while saddr:
@@ -66,7 +66,7 @@ class ActionHandlerList:
         self._dm = dm
 
     def register(self, handler: ActionHandler, sch_pth: str):
-        sn = self._dm.get_schema_node(sch_pth)
+        sn = self._dm.datastores["config"].get_schema_node(sch_pth)
         self.handlers[id(sn)] = handler
 
     def get_handler(self, sch_node_id: int) -> ActionHandler:

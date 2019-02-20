@@ -58,7 +58,7 @@ class StateDataHandlerBase:
         self.ds = datastore
         self.data_model = datastore.get_dm()
         self.sch_pth = schema_path
-        self.schema_node = self.data_model.get_data_node(self.sch_pth)
+        self.schema_node = self.data_model.datastores["operational"].get_data_node(self.sch_pth)
 
 
 class StateDataContainerHandler(StateDataHandlerBase):

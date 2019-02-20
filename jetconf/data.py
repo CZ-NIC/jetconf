@@ -49,7 +49,7 @@ class BackendHandlers:
         self.op = OpHandlerList()
         self.action = ActionHandlerList(dm)
 
-        def _blankfn(*args, **kwargs):
+        def _blankfn(*_args, **_kwargs):
             pass
 
         self.commit_begin = _blankfn   # type: Callable[[], None]
@@ -57,10 +57,10 @@ class BackendHandlers:
 
 
 class BaseDatastore:
-    def __init__(self, dm: DataModel, with_nacm: bool=False):
+    def __init__(self, dm: DataModel, with_nacm: bool = False):
         self._dm = dm       # type: DataModel
         self._data = None   # type: InstanceNode
-        self._yang_lib_data = self._dm.from_raw(self._dm.yang_library)  # type: InstanceNode
+        self._yang_lib_data = self._dm.datastores["config"].from_raw(self._dm.yang_library)  # type: InstanceNode
         self._data_history = []     # type: List[InstanceNode]
         self._data_lock = Lock()
         self._lock_username = None  # type: str
@@ -74,7 +74,7 @@ class BaseDatastore:
         return self._dm
 
     # Returns the root node of data tree
-    def get_data_root(self, previous_version: int=0) -> InstanceNode:
+    def get_data_root(self, previous_version: int = 0) -> InstanceNode:
         if previous_version > 0:
             return self._data_history[-previous_version]
         else:
@@ -129,17 +129,17 @@ class BaseDatastore:
 
         self._data = self._data_history[-history_steps]
 
-    def parse_ii(self, path: str, path_format: PathFormat) -> InstanceRoute:
+    def parse_ii(self, path: str, path_format: PathFormat, dm_ds_name: str) -> InstanceRoute:
         if path_format == PathFormat.URL:
-            ii = self._dm.parse_resource_id(path)
+            ii = self._dm.datastores[dm_ds_name].parse_resource_id(path)
         else:
-            ii = self._dm.parse_instance_id(path)
+            ii = self._dm.datastores[dm_ds_name].parse_instance_id(path)
 
         return ii
 
     # Get schema node with particular schema address
     def get_schema_node(self, sch_pth: str) -> SchemaNode:
-        sn = self._dm.get_data_node(sch_pth)
+        sn = self._dm.datastores["config"].get_data_node(sch_pth)
         if sn is None:
             # raise NonexistentSchemaNode(sch_pth)
             debug_data("Cannot find schema node for " + sch_pth)
@@ -203,10 +203,11 @@ class BaseDatastore:
                 sn = sn.parent
 
     # Get data node, evaluate NACM if required
-    def get_node_rpc(self, rpc: RpcInfo, staging=False) -> InstanceNode:
-        ii = self.parse_ii(rpc.path, rpc.path_format)
+    def get_node_rpc(self, rpc: RpcInfo, ds_name: str) -> InstanceNode:
+        dm_ds_name = "operational" if ds_name == "operational" else "config"
+        ii = self.parse_ii(rpc.path, rpc.path_format, dm_ds_name)
 
-        if staging:
+        if ds_name == "staging":
             root = self.get_data_root_staging(rpc.username)
         else:
             root = self._data
@@ -246,7 +247,7 @@ class BaseDatastore:
             n = None
 
             for state_root_sch_pth in state_roots:
-                state_root_sn = self._dm.get_data_node(state_root_sch_pth)
+                state_root_sn = self._dm.datastores[dm_ds_name].get_data_node(state_root_sch_pth)
 
                 # Check if the desired node is child of the state root
                 sni = sn
@@ -540,7 +541,7 @@ class BaseDatastore:
 
         input_member_name_fq = input_member_keys[0]
         try:
-            input_member_ns, input_member_name = input_member_name_fq.split(":", maxsplit=1)
+            _input_member_ns, _input_member_name = input_member_name_fq.split(":", maxsplit=1)
         except ValueError:
             raise ValueError("Input object name must me in fully-qualified format")
         input_member_value = value[input_member_name_fq]
@@ -704,7 +705,7 @@ class BaseDatastore:
             raise NoHandlerError("No active changelist for user \"{}\"".format(rpc.username))
 
     # Lock datastore data
-    def lock_data(self, username: str = None, blocking: bool=True):
+    def lock_data(self, username: str = None, blocking: bool = True):
         ret = self._data_lock.acquire(blocking=blocking, timeout=1)
         if ret:
             self._lock_username = username or "(unknown)"
@@ -733,14 +734,14 @@ class BaseDatastore:
 
 
 class JsonDatastore(BaseDatastore):
-    def __init__(self, dm: DataModel, json_file: str, with_nacm: bool=False):
+    def __init__(self, dm: DataModel, json_file: str, with_nacm: bool = False):
         super().__init__(dm, with_nacm)
         self.json_file = json_file
 
     def load(self):
         self._data = None
         with open(self.json_file, "rt") as fp:
-            self._data = self._dm.from_raw(json.load(fp))
+            self._data = self._dm.datastores["config"].from_raw(json.load(fp))
 
         if self.nacm is not None:
             self.nacm.update()

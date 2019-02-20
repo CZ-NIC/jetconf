@@ -145,7 +145,7 @@ class HttpResponse:
         return cls(status, response.encode(), CTYPE_YANG_JSON)
 
 
-HttpHandlerT = Callable[[Any, OrderedDict, Optional[str], SSLCertT], HttpResponse]
+HttpHandlerT = Callable[[OrderedDict, Optional[str], SSLCertT], HttpResponse]
 
 
 class HttpHandlerList:
@@ -173,19 +173,17 @@ class HttpHandlersImpl:
         self.list = HttpHandlerList()
 
         api_root = config.CFG.http["API_ROOT"]
-        api_root_data = config.CFG.api_root_data
-        api_root_running_data = config.CFG.api_root_running_data
+        api_root_ds = config.CFG.api_root_ds
         api_root_ylv = config.CFG.api_root_ylv
         api_root_ops = config.CFG.api_root_ops
 
         # RESTCONF API handlers
-        self.list.reg(lambda m, p: (m == "GET") and (p.startswith(api_root_data)), self.get_api_staging)
-        self.list.reg(lambda m, p: (m == "GET") and (p.startswith(api_root_running_data)), self.get_api_running)
+        self.list.reg(lambda m, p: (m == "GET") and (p.startswith(api_root_ds)), self.get_api)
         self.list.reg(lambda m, p: (m == "GET") and (p == api_root_ylv), self.get_api_yl_version)
         self.list.reg(lambda m, p: (m == "GET") and (p == api_root), self.get_api_root)
-        self.list.reg(lambda m, p: (m == "POST") and (p.startswith(api_root_data)), self.post_api)
-        self.list.reg(lambda m, p: (m == "PUT") and (p.startswith(api_root_data)), self.put_api)
-        self.list.reg(lambda m, p: (m == "DELETE") and (p.startswith(api_root_data)), self.delete_api)
+        self.list.reg(lambda m, p: (m == "POST") and (p.startswith(api_root_ds)), self.post_api)
+        self.list.reg(lambda m, p: (m == "PUT") and (p.startswith(api_root_ds)), self.put_api)
+        self.list.reg(lambda m, p: (m == "DELETE") and (p.startswith(api_root_ds)), self.delete_api)
         self.list.reg(lambda m, p: (m == "GET") and (p.startswith(api_root_ops)), self.get_api_op)
         self.list.reg(lambda m, p: (m == "POST") and (p.startswith(api_root_ops)), self.post_api_op_call)
         self.list.reg(lambda m, p: m == "OPTIONS", self.options_api)
@@ -235,7 +233,7 @@ class HttpHandlersImpl:
         response = json.dumps(ylv, indent=4)
         return HttpResponse(HttpStatus.Ok, response.encode(), CTYPE_YANG_JSON)
 
-    def _get(self, req_headers: OrderedDict, pth: str, username: str, staging: bool=False) -> HttpResponse:
+    def _get(self, req_headers: OrderedDict, pth: str, username: str, ds_name: str) -> HttpResponse:
         url_split = pth.split("?")
         url_path = url_split[0]
         if len(url_split) > 1:
@@ -257,6 +255,8 @@ class HttpHandlersImpl:
             http_resp = None
 
             try:
+                # TODO: fix
+                staging = True
                 n = self.ds.get_node_rpc(rpc1, staging)
             except NacmForbiddenError as e:
                 http_resp = HttpResponse.error(
@@ -350,20 +350,13 @@ class HttpHandlersImpl:
 
         return http_resp
 
-    def get_api_running(self, headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
+    def get_api(self, headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
         username = CertHelpers.get_field(client_cert, "emailAddress")
-        info("[{}] api_get_running: {}".format(username, headers[":path"]))
+        info("[{}] api_get: {}".format(username, headers[":path"]))
 
-        api_pth = headers[":path"][len(config.CFG.api_root_running_data):]
-        http_resp = self._get(headers, api_pth, username, staging=False)
-        return http_resp
-
-    def get_api_staging(self, headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
-        username = CertHelpers.get_field(client_cert, "emailAddress")
-        info("[{}] api_get_staging: {}".format(username, headers[":path"]))
-
-        api_pth = headers[":path"][len(config.CFG.api_root_data):]
-        http_resp = self._get(headers, api_pth, username, staging=True)
+        _empty, _rc, _ds, ds_name_fq, api_pth = headers[":path"].split("/", maxsplit=4)
+        ds_name_splitted = ds_name_fq.split(":")
+        http_resp = self._get(headers, "/" + api_pth, username, ds_name_splitted[0])
         return http_resp
 
     def get_api_op(self, headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:

@@ -28,7 +28,6 @@ class JcConfig:
             "DOC_ROOT": "doc-root",
             "DOC_DEFAULT_NAME": "index.html",
             "API_ROOT": "/restconf",
-            "API_ROOT_RUNNING": "/restconf_running",
             "SERVER_NAME": "jetconf-h2",
             "UPLOAD_SIZE_LIMIT": 1,
             "LISTEN_LOCALHOST_ONLY": False,
@@ -57,22 +56,19 @@ class JcConfig:
         self.root = root_def
 
         # Shortcuts
-        self.api_root_data = None
-        self.api_root_running_data = None
+        self.api_root_ds = None
         self.api_root_ops = None
         self.api_root_ylv = None
 
         self._gen_shortcuts()
 
     def _gen_shortcuts(self):
-        api_root = self.http["API_ROOT"]
-        api_root_running = self.http["API_ROOT_RUNNING"]
-        self.api_root_data = os.path.join(api_root, "data")
-        self.api_root_running_data = os.path.join(api_root_running, "data")
-        self.api_root_ops = os.path.join(api_root, "operations")
-        self.api_root_ylv = os.path.join(api_root, "yang-library-version")
+        api_root = self.http["API_ROOT"].rstrip("/")
+        self.api_root_ds = api_root + "/ds"
+        self.api_root_ops = api_root + "/operations"
+        self.api_root_ylv = api_root + "/yang-library-version"
 
-    def load_file(self, file_path: str) -> bool:
+    def load_file(self, file_path: str):
         with open(file_path) as conf_fd:
             try:
                 conf_yaml = yaml.load(conf_fd)

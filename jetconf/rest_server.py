@@ -44,7 +44,7 @@ class ResponseData:
 
 class H2Protocol(asyncio.Protocol):
     HTTP_HANDLERS = None    # type: HttpHandlersImpl
-    LOOP = None     # type: asyncio.BaseEventLoop
+    LOOP = None
     
     def __init__(self):
         self.conn = H2Connection(H2Configuration(client_side=False, header_encoding="utf-8"))
