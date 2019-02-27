@@ -1,0 +1,11 @@
+[Unit]
+Description=Jetconf for %I
+After=network-online.target
+
+[Service]
+Type=simple
+User=jetconf
+ExecStart=/usr/local/bin/jetconf -c /etc/jetconf/config-%i.yaml
+
+[Install]
+WantedBy=multi-user.target

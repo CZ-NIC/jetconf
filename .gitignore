@@ -11,3 +11,4 @@ TAGS
 .idea
 __pycache__
 jetconf/__pycache__
+dist/

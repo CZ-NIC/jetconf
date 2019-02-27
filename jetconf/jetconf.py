@@ -42,20 +42,42 @@ class Jetconf:
         # Import backend modules
         backend_package = self.config.glob["BACKEND_PACKAGE"]
         try:
-            usr_state_data_handlers = import_module(backend_package + ".usr_state_data_handlers")
-            usr_conf_data_handlers = import_module(backend_package + ".usr_conf_data_handlers")
-            usr_op_handlers = import_module(backend_package + ".usr_op_handlers")
-            usr_action_handlers = import_module(backend_package + ".usr_action_handlers")
-            usr_datastore = import_module(backend_package + ".usr_datastore")
+            _be_installed = import_module(backend_package)
+            del _be_installed
         except ImportError as e:
             raise JetconfInitError(
                 "Cannot import backend package \"{}\", reason: {}".format(backend_package, ErrorHelpers.epretty(e))
             )
 
         try:
+            usr_state_data_handlers = import_module(backend_package + ".usr_state_data_handlers")
+        except ImportError:
+            usr_state_data_handlers = None
+
+        try:
+            usr_conf_data_handlers = import_module(backend_package + ".usr_conf_data_handlers")
+        except ImportError:
+            usr_conf_data_handlers = None
+
+        try:
+            usr_op_handlers = import_module(backend_package + ".usr_op_handlers")
+        except ImportError:
+            usr_op_handlers = None
+
+        try:
+            usr_action_handlers = import_module(backend_package + ".usr_action_handlers")
+        except ImportError:
+            usr_action_handlers = None
+
+        try:
+            usr_datastore = import_module(backend_package + ".usr_datastore")
+        except ImportError:
+            usr_datastore = None
+
+        try:
             self.usr_init = import_module(backend_package + ".usr_init")
         except ImportError:
-            pass
+            self.usr_init = None
 
         # Load data model
         yang_mod_dir = self.config.glob["YANG_LIB_DIR"]
@@ -88,17 +110,21 @@ class Jetconf:
             raise JetconfInitError("Initial validation of datastore failed, reason: {}".format(ErrorHelpers.epretty(e)))
 
         # Register handlers for configuration data
-        usr_conf_data_handlers.register_conf_handlers(datastore)
+        if usr_conf_data_handlers is not None:
+            usr_conf_data_handlers.register_conf_handlers(datastore)
 
         # Register handlers for state data
-        usr_state_data_handlers.register_state_handlers(datastore)
+        if usr_state_data_handlers is not None:
+            usr_state_data_handlers.register_state_handlers(datastore)
 
         # Register handlers for operations
         op_internal.register_op_handlers(datastore)
-        usr_op_handlers.register_op_handlers(datastore)
+        if usr_op_handlers is not None:
+            usr_op_handlers.register_op_handlers(datastore)
 
         # Register handlers for actions
-        usr_action_handlers.register_action_handlers(datastore)
+        if usr_action_handlers is not None:
+            usr_action_handlers.register_action_handlers(datastore)
 
         # Init backend package
         if self.usr_init is not None:
