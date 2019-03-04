@@ -3,7 +3,8 @@ from yangson.instance import InstanceRoute, NonexistentInstance
 
 # Base class for all exceptions defined in jetconf
 class JetconfError(Exception):
-    pass
+    def __init__(self, msg: str = ""):
+        self.msg = msg
 
 
 # Jetconf errors

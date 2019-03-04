@@ -261,27 +261,32 @@ class BaseDatastore:
                     # Direct request for the state data
                     sdh = self.handlers.state.get_handler(state_root_sch_pth)
                     if sdh is not None:
-                        if isinstance(sdh, StateDataContainerHandler):
-                            state_handler_val = sdh.generate_node(ii, rpc.username, staging)
-                            state_root_n = sdh.schema_node.orphan_instance(state_handler_val)
-                        elif isinstance(sdh, StateDataListHandler):
-                            if (sn is sdh.schema_node) and isinstance(ii[-1], MemberName):
-                                state_handler_val = sdh.generate_list(ii, rpc.username, staging)
+                        try:
+                            if isinstance(sdh, StateDataContainerHandler):
+                                state_handler_val = sdh.generate_node(ii, rpc.username, staging)
                                 state_root_n = sdh.schema_node.orphan_instance(state_handler_val)
+                            elif isinstance(sdh, StateDataListHandler):
+                                if (sn is sdh.schema_node) and isinstance(ii[-1], MemberName):
+                                    state_handler_val = sdh.generate_list(ii, rpc.username, staging)
+                                    state_root_n = sdh.schema_node.orphan_instance(state_handler_val)
+                                else:
+                                    state_handler_val = sdh.generate_item(ii, rpc.username, staging)
+                                    state_root_n = sdh.schema_node.orphan_entry(state_handler_val)
                             else:
-                                state_handler_val = sdh.generate_item(ii, rpc.username, staging)
-                                state_root_n = sdh.schema_node.orphan_entry(state_handler_val)
-                        else:
-                            state_root_n = None
+                                state_root_n = None
 
-                        # Select desired subnode from handler-generated content
-                        ii_prefix, ii_rel = sdh.schema_node.split_instance_route(ii)
-                        n = state_root_n.goto(ii_rel)
+                            # Select desired subnode from handler-generated content
+                            ii_prefix, ii_rel = sdh.schema_node.split_instance_route(ii)
+                            n = state_root_n.goto(ii_rel)
 
-                        # There should be only one state root, no need to continue
-                        if len(state_roots) != 1:
-                            warn("URI points to directly to state data, but more state roots found")
-                        break
+                            # There should be only one state root, no need to continue
+                            if len(state_roots) != 1:
+                                warn("URI points to directly to state data, but more state roots found")
+                            break
+                        except Exception as e:
+                            error("Error occured in state data generator (sn: {})".format(state_root_sch_pth))
+                            error(epretty(e))
+                            raise OpHandlerFailedError(epretty(e))
                     else:
                         raise NoHandlerForStateDataError(rpc.path)
                 else:
