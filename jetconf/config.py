@@ -36,6 +36,7 @@ class JcConfig:
 
             "SERVER_SSL_CERT": "server.crt",
             "SERVER_SSL_PRIVKEY": "server.key",
+            "DISABLE_SSL": False,
             "CA_CERT": "ca.pem",
             "DBG_DISABLE_CERTS": False
         }
