@@ -10,7 +10,8 @@ from h2.config import H2Configuration
 from h2.connection import H2Connection
 from h2.errors import ErrorCodes as H2ErrorCodes
 from h2.exceptions import ProtocolError
-from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged, StreamEnded, WindowUpdated, ConnectionTerminated
+from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged, \
+                      StreamEnded, WindowUpdated, ConnectionTerminated
 
 from . import config
 from .helpers import SSLCertT, LogHelpers
@@ -56,7 +57,6 @@ class H2Protocol(asyncio.Protocol):
     def connection_made(self, transport: asyncio.Transport):
         self.transport = transport
         self.client_cert = transport.get_extra_info("peercert")
-
 
         if config.CFG.http["DISABLE_SSL"]:
             self.conn.initiate_connection()
@@ -279,10 +279,12 @@ class RestServer:
         #  HTTP server init
         if config.CFG.http["DISABLE_SSL"]:
             ssl_context = None
+            warn("SSL Disabled")
         else:
             ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
             ssl_context.options |= (ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1 | ssl.OP_NO_COMPRESSION)
-            ssl_context.load_cert_chain(certfile=config.CFG.http["SERVER_SSL_CERT"], keyfile=config.CFG.http["SERVER_SSL_PRIVKEY"])
+            ssl_context.load_cert_chain(certfile=config.CFG.http["SERVER_SSL_CERT"],
+                                        keyfile=config.CFG.http["SERVER_SSL_PRIVKEY"])
 
             if ssl.HAS_ALPN:
                 ssl_context.set_alpn_protocols(["h2"])

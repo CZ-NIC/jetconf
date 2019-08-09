@@ -1,93 +1,27 @@
 .. |date| date::
 
-*******
-JetConf
-*******
+*******************************
+JetConf with disable SSL option
+*******************************
+**ssl** branch of **Jetconf** project allow you to disable SSL in *YAM* configuration file::
 
-:Author: Pavel Špírek <pavel.spirek@nic.cz>
-:Date: |date|
+    DISABLE_SSL: true
 
-*JetConf* is an implementation of the RESTCONF_ protocol written in
-Python 3. Main features:
+and read header SSL ``x-ssl-client-cn`` to establish the user making the request.
 
-* HTTP/2 over TLS, certificate-based authentication of clients
+Http request will be made by user ``example@mail.cz`` which is added to header::
 
-* JSON data encoding
+    # get root configuration data
+    curl --http2-prior-knowledge -H "x-ssl-client-cn: example@mail.cz" -X GET "http://localhost:8443/restconf/data"
 
-* Per-user candidate datastores with transactions
+This allows you to run Jetconf behind a load balancer like HAproxy, where you can terminate the TLS connection, add necessary headers and forward the http request to Jetconf.::
 
-* Support for NACM_
+    # forward SSL headers to jetconf
+    http-request set-header X-SSL                       %[ssl_fc]
+    http-request set-header X-SSL-Client-Verify         %[ssl_c_verify]
+    http-request set-header X-SSL-Client-DN             %{+Q}[ssl_c_s_dn]
+    http-request set-header X-SSL-Client-CN             %{+Q}[ssl_c_s_dn(cn)]
+    http-request set-header X-SSL-Issuer                %{+Q}[ssl_c_i_dn]
+    http-request set-header X-SSL-Client-Not-Before     %{+Q}[ssl_c_notbefore]
+    http-request set-header X-SSL-Client-Not-After      %{+Q}[ssl_c_notafter]
 
-Requirements
-=============
-
-*JetConf* requires Python 3.6 or newer::
-
-    $ sudo apt-get install python3
-    $ sudo apt-get install python3-pip
-
-
-These requirements should be installed by running *Instalation*
-
-::
-
-    colorlog
-    h2==3.0.1
-    pytz
-    PyYAML
-    yangson
-    
-
-
-Installation
-============
-
-*JetConf* can be installed by PyPI:
-
-::
-
-   $ python3 -m pip install jetconf
-
-
-Running
-=======
-
-Running *JetConf*
-
-::
-
-    $ jetconf -c <path_to_config_file.yaml>
-
-For development purposes, *JetConf* can also be started directly
-from Git repository with run.py script:
-
-::
-
-    $ ./run.py -c <path_to_config_file.yaml>
-    
-
-Example configuration (template)
-================================
-
-In the 'data' folder, there is an example template for
-configuring paths, certificates etc.
-
-::
-
-    example-config.yaml
-    
-
-
-In this configuration file, you have to modify all paths to match
-your actual file locations.
-
-
-Links
-=====
-* `Git repository`_
-* `Documentation`_
-
-.. _RESTCONF: https://tools.ietf.org/html/draft-ietf-netconf-restconf-18
-.. _NACM: https://datatracker.ietf.org/doc/rfc6536/
-.. _Git repository: https://github.com/CZ-NIC/jetconf
-.. _Documentation: https://gitlab.labs.nic.cz/labs/jetconf/wikis/home

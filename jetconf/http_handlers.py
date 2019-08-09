@@ -55,7 +55,6 @@ def get_username(client_cert: SSLCertT, headers: OrderedDict) -> str:
         return CertHelpers.get_field(client_cert, "emailAddress")
 
 
-
 class HttpRequestError(Exception):
     pass
 

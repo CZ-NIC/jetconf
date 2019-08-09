@@ -4,9 +4,9 @@ GLOBAL:
     PIDFILE: "/tmp/jetconf.pid"
     PERSISTENT_CHANGES: false
     LOG_LEVEL: "debug"
-    LOG_DBG_MODULES: ["usr_conf_data_handlers", "knot_api", "nacm", "data"]
-    YANG_LIB_DIR: "/home/user/jetconf-conf/yang-data-jukebox/"
-    DATA_JSON_FILE: "/home/user/jetconf-conf/data.json.jb"
+    LOG_DBG_MODULES: ["usr_conf_data_handlers", "nacm", "data"]
+    YANG_LIB_DIR: "yang-modules"
+    DATA_JSON_FILE: "data.json"
     BACKEND_PACKAGE: "jetconf_jukebox"
 
 HTTP_SERVER:
@@ -14,14 +14,8 @@ HTTP_SERVER:
     DOC_DEFAULT_NAME: "index.html"
     API_ROOT: "/restconf"
     SERVER_NAME: "jetconf-h2"
-
-    SERVER_SSL_CERT: "/home/user/jetconf-conf/server_localhost.crt"
-    SERVER_SSL_PRIVKEY: "/home/user/jetconf-conf/server_localhost.key"
-    CA_CERT: "/home/user/jetconf-conf/ca.pem"
-    DBG_DISABLE_CERTS: false
+    DISABLE_SSL: true
+    DBG_DISABLE_CERTS: true
 
 NACM:
     ALLOWED_USERS: ["example@mail.cz"]
-
-KNOT:
-    SOCKET: "/home/user/knot-conf/knot.sock"

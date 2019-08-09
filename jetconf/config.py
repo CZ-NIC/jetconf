@@ -3,6 +3,7 @@ import yaml
 
 from colorlog import info
 from yaml.parser import ParserError
+from yaml.loader import SafeLoader
 
 CFG = None  # type: JcConfig
 
@@ -33,7 +34,6 @@ class JcConfig:
             "UPLOAD_SIZE_LIMIT": 1,
             "LISTEN_LOCALHOST_ONLY": False,
             "PORT": 8443,
-
             "SERVER_SSL_CERT": "server.crt",
             "SERVER_SSL_PRIVKEY": "server.key",
             "DISABLE_SSL": False,
@@ -76,7 +76,7 @@ class JcConfig:
     def load_file(self, file_path: str) -> bool:
         with open(file_path) as conf_fd:
             try:
-                conf_yaml = yaml.load(conf_fd)
+                conf_yaml = yaml.load(conf_fd, Loader=SafeLoader)
             except ParserError as e:
                 raise ValueError(str(e))
 
