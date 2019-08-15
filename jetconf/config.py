@@ -22,6 +22,7 @@ class JcConfig:
             "YANG_LIB_DIR": yang_mod_dir_env,
             "DATA_JSON_FILE": "data.json",
             "VALIDATE_TRANSACTIONS": True,
+            "CLIENT_CN": False,
             "BACKEND_PACKAGE": "jetconf_jukebox"
         }
 
@@ -34,11 +35,11 @@ class JcConfig:
             "UPLOAD_SIZE_LIMIT": 1,
             "LISTEN_LOCALHOST_ONLY": False,
             "PORT": 8443,
+            "DISABLE_SSL": False,
+            "DBG_DISABLE_CERT": False,
             "SERVER_SSL_CERT": "server.crt",
             "SERVER_SSL_PRIVKEY": "server.key",
-            "DISABLE_SSL": False,
             "CA_CERT": "ca.pem",
-            "DBG_DISABLE_CERTS": False
         }
 
         nacm_def = {

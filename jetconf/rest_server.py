@@ -279,7 +279,6 @@ class RestServer:
         #  HTTP server init
         if config.CFG.http["DISABLE_SSL"]:
             ssl_context = None
-            warn("SSL Disabled")
         else:
             ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
             ssl_context.options |= (ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1 | ssl.OP_NO_COMPRESSION)
@@ -292,7 +291,7 @@ class RestServer:
                 info("Python not compiled with ALPN support, using NPN instead.")
                 ssl_context.set_npn_protocols(["h2"])
 
-            if not config.CFG.http["DBG_DISABLE_CERTS"]:
+            if not config.CFG.http["DBG_DISABLE_CERT"]:
                 ssl_context.verify_mode = ssl.CERT_REQUIRED
 
             ssl_context.load_verify_locations(cafile=config.CFG.http["CA_CERT"])
