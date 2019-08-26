@@ -10,7 +10,8 @@ from h2.config import H2Configuration
 from h2.connection import H2Connection
 from h2.errors import ErrorCodes as H2ErrorCodes
 from h2.exceptions import ProtocolError
-from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged, StreamEnded, WindowUpdated, ConnectionTerminated
+from h2.events import DataReceived, RequestReceived, RemoteSettingsChanged, \
+                      StreamEnded, WindowUpdated, ConnectionTerminated
 
 from . import config
 from .helpers import SSLCertT, LogHelpers
@@ -57,17 +58,20 @@ class H2Protocol(asyncio.Protocol):
         self.transport = transport
         self.client_cert = transport.get_extra_info("peercert")
 
-        ssl_context = transport.get_extra_info("ssl_object")
-        if ssl.HAS_ALPN:
-            agreed_protocol = ssl_context.selected_alpn_protocol()
-        else:
-            agreed_protocol = ssl_context.selected_npn_protocol()
-
-        if agreed_protocol is None:
-            error("Connection error, client does not support HTTP/2")
-            self.transport.close()
-        else:
+        if config.CFG.http["DISABLE_SSL"]:
             self.conn.initiate_connection()
+        else:
+            ssl_context = transport.get_extra_info("ssl_object")
+            if ssl.HAS_ALPN:
+                agreed_protocol = ssl_context.selected_alpn_protocol()
+            else:
+                agreed_protocol = ssl_context.selected_npn_protocol()
+
+            if agreed_protocol is None:
+                error("Connection error, client does not support HTTP/2")
+                self.transport.close()
+            else:
+                self.conn.initiate_connection()
 
     def data_received(self, data: bytes):
         events = self.conn.receive_data(data)
@@ -272,21 +276,25 @@ class H2Protocol(asyncio.Protocol):
 
 class RestServer:
     def __init__(self):
-        # HTTP server init
-        ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-        ssl_context.options |= (ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1 | ssl.OP_NO_COMPRESSION)
-        ssl_context.load_cert_chain(certfile=config.CFG.http["SERVER_SSL_CERT"], keyfile=config.CFG.http["SERVER_SSL_PRIVKEY"])
-
-        if ssl.HAS_ALPN:
-            ssl_context.set_alpn_protocols(["h2"])
+        #  HTTP server init
+        if config.CFG.http["DISABLE_SSL"]:
+            ssl_context = None
         else:
-            info("Python not compiled with ALPN support, using NPN instead.")
-            ssl_context.set_npn_protocols(["h2"])
+            ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+            ssl_context.options |= (ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1 | ssl.OP_NO_COMPRESSION)
+            ssl_context.load_cert_chain(certfile=config.CFG.http["SERVER_SSL_CERT"],
+                                        keyfile=config.CFG.http["SERVER_SSL_PRIVKEY"])
 
-        if not config.CFG.http["DBG_DISABLE_CERTS"]:
-            ssl_context.verify_mode = ssl.CERT_REQUIRED
+            if ssl.HAS_ALPN:
+                ssl_context.set_alpn_protocols(["h2"])
+            else:
+                info("Python not compiled with ALPN support, using NPN instead.")
+                ssl_context.set_npn_protocols(["h2"])
 
-        ssl_context.load_verify_locations(cafile=config.CFG.http["CA_CERT"])
+            if not config.CFG.http["DBG_DISABLE_CERT"]:
+                ssl_context.verify_mode = ssl.CERT_REQUIRED
+
+            ssl_context.load_verify_locations(cafile=config.CFG.http["CA_CERT"])
 
         self.loop = asyncio.get_event_loop()
 

@@ -1,5 +1,7 @@
+import re
 import sys
 import logging
+from collections import OrderedDict
 
 from colorlog import debug, getLogger
 from enum import Enum
@@ -21,14 +23,49 @@ class PathFormat(Enum):
     XPATH = 1
 
 
+class ClientHelpers:
+    @staticmethod
+    def get_username(client_cert: SSLCertT, headers: OrderedDict):
+        if config.CFG.http["DBG_DISABLE_CERT"]:
+            return "test-user"
+
+        if config.CFG.glob["CLIENT_CN"]:
+            return ClientHelpers.get_common_name(client_cert, headers)
+        else:
+            return ClientHelpers.get_email_address(client_cert, headers)
+
+    @staticmethod
+    def get_email_address(client_cert: SSLCertT, headers: OrderedDict):
+        if config.CFG.http["DISABLE_SSL"]:
+            h_dn = HeadersHelper.get_header(headers, "x-ssl-client-dn")
+            return re.search(r'emailAddress=(.*?)(\/|$)', h_dn).group(1)
+        else:
+            return CertHelpers.get_field(client_cert, "emailAddress")
+
+    @staticmethod
+    def get_common_name(client_cert: SSLCertT, headers: OrderedDict):
+        if config.CFG.http["DISABLE_SSL"]:
+            return HeadersHelper.get_header(headers, "x-ssl-client-cn")
+        else:
+            return CertHelpers.get_field(client_cert, "commonName")
+
+
 class CertHelpers:
     @staticmethod
     def get_field(cert: SSLCertT, key: str) -> str:
-        if config.CFG.http["DBG_DISABLE_CERTS"] and (key == "emailAddress"):
-            return "test-user"
-
         try:
             retval = ([x[0][1] for x in cert["subject"] if x[0][0] == key] or [None])[0]
+        except (IndexError, KeyError, TypeError):
+            retval = None
+        return retval
+
+
+class HeadersHelper:
+
+    @staticmethod
+    def get_header(headers: OrderedDict, key: str) -> str:
+        try:
+            retval = headers.get(key)
         except (IndexError, KeyError, TypeError):
             retval = None
         return retval

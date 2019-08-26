@@ -14,7 +14,7 @@ from yangson.instance import NonexistentInstance, InstanceValueError, RootNode, 
 from yangson.instvalue import ArrayValue
 
 from . import config
-from .helpers import CertHelpers, DateTimeHelpers, ErrorHelpers, LogHelpers, SSLCertT
+from .helpers import ClientHelpers, DateTimeHelpers, ErrorHelpers, LogHelpers, SSLCertT
 from .journal import RpcInfo
 from .data import BaseDatastore, ChangeType
 from .errors import (
@@ -351,7 +351,7 @@ class HttpHandlersImpl:
         return http_resp
 
     def get_api_running(self, headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
-        username = CertHelpers.get_field(client_cert, "emailAddress")
+        username = ClientHelpers.get_username(client_cert, headers)
         info("[{}] api_get_running: {}".format(username, headers[":path"]))
 
         api_pth = headers[":path"][len(config.CFG.api_root_running_data):]
@@ -359,7 +359,7 @@ class HttpHandlersImpl:
         return http_resp
 
     def get_api_staging(self, headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
-        username = CertHelpers.get_field(client_cert, "emailAddress")
+        username = ClientHelpers.get_username(client_cert, headers)
         info("[{}] api_get_staging: {}".format(username, headers[":path"]))
 
         api_pth = headers[":path"][len(config.CFG.api_root_data):]
@@ -367,7 +367,7 @@ class HttpHandlersImpl:
         return http_resp
 
     def get_api_op(self, headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
-        username = CertHelpers.get_field(client_cert, "emailAddress")
+        username = ClientHelpers.get_username(client_cert, headers)
         info("[{}] get_op: {}".format(username, headers[":path"]))
 
         api_pth = headers[":path"][len(config.CFG.api_root_ops):].rstrip("/")
@@ -416,7 +416,7 @@ class HttpHandlersImpl:
 
     def get_file(self, headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
         # Ordinary file on filesystem
-        username = CertHelpers.get_field(client_cert, "emailAddress")
+        username = ClientHelpers.get_username(client_cert, headers)
         url_path = headers[":path"].split("?")[0]
         url_path_safe = "".join(filter(lambda c: c.isalpha() or c in "/-_.", url_path)).replace("..", "").strip("/")
         file_path = os.path.join(config.CFG.http["DOC_ROOT"], url_path_safe)
@@ -596,7 +596,7 @@ class HttpHandlersImpl:
         return http_resp
 
     def post_api(self, headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
-        username = CertHelpers.get_field(client_cert, "emailAddress")
+        username = ClientHelpers.get_username(client_cert, headers)
         info("[{}] api_post: {}".format(username, headers[":path"]))
 
         api_pth = headers[":path"][len(config.CFG.api_root_data):]
@@ -677,7 +677,7 @@ class HttpHandlersImpl:
         return http_resp
 
     def put_api(self, headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
-        username = CertHelpers.get_field(client_cert, "emailAddress")
+        username = ClientHelpers.get_username(client_cert, headers)
         info("[{}] api_put: {}".format(username, headers[":path"]))
 
         api_pth = headers[":path"][len(config.CFG.api_root_data):]
@@ -745,7 +745,7 @@ class HttpHandlersImpl:
             return http_resp
 
     def delete_api(self, headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
-        username = CertHelpers.get_field(client_cert, "emailAddress")
+        username = ClientHelpers.get_username(client_cert, headers)
         info("[{}] api_delete: {}".format(username, headers[":path"]))
 
         api_pth = headers[":path"][len(config.CFG.api_root_data):]
@@ -753,7 +753,7 @@ class HttpHandlersImpl:
         return http_resp
 
     def post_api_op_call(self, headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
-        username = CertHelpers.get_field(client_cert, "emailAddress")
+        username = ClientHelpers.get_username(client_cert, headers)
         info("[{}] invoke_op: {}".format(username, headers[":path"]))
 
         api_pth = headers[":path"][len(config.CFG.api_root_ops):]

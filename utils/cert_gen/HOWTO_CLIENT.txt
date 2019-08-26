@@ -11,7 +11,7 @@ browsers and operating systems, they are only suitable for testing.
 To generate a client certificate, just run the provided script as follows:
 ./gen_client_cert.sh <username>
 
-The issued certificate will have the "emailAddress" DN in the form of
+The issued certificate will have the "emailAddress" DN and "commonName" in the form of
 username@mail.cz. This will be used as the username by Jetconf server.
 
 The following files will be generated:

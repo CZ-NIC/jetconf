@@ -1,14 +1,11 @@
-.. |date| date::
-
 *******
-JetConf
+Jetconf
 *******
 
-:Author: Pavel Špírek <pavel.spirek@nic.cz>
-:Date: |date|
+Jetconf is an implementation of the RESTCONF_ protocol written in
+Python 3.
 
-*JetConf* is an implementation of the RESTCONF_ protocol written in
-Python 3. Main features:
+Main features:
 
 * HTTP/2 over TLS, certificate-based authentication of clients
 
@@ -21,10 +18,10 @@ Python 3. Main features:
 Requirements
 =============
 
-*JetConf* requires Python 3.6 or newer::
+Jetconf requires **Python 3.6 or newer**::
 
-    $ sudo apt-get install python3
-    $ sudo apt-get install python3-pip
+    ~$ apt-get install python3
+    ~$ apt-get install python3-pip
 
 
 These requirements should be installed by running *Instalation*
@@ -36,46 +33,34 @@ These requirements should be installed by running *Instalation*
     pytz
     PyYAML
     yangson
-    
 
 
 Installation
 ============
 
-*JetConf* can be installed by PyPI:
+Jetconf can be installed by PyPI::
 
-::
-
-   $ python3 -m pip install jetconf
+   ~$ python3 -m pip install jetconf
 
 
 Running
 =======
 
-Running *JetConf*
+Running Jetconf::
 
-::
+    ~$ jetconf -c <path_to_config_file.yaml>
 
-    $ jetconf -c <path_to_config_file.yaml>
+For development purposes, Jetconf can also be started directly
+from git repository with ``run.py`` script.::
 
-For development purposes, *JetConf* can also be started directly
-from Git repository with run.py script:
+    ~$ ./run.py -c <path_to_config_file.yaml>
 
-::
-
-    $ ./run.py -c <path_to_config_file.yaml>
-    
 
 Example configuration (template)
 ================================
 
-In the 'data' folder, there is an example template for
+In the ``data`` folder, there is an example template ``example-config.yaml`` for
 configuring paths, certificates etc.
-
-::
-
-    example-config.yaml
-    
 
 
 In this configuration file, you have to modify all paths to match
@@ -84,10 +69,10 @@ your actual file locations.
 
 Links
 =====
-* `Git repository`_
+* `GitHub repository`_
 * `Documentation`_
 
 .. _RESTCONF: https://tools.ietf.org/html/draft-ietf-netconf-restconf-18
 .. _NACM: https://datatracker.ietf.org/doc/rfc6536/
-.. _Git repository: https://github.com/CZ-NIC/jetconf
+.. _GitHub repository: https://github.com/CZ-NIC/jetconf
 .. _Documentation: https://gitlab.labs.nic.cz/labs/jetconf/wikis/home
