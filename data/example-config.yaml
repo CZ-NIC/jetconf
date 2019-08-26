@@ -7,7 +7,6 @@ GLOBAL:
     LOG_DBG_MODULES: ["usr_conf_data_handlers", "nacm", "data"]
     YANG_LIB_DIR: "yang-modules"
     DATA_JSON_FILE: "data.json"
-    CLIENT_CN: true
     BACKEND_PACKAGE: "jetconf_jukebox"
 
 HTTP_SERVER:
