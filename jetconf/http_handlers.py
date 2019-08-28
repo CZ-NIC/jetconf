@@ -37,6 +37,7 @@ debug_httph = LogHelpers.create_module_dbg_logger(__name__)
 
 CTYPE_PLAIN = "text/plain"
 CTYPE_YANG_JSON = "application/yang.api+json"
+CTYPE_XRD_XML = "application/xrd+xml"
 
 ERRTAG_MALFORMED = "malformed-message"
 ERRTAG_REQLARGE = "request-too-large"
@@ -76,9 +77,9 @@ class HttpStatus(Enum):
 
 
 class RestconfErrType(Enum):
-    Transport   = "transport"
-    Rpc         = "rpc"
-    Protocol    = "protocol"
+    Transport = "transport"
+    Rpc = "rpc"
+    Protocol = "protocol"
     Application = "application"
 
 
@@ -91,7 +92,7 @@ class HttpResponse:
         self.extra_headers = extra_headers
 
     @classmethod
-    def empty(cls, status: HttpStatus, status_in_body: bool=False) -> "HttpResponse":
+    def empty(cls, status: HttpStatus, status_in_body: bool = False) -> "HttpResponse":
         if status_in_body:
             response = status.code + " " + status.msg + "\n"
         else:
@@ -101,7 +102,7 @@ class HttpResponse:
 
     @classmethod
     def error(cls, status: HttpStatus, err_type: RestconfErrType, err_tag: str, err_apptag: str=None,
-              err_path: str=None, err_msg: str=None, exception: Exception=None) -> "HttpResponse":
+              err_path: str = None, err_msg: str = None, exception: Exception = None) -> "HttpResponse":
         err_body = {
             "error-type": err_type.value,
             "error-tag": err_tag
@@ -191,7 +192,7 @@ class HttpHandlersImpl:
         self.list.reg(lambda m, p: m == "OPTIONS", self.options_api)
 
         # Static handlers
-        self.list.reg(lambda m, p: (m == "GET") and not (p.startswith(api_root)), self.get_file)
+        self.list.reg(lambda m, p: (m == "GET") and not (p.startswith(api_root_data)), self.get_file)
         self.list.reg_default(self.unknown_request)
 
     def unknown_request(self, headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
@@ -414,6 +415,21 @@ class HttpHandlersImpl:
 
         return http_resp
 
+    def get_root_resource_(self, headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
+        username = ClientHelpers.get_username(client_cert, headers)
+        url_path = headers[":path"].split("?")[0]
+        url_path_safe = "".join(filter(lambda c: c.isalpha() or c in "/-_.", url_path)).replace("..", "").strip("/")
+        file_path = os.path.join(config.CFG.http["DOC_ROOT"], url_path_safe)
+
+        response = b"<XRD xmlns='http://docs.oasis-open.org/ns/xri/xrd-1.0'>\n" \
+                   b"    <Link rel='restconf' href='" + config.CFG.http["API_ROOT"].encode() + b"'/>\n" \
+                   b"</XRD>\n"
+
+        info("[{}] Root Resource Discovery {} of type \"{}\"".format(username, file_path, CTYPE_XRD_XML))
+        http_resp = HttpResponse(HttpStatus.Ok, response, CTYPE_XRD_XML)
+
+        return http_resp
+
     def get_file(self, headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
         # Ordinary file on filesystem
         username = ClientHelpers.get_username(client_cert, headers)
@@ -424,7 +440,10 @@ class HttpHandlersImpl:
         if os.path.isdir(file_path):
             file_path = os.path.join(file_path, config.CFG.http["DOC_DEFAULT_NAME"])
 
-        ctype = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
+        if ".well-known/host-meta" in url_path:
+            ctype = CTYPE_XRD_XML
+        else:
+            ctype = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
 
         try:
             fd = open(file_path, 'rb')
