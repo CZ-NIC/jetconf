@@ -1,0 +1,13 @@
+master
+======
+
+**Added:**
+
+* Root Resource Discovery: https://tools.ietf.org/html/rfc8040#section-3.1
+* ``DISABLE_SSL`` and ``CLIENT_CN`` options: https://github.com/CZ-NIC/jetconf/pull/8
+* Operation Resource (action): https://tools.ietf.org/html/rfc8040#section-3.6
+* simple systemd unit: https://github.com/CZ-NIC/jetconf/blob/master/data/jetconf%40.service
+
+
+
+

@@ -1,4 +1,0 @@
-JetConf Server
-==============
-
-hi!
