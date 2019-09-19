@@ -10,7 +10,6 @@ The `RESTCONF <https://tools.ietf.org/html/rfc8040>`_ protocol implementation wr
 
    startguide
    certificates
-   developers
 
 .. toctree::
    :maxdepth: 2
@@ -19,6 +18,7 @@ The `RESTCONF <https://tools.ietf.org/html/rfc8040>`_ protocol implementation wr
    architecture
    configuration
    backendapi
+   developers
 
 .. toctree::
    :maxdepth: 1
