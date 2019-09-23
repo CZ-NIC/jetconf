@@ -32,8 +32,32 @@ In addition to this, backend package can also contain any other resources if nec
 When you consider writing a custom backend, looking at the very basic demo package
 jetconf_jukebox_ is a good way to start.
 
+Handler inheritance
+===================
+Because some data models can be quite large, it would be difficult to manually assign
+handler objects to all schema nodes. Because of this, for configuration and state data handlers,
+Jetconf offers a feature called **Handler inheritance**.
+
+If a node without its own handler is edited, Jetconf finds a nearest
+parent node which has the handler assigned and then it calls its ``replace`` or ``replace_item``
+method. It's up to backend developer's decision where to place handler objects, a more fine-grained
+placement will usually mean better performance (less data rewriting), at the cost of more work.
+
+
 usr_init
 ========
+
+Useful for code that has to be executed on the startup or on the end of Jetconf backend.
+
+.. code-block:: python
+
+    def jc_startup():
+
+        # execute code on startup
+
+    def jc_end():
+
+        # execute code on end
 
 usr_datastore
 =============
@@ -403,18 +427,6 @@ initialization.
     def register_action_handlers(ds: BaseDatastore):
         act_handlers_obj = ActionHandlersContainer(ds)
         ds.handlers.action.register(act_handlers_obj.my_action_handler, "/ns:schema-path/to/action/node")
-
-
-Handler inheritance
-===================
-Because some data models can be quite large, it would be difficult to manually assign
-handler objects to all schema nodes. Because of this, for configuration and state data handlers,
-Jetconf offers a feature called **Handler inheritance**.
-
-If a node without its own handler is edited, Jetconf finds a nearest
-parent node which has the handler assigned and then it calls its ``replace`` or ``replace_item``
-method. It's up to backend developer's decision where to place handler objects, a more fine-grained
-placement will usually mean better performance (less data rewriting), at the cost of more work.
 
 
 .. _jetconf_jukebox: https://gitlab.labs.nic.cz/jetconf/jetconf-jukebox

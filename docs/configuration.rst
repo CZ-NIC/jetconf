@@ -8,16 +8,21 @@ Configuration options
    :depth: 2
    :local:
 
+Jetconf configuration is set as ``.conf`` text file in YAML format loaded by Jetconf on startup.
+Jetconf configuration has two types sections, *common* sections and *application-specific* sections.
+
+
 Common sections
 ===============
+
+Common sections are configuring core Jetconf settings available in any running same version of Jetconf.
+It do not depend on the Jeconf backend package.
 
 GLOBAL:
 -------
 
 Example
 ^^^^^^^
-
-
 
 .. code-block:: yaml
 
@@ -71,7 +76,7 @@ A location of Jetconf's process ID file.
 *Default:* ``true``
 
 This option specifies if the changes commited to datastore will also be synchronized to the filesystem
-(*JSON* file defined by the ``DATA_JSON_FILE``option). It should be set to true in most cases, but can be turned
+(*JSON* file defined by the ``DATA_JSON_FILE`` option). It should be set to true in most cases, but can be turned
 off for i.e. testing purposes. If turned off, the Jetconf datastore will contain exactly the same initial
 data at every startup.
 
@@ -316,14 +321,13 @@ If set to false, NACM rules will not be applied.
 A list of superusers allowed to edit NACM data. By default no superuser is specified.
 
 
-Application-specific section
-============================
+Application-specific sections
+=============================
 
-Example
--------
+Application-specific sections are configuring additional Jetconf settings available in specific implementation Jetconf.
+Depends on Jeconf backend package. Typically it configures Jetconf backend settings, that have to be defined by backend developer.
 
-
-Required by ``"jetconf_knot"`` backend package
+For instance, configuration required by knot-jetconf_ backend package.
 
 .. code-block:: yaml
 
@@ -337,3 +341,6 @@ Required by ``"jetconf_knot"`` backend package
 *Default:* ``"/tmp/knot.sock"``
 
 A path to KnotDNS control socket.
+
+
+.. _knot-jetconf: https://github.com/CZ-NIC/knot-jetconf

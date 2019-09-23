@@ -21,11 +21,10 @@ Their usage is described below.
 
 **Installing OpenSSL**
 
-To start with, check that OpenSSL is installed. If not, it should be available as a package for your operating system.
+To start with, check that OpenSSL is installed.
+If not, it should be available as a package for your operating system::
 
-::
-
-    apt-get install openssl
+    $ apt-get install openssl
 
 
 Certification Authority
@@ -46,24 +45,18 @@ Alternatively, the CA-like certificate and key can be generated using the proced
 Generate your own CA-like certificate
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Make or move to your working directory
+Make or move to your working directory::
 
-::
+    $ mkdir my_ca_cert
+    $ cd my_ca_cert
 
-    ~$ mkdir my_ca_cert
-    ~$ cd my_ca_cert
+Generate ``ca.key``. see `details <https://www.openssl.org/docs/manmaster/man1/genrsa.html>`_::
 
-Generate ``ca.key``. see `details <https://www.openssl.org/docs/manmaster/man1/genrsa.html>`_.
+    $ openssl genrsa -out ca.key 2048
 
-::
+Generate ``ca.pem`` certificate. see `details <https://www.openssl.org/docs/manmaster/man1/openssl-x509.html>`_::
 
-    ~$ openssl genrsa -out ca.key 2048
-
-Generate ``ca.pem`` certificate. see `details <https://www.openssl.org/docs/manmaster/man1/openssl-x509.html>`_.
-
-::
-
-    ~$ openssl req -x509 -new -nodes -key ca.key -sha256 -days 1024 -out ca.pem
+    $ openssl req -x509 -new -nodes -key ca.key -sha256 -days 1024 -out ca.pem
 
 Some parameters of the certificate have to be filled in.
 They are not terribly important for testing purposes. For example::
@@ -86,11 +79,11 @@ The script can be used in one of the two following ways.
 
 The command will generate a new server private key along with the certificate::
 
-    ~$ ./gen_server_cert.sh <out_file_suffix> <domain/ip>
+    $ ./gen_server_cert.sh <out_file_suffix> <domain/ip>
 
 In this case, the name of the private key file passed to the script as the *<server_key>* argument::
 
-    ~$ ./gen_server_cert.sh <out_file_suffix> <domain/ip> <server_key>
+    $ ./gen_server_cert.sh <out_file_suffix> <domain/ip> <server_key>
 
 The script autodetects if the certificate is being issued for a domain
 name or an IP address *<domain/ip>*, and sets the appropriate SAN value.
@@ -98,7 +91,7 @@ name or an IP address *<domain/ip>*, and sets the appropriate SAN value.
 For example, this command will create a certificate named ``server_example.crt``
 for ``example.com`` domain with new private key ``server_example.key``::
 
-    ~$ ./gen_server_cert.sh example example.com
+    $ ./gen_server_cert.sh example example.com
 
 If you want this certificate to be accepted by your web browser,
 the issuing CA's certificate needs to be imported to your browser.
@@ -118,7 +111,7 @@ signed by the previously created CA-like certificate.
 
 The script is used simply as follows::
 
-    ~$ ./gen_client_cert.sh <email_address>
+    $ ./gen_client_cert.sh <email_address>
 
 The issued certificate will use the email address passed in the argument is used as the
 ``emailAddress DN`` and ``commonName`` parameter of the client certificate.
@@ -126,7 +119,7 @@ Also, the email address identifies the client to the JetConf server by default.
 
 For example, the command::
 
-    ~$ ./gen_client_cert.sh joe@example.net
+    $ ./gen_client_cert.sh joe@example.net
 
 will generate the following files:
 

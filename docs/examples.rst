@@ -6,7 +6,9 @@ Jetconf Backends
 
 JukeBox
 =======
+A demo Jetconf backend
 
+- `jukebox-jetconf`
 
 KnotDNS
 =======
@@ -36,12 +38,12 @@ User's certificate with ``_curl`` suffix in ``.pem`` format is needed.
 
 After this command you should get some data from Jetconf server in json. Do not forget to set ``<path_to_pem_cert>`` and ``<jetconf server ip address>``::
 
-    ~$ curl --http2 -k --cert-type PEM -E <path_to_pem_cert> -X GET https://<jetconf_server_ip_address>:8443/restconf/data
+    $ curl --http2 -k --cert-type PEM -E <path_to_pem_cert> -X GET https://<jetconf_server_ip_address>:8443/restconf/data
 
 
 If ``DISABLE_SSL`` and ``CLIENT_CN`` are both set to ``true``, the following command can be used. ``<username>`` is sent in HTTP header::
 
-    ~$curl --http2-prior-knowledge -H "X-SSL-Client-CN: <username>" -X GET http://<jetconf_server_ip_address>:8443/restconf/data
+    $ curl --http2-prior-knowledge -H "X-SSL-Client-CN: <username>" -X GET http://<jetconf_server_ip_address>:8443/restconf/data
 
 Jetscreen
 =========
