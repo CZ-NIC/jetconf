@@ -1,3 +1,4 @@
+.. include:: references.rst
 .. _architecture:
 
 ************
@@ -7,7 +8,7 @@ Architecture
 Jetconf is an implementation of the RESTCONF_ protocol for remote
 management of network devices and services.
 
-`YANG 1.1`_  data modelling language is also fully supported.
+`YANG 1.1`_ data modelling language is also fully supported.
 
 JetConf is written in Python 3 language and available as open source
 software under the terms of the `GNU GPLv3`_ license.
@@ -15,7 +16,7 @@ software under the terms of the `GNU GPLv3`_ license.
 Requirements and Restrictions
 =============================
 
-JetConf is a compliant RESTCONF_ implementation supporting all mandatory features.
+Jetconf is a compliant RESTCONF_ implementation supporting all mandatory features.
 
 Although it is written in Python, it should be fast enough to support
 large configuration databases with moderate rate of changes. A typical
@@ -53,7 +54,7 @@ The current version of Jetconf implements NACM_ access control
 system, which enables to specify fine-grained access permissions to
 particular data resources.
 
-The NACM_ data can only be edited by privileged users in startup configuration.
+The NACM data can only be edited by privileged users in startup configuration.
 
 Jetconf Server Loop
 ===================
@@ -114,10 +115,3 @@ Python Modules
 * ``helpers``: static helper classes shared across modules,
 * ``op_internal``: implementation of Jetconf internal RPCs,
 * ``errors``: definition of exceptions used in Jetconf.
-
-.. _YANG 1.1: https://tools.ietf.org/html/rfc7950
-.. _RESTCONF: https://tools.ietf.org/html/rfc8040
-.. _GNU GPLv3: https://www.gnu.org/licenses/gpl.html
-.. _HTTP/2: https://tools.ietf.org/html/rfc7540
-.. _YANGSON: https://github.com/CZ-NIC/yangson
-.. _NACM: https://tools.ietf.org/html/rfc8341

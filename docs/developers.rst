@@ -1,3 +1,4 @@
+.. include:: references.rst
 .. _developers:
 
 **************
@@ -73,23 +74,23 @@ and commit the new content of ``requirements.txt``.
 
     All module-level functions and class/object methods should be annotated with type hints.
     For other values, type hints should be used where it seems important.
-    See `PEP 0484 <https://www.python.org/dev/peps/pep-0484/>`_.
+    See `PEP 0484`_.
 
     Static Type Checking
     --------------------
 
-    Later we might use `mypy <http://mypy-lang.org>`_.
+    Later we might use mypy_.
     Currently it doesn't work well will Python 3.5.
 
     Unit Tests
     ----------
 
-    We use `pytest <http://pytest.org>`_.
+    We use pytest_.
 
     Documentation
     -------------
 
-    We will use [Sphinx](http://www.sphinx-doc.org/en/stable/) for creating documentation.
+    We use Sphinx_ for creating documentation.
     Docstrings in the code should therefore use Sphinx directives,
     see this `example <http://www.sphinx-doc.org/en/stable/domains.html#info-field-lists>`_.
 

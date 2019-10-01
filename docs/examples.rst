@@ -1,3 +1,4 @@
+.. include:: references.rst
 .. _examples:
 
 ****************
@@ -6,16 +7,17 @@ Jetconf Backends
 
 JukeBox
 =======
-A demo Jetconf backend
+A sample Jetconf backend
 
-- `jukebox-jetconf`
+- `jukebox-jetconf`_
 
 KnotDNS
 =======
 
+- `knot-jetconf`_
 
 ***************
-Jetconf clients
+Jetconf Clients
 ***************
 
 Useful links:
@@ -27,12 +29,12 @@ Useful links:
 cURL
 ====
 
-- `cURL site <https://curl.haxx.se/>`_
-- `cURL source <https://github.com/curl/curl>`_
+- cURL_
+- `cURL GitHub`_
 
 A Swiss-knife tool for HTTP/2.
 
-View data in a terminal with curl
+View data in a terminal with cURL
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 User's certificate with ``_curl`` suffix in ``.pem`` format is needed.
 
@@ -48,8 +50,8 @@ If ``DISABLE_SSL`` and ``CLIENT_CN`` are both set to ``true``, the following com
 Jetscreen
 =========
 
-- `Public page <https://jetconf.pages.labs.nic.cz/jetscreen>`_
-- `Jetscreen source <https://gitlab.labs.nic.cz/jetconf/jetscreen>`_
+- `Jetscreen Page`_
+- `Jetscreen Source`_
 
 A prototype of an interactive graphical Jetconf client written in Angular 2.
 Works only with the JetConf implementation.
@@ -58,7 +60,7 @@ View data with Jetscreen
 ^^^^^^^^^^^^^^^^^^^^^^^^
 User's certificate in ``.pfx`` format must be imported to the browser.
 
-#. Open public Jetscreen page https://jetconf.pages.labs.nic.cz/jetscreen
+#. Open public `Jetscreen Page`_
 #. Enter your Jetconf server URL and press *enter* or click the *Reset* button. You may be prompted to select a user certificate.
 #. Top-level data containers should then appear.
 

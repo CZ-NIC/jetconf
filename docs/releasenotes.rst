@@ -1,3 +1,4 @@
+.. include:: references.rst
 .. _changelog:
 
 *************

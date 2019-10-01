@@ -1,8 +1,11 @@
+.. include:: references.rst
+
 *******
 Jetconf
 *******
 
-The `RESTCONF <https://tools.ietf.org/html/rfc8040>`_ protocol implementation written in Python 3.
+Jetconf is an implementation of the RESTCONF_ protocol written in
+Python 3.
 
 .. toctree::
    :maxdepth: 1

@@ -1,3 +1,4 @@
+.. include:: references.rst
 .. _startguide:
 
 ************
@@ -95,9 +96,9 @@ Set up all on your own:
 * :ref:`configuration`
 * :ref:`certificates`
 
-**********
-How to run
-**********
+***********
+Run Jetconf
+***********
 
 command line
 ============
@@ -107,13 +108,13 @@ All logging information will be displayed in terminal::
 
 
 
-systemd integration
-===================
+systemd
+=======
 
 In ``data`` directory there is a simple ``systemd`` service file for Jetconf.
 To allow running Jetconf using systemd, this file needs to be copied to ``/etc/systemd/system/``::
 
-    cp jetconf@.service /etc/systemd/system/
+    $ cp jetconf@.service /etc/systemd/system/
 
 Change the user in ``/etc/systemd/system/jetconf@.service`` to yours or create ``jetconf`` user.
 
@@ -131,4 +132,4 @@ For ``jukebox`` backend from above::
     $ systemctl start jetconf@jukebox.service
 
 
-.. _Jetconf: https://github.com/CZ-NIC/jetconf
+

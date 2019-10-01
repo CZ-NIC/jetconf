@@ -1,3 +1,4 @@
+.. include:: references.rst
 .. _configuration:
 
 *********************
@@ -341,6 +342,3 @@ For instance, configuration required by knot-jetconf_ backend package.
 *Default:* ``"/tmp/knot.sock"``
 
 A path to KnotDNS control socket.
-
-
-.. _knot-jetconf: https://github.com/CZ-NIC/knot-jetconf

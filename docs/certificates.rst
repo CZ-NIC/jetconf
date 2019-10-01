@@ -1,3 +1,4 @@
+.. include:: references.rst
 .. _certificates:
 
 ***************************
@@ -50,11 +51,11 @@ Make or move to your working directory::
     $ mkdir my_ca_cert
     $ cd my_ca_cert
 
-Generate ``ca.key``. see `details <https://www.openssl.org/docs/manmaster/man1/genrsa.html>`_::
+Generate ``ca.key``. see `genrsa <https://www.openssl.org/docs/manmaster/man1/genrsa.html>`_::
 
     $ openssl genrsa -out ca.key 2048
 
-Generate ``ca.pem`` certificate. see `details <https://www.openssl.org/docs/manmaster/man1/openssl-x509.html>`_::
+Generate ``ca.pem`` certificate. see `x509 <https://www.openssl.org/docs/manmaster/man1/openssl-x509.html>`_::
 
     $ openssl req -x509 -new -nodes -key ca.key -sha256 -days 1024 -out ca.pem
 
@@ -128,5 +129,3 @@ will generate the following files:
 - ``joe@example.net_curl.pem`` - the previous 2 files combined and protected by a password. Some utilities, such as curl_, expect the client certificate in this format.
 - ``joe@example.net.pfx`` - *PKCS#12* format for browsers. The password is the email address, i.e. ``joe@example.net`` in this case.
 
-.. _OpenSSL: https://www.openssl.org/
-.. _curl: https://curl.haxx.se/:

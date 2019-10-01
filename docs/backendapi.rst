@@ -1,3 +1,4 @@
+.. include:: references.rst
 .. _backendapi:
 
 ***********
@@ -30,7 +31,7 @@ Every backend package for Jetconf server has to provide implementation of follow
 
 In addition to this, backend package can also contain any other resources if necessary.
 When you consider writing a custom backend, looking at the very basic demo package
-jetconf_jukebox_ is a good way to start.
+jukebox-jetconf_ is a good way to start.
 
 Handler inheritance
 ===================
@@ -224,7 +225,7 @@ state data is the purpose of state data handlers.
 A state data handler has to acquire actual state data from backend application and generate data
 content of the node where it's assigned. The output data are formatted in Python's representation
 of *JSON* (using lists, dicts etc.) and their structure must be compliant with the standardized
-JSON encoding of YANG data (see RFC7951_).
+JSON encoding of YANG data (RFC7951_).
 
 A state node handler is implemented by creating a custom class which inherits from either
 ``StateDataContainerHandler`` or ``StateDataListHandler``, depending on the YANG node type.
@@ -428,6 +429,3 @@ initialization.
         act_handlers_obj = ActionHandlersContainer(ds)
         ds.handlers.action.register(act_handlers_obj.my_action_handler, "/ns:schema-path/to/action/node")
 
-
-.. _jetconf_jukebox: https://gitlab.labs.nic.cz/jetconf/jetconf-jukebox
-.. _RFC7951: https://tools.ietf.org/html/rfc7951
