@@ -52,7 +52,7 @@ Clone backend project from repository::
 Install backend package::
 
     $ cd jukebox-jetconf
-    $ pip .
+    $ pip install .
 
 Now the backend package should be installed.
 
