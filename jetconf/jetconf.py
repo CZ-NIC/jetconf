@@ -138,6 +138,21 @@ class Jetconf:
         self.rest_srv = RestServer()
         self.rest_srv.register_api_handlers(datastore)
 
+        # Create XRD '.well-known/host-meta' file
+        host_meta = "<XRD xmlns='http://docs.oasis-open.org/ns/xri/xrd-1.0'>\n" \
+                    "\t<Link rel='restconf' href='" + self.config.http["API_ROOT"] + "'/>\n" \
+                    "</XRD>\n"
+        hm_path = self.config.http["DOC_ROOT"] + "/.well-known/host-meta"
+
+        try:
+            if not os.path.exists(os.path.dirname(hm_path)):
+                os.makedirs(os.path.dirname(hm_path))
+            hmf = open(hm_path, "w")
+            hmf.write(host_meta)
+            hmf.close()
+        except (OSError, IOError) as e:
+            raise JetconfInitError("Creating XRD 'host-meta' file failed, reason: {}".format(ErrorHelpers.epretty(e)))
+
     def run(self):
         # Set signal handlers
         def sig_exit_handler():

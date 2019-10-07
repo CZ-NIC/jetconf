@@ -34,9 +34,9 @@ HandlerConditionT = Callable[[str, str], bool]  # Function(method, path) -> bool
 epretty = ErrorHelpers.epretty
 debug_httph = LogHelpers.create_module_dbg_logger(__name__)
 
-
 CTYPE_PLAIN = "text/plain"
 CTYPE_YANG_JSON = "application/yang.api+json"
+CTYPE_XRD_XML = "application/xrd+xml"
 
 ERRTAG_MALFORMED = "malformed-message"
 ERRTAG_REQLARGE = "request-too-large"
@@ -76,9 +76,9 @@ class HttpStatus(Enum):
 
 
 class RestconfErrType(Enum):
-    Transport   = "transport"
-    Rpc         = "rpc"
-    Protocol    = "protocol"
+    Transport = "transport"
+    Rpc = "rpc"
+    Protocol = "protocol"
     Application = "application"
 
 
@@ -91,7 +91,7 @@ class HttpResponse:
         self.extra_headers = extra_headers
 
     @classmethod
-    def empty(cls, status: HttpStatus, status_in_body: bool=False) -> "HttpResponse":
+    def empty(cls, status: HttpStatus, status_in_body: bool = False) -> "HttpResponse":
         if status_in_body:
             response = status.code + " " + status.msg + "\n"
         else:
@@ -101,7 +101,7 @@ class HttpResponse:
 
     @classmethod
     def error(cls, status: HttpStatus, err_type: RestconfErrType, err_tag: str, err_apptag: str=None,
-              err_path: str=None, err_msg: str=None, exception: Exception=None) -> "HttpResponse":
+              err_path: str = None, err_msg: str = None, exception: Exception = None) -> "HttpResponse":
         err_body = {
             "error-type": err_type.value,
             "error-tag": err_tag
@@ -191,7 +191,7 @@ class HttpHandlersImpl:
         self.list.reg(lambda m, p: m == "OPTIONS", self.options_api)
 
         # Static handlers
-        self.list.reg(lambda m, p: (m == "GET") and not (p.startswith(api_root)), self.get_file)
+        self.list.reg(lambda m, p: (m == "GET") and not (p.startswith(api_root_data)), self.get_file)
         self.list.reg_default(self.unknown_request)
 
     def unknown_request(self, headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
@@ -424,14 +424,17 @@ class HttpHandlersImpl:
         if os.path.isdir(file_path):
             file_path = os.path.join(file_path, config.CFG.http["DOC_DEFAULT_NAME"])
 
-        ctype = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
+        if ".well-known/host-meta" in url_path:
+            ctype = CTYPE_XRD_XML
+        else:
+            ctype = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
 
         try:
             fd = open(file_path, 'rb')
             response = fd.read()
             fd.close()
-        except FileNotFoundError:
-            warn("[{}] Cannot open requested file \"{}\"".format(username, file_path))
+        except FileNotFoundError as fnf:
+            warn("[{}] Cannot open requested file \"{}\", {}".format(username, file_path, fnf))
             http_resp = HttpResponse.empty(HttpStatus.NotFound)
         else:
             info("[{}] Serving ordinary file {} of type \"{}\"".format(username, file_path, ctype))
@@ -685,64 +688,64 @@ class HttpHandlersImpl:
         return http_resp
 
     def _delete(self, pth: str, username: str) -> HttpResponse:
-            url_split = pth.split("?")
-            url_path = url_split[0]
+        url_split = pth.split("?")
+        url_path = url_split[0]
 
-            rpc1 = RpcInfo()
-            rpc1.username = username
-            rpc1.path = url_path.rstrip("/")
+        rpc1 = RpcInfo()
+        rpc1.username = username
+        rpc1.path = url_path.rstrip("/")
 
-            # Skip NACM check for privileged users
-            if username in config.CFG.nacm["ALLOWED_USERS"]:
-                rpc1.skip_nacm_check = True
+        # Skip NACM check for privileged users
+        if username in config.CFG.nacm["ALLOWED_USERS"]:
+            rpc1.skip_nacm_check = True
+
+        try:
+            self.ds.lock_data(username)
 
             try:
-                self.ds.lock_data(username)
-
-                try:
-                    staging_root = self.ds.get_data_root_staging(rpc1.username)
-                    new_root = self.ds.delete_node_rpc(staging_root, rpc1)
-                    self.ds.add_to_journal_rpc(ChangeType.DELETE, rpc1, None, *new_root)
-                    http_resp = HttpResponse.empty(HttpStatus.NoContent, status_in_body=False)
-                except NacmForbiddenError as e:
-                    http_resp = HttpResponse.error(
-                        HttpStatus.Forbidden,
-                        RestconfErrType.Protocol,
-                        ERRTAG_ACCDENIED,
-                        exception=e
-                    )
-                except (NonexistentSchemaNode, NonexistentInstance) as e:
-                    http_resp = HttpResponse.error(
-                        HttpStatus.NotFound,
-                        RestconfErrType.Protocol,
-                        ERRTAG_INVVALUE,
-                        exception=e
-                    )
-                except NoHandlerError as e:
-                    http_resp = HttpResponse.error(
-                        HttpStatus.BadRequest,
-                        RestconfErrType.Protocol,
-                        ERRTAG_OPNOTSUPPORTED,
-                        exception=e
-                    )
-                except (InstanceValueError, StagingDataException, YangsonException) as e:
-                    http_resp = HttpResponse.error(
-                        HttpStatus.BadRequest,
-                        RestconfErrType.Protocol,
-                        ERRTAG_INVVALUE,
-                        exception=e
-                    )
-            except DataLockError as e:
+                staging_root = self.ds.get_data_root_staging(rpc1.username)
+                new_root = self.ds.delete_node_rpc(staging_root, rpc1)
+                self.ds.add_to_journal_rpc(ChangeType.DELETE, rpc1, None, *new_root)
+                http_resp = HttpResponse.empty(HttpStatus.NoContent, status_in_body=False)
+            except NacmForbiddenError as e:
                 http_resp = HttpResponse.error(
-                    HttpStatus.Conflict,
+                    HttpStatus.Forbidden,
                     RestconfErrType.Protocol,
-                    ERRTAG_LOCKDENIED,
+                    ERRTAG_ACCDENIED,
                     exception=e
                 )
-            finally:
-                self.ds.unlock_data()
+            except (NonexistentSchemaNode, NonexistentInstance) as e:
+                http_resp = HttpResponse.error(
+                    HttpStatus.NotFound,
+                    RestconfErrType.Protocol,
+                    ERRTAG_INVVALUE,
+                    exception=e
+                )
+            except NoHandlerError as e:
+                http_resp = HttpResponse.error(
+                    HttpStatus.BadRequest,
+                    RestconfErrType.Protocol,
+                    ERRTAG_OPNOTSUPPORTED,
+                    exception=e
+                )
+            except (InstanceValueError, StagingDataException, YangsonException) as e:
+                http_resp = HttpResponse.error(
+                    HttpStatus.BadRequest,
+                    RestconfErrType.Protocol,
+                    ERRTAG_INVVALUE,
+                    exception=e
+                )
+        except DataLockError as e:
+            http_resp = HttpResponse.error(
+                HttpStatus.Conflict,
+                RestconfErrType.Protocol,
+                ERRTAG_LOCKDENIED,
+                exception=e
+            )
+        finally:
+            self.ds.unlock_data()
 
-            return http_resp
+        return http_resp
 
     def delete_api(self, headers: OrderedDict, data: Optional[str], client_cert: SSLCertT) -> HttpResponse:
         username = ClientHelpers.get_username(client_cert, headers)
