@@ -1,5 +1,5 @@
 PROJECT = jetconf
-VERSION = 0.3.4
+VERSION = 0.3.6
 .PHONY = tags deps install-deps test
 
 tags:
