@@ -19,8 +19,8 @@ Common sections
 Common sections are configuring core Jetconf settings available in any running same version of Jetconf.
 It do not depend on the Jeconf backend package.
 
-GLOBAL:
--------
+GLOBAL
+------
 
 Example
 ^^^^^^^
@@ -95,7 +95,7 @@ Defines the Jetconf's log verbosity. Possible values are: ``debug``, ``info``, `
 
 *Default:* ``[*]``
 
-When ``LOG_LEVEL`` is set to "debug", this options defines list of Python modules which will write out debugging information.
+When ``LOG_LEVEL`` is set to ``debug``, this options defines list of Python modules which will write out debugging information.
 This is useful to prevent flooding the log with debugging messages from irrelevant modules.
 I.e. when debugging ``"usr_conf_data_handlers"`` module, you may not be interested with debug
 information from the ``"nacm"``. Can be set to wildcard ``*``.
@@ -150,8 +150,8 @@ An exact name of the Python package has to be specified here,
 and also the package has to be installed in Python's environment.
 
 
-HTTP_SERVER:
-------------
+HTTP_SERVER
+-----------
 
 Example
 ^^^^^^^
@@ -250,7 +250,7 @@ The TCP port of Jetconf server.
 
 If enabled, the user authentication system based on client certificates will be turned off and user data
 will be parsed from HTTP headers. For instance, this change allows you to run Jetconf behind a
-load balancer where the TLS connection is terminated and and http request is forwarded to
+load balancer where the TLS connection is terminated and http request is forwarded to
 Jetconf server with relevant headers. Can be combined with ``DBG_DISABLE_CERT``.
 
 
@@ -290,8 +290,8 @@ on in real environment, it is only intended for testing and benchmarking purpose
 (no HTTP/2 benchmarking tools support client certificates at this moment).
 Can be combined with ``DISABLE_SSL``.
 
-NACM:
------
+NACM
+----
 
 Example
 ^^^^^^^

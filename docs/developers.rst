@@ -5,6 +5,10 @@
 For Developers
 **************
 
+.. contents::
+   :depth: 1
+   :local:
+
 .. warning::
 
     It is highly recommended to set up a virtual environment for Jetconf

@@ -21,7 +21,7 @@ Stable version - PyPI
 
 Stable version is the most actual package version provided by Python Package Index (PyPI)::
 
-    $ pip install jetconf
+    $ python3 -m pip install jetconf
 
 Latest version - GitHub
 =======================
@@ -33,7 +33,7 @@ To install Jetconf from source::
     $ git clone https://github.com/CZ-NIC/jetconf.git
     $ cd jetconf
     $ pip install -r requirements.txt
-    $ python3 setup.py install
+    $ python3 -m pip install .
 
 ******************************
 Sample jukebox-jetconf backend
@@ -61,7 +61,7 @@ Configuration
 
 In the ``data`` directory of Jetconf_ repository there are some example files.
 
-- ``jetconf@.service``: simple systemd integration for Jetconf
+- ``jetconf@.service``: simple systemd integration
 - ``example-config.yaml``: configuration file configured to working with *jukebox* backend and other files in *data* directory
 - ``doc-root``:  default root directory for Jetconf HTTP server
 - ``ca.pem``: example generated self-signed Certification Authority certificate
@@ -107,16 +107,15 @@ All logging information will be displayed in terminal::
     $ jetconf -c <path_to_config_file.yaml>
 
 
-
 systemd
 =======
 
 In ``data`` directory there is a simple ``systemd`` service file for Jetconf.
 To allow running Jetconf using systemd, this file needs to be copied to ``/etc/systemd/system/``::
 
-    $ cp jetconf@.service /etc/systemd/system/
+    $ cp jetconf@.service /etc/systemd/system/jetconf@.service
 
-Change the user in ``/etc/systemd/system/jetconf@.service`` to yours or create ``jetconf`` user.
+Change the user in ``/etc/systemd/system/jetconf@.service`` to yours or create new ``jetconf`` user.
 
 Move ``.yaml`` config file to ``/etc/jetconf``. It must be named like ``config-backend_name.yaml``.
 For example, configuration file for *jukebox* backend will be ``config-jukebox.yaml``.

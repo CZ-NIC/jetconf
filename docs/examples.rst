@@ -5,16 +5,8 @@
 Jetconf Backends
 ****************
 
-JukeBox
-=======
-A sample Jetconf backend
-
-- `jukebox-jetconf`_
-
-KnotDNS
-=======
-
-- `knot-jetconf`_
+- jukebox-jetconf_
+- knot-jetconf_
 
 ***************
 Jetconf Clients

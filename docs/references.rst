@@ -12,7 +12,7 @@
 .. _YANG 1.1: https://tools.ietf.org/html/rfc7950
 
 .. BACKENDS:
-.. _jukebox-jetconf: https://gitlab.labs.nic.cz/jetconf/jetconf-jukebox
+.. _jukebox-jetconf: https://github.com/CZ-NIC/jukebox-jetconf
 .. _knot-jetconf: https://github.com/CZ-NIC/knot-jetconf
 
 .. CLIENTS:

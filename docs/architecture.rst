@@ -5,12 +5,16 @@
 Architecture
 ************
 
+.. contents::
+   :depth: 1
+   :local:
+
 Jetconf is an implementation of the RESTCONF_ protocol for remote
 management of network devices and services.
 
 `YANG 1.1`_ data modelling language is also fully supported.
 
-JetConf is written in Python 3 language and available as open source
+Jetconf is written in Python 3 language and available as open source
 software under the terms of the `GNU GPLv3`_ license.
 
 Requirements and Restrictions
@@ -54,7 +58,7 @@ The current version of Jetconf implements NACM_ access control
 system, which enables to specify fine-grained access permissions to
 particular data resources.
 
-The NACM data can only be edited by privileged users in startup configuration.
+The NACM_ data can only be edited by privileged users in startup :ref:`configuration`.
 
 Jetconf Server Loop
 ===================
@@ -77,7 +81,7 @@ Jetconf Server Loop
    particular, is not ``+json``), ``415 Unsupported Media Type`` is sent,
    If the message is otherwise invalid, ``400 Bad Request`` is sent.
 
-#. The NACM data is queried to determine which groups the user is a
+#. The NACM data are queried to determine which groups the user is a
    member of.
 
 #. Depending on the type of the request (read, write or RPC operation

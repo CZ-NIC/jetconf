@@ -5,6 +5,10 @@
 Backend API
 ***********
 
+.. contents::
+   :depth: 1
+   :local:
+
 As there can be various use-case scenarios for Jetconf, bindings to a user application
 are not part of Jetconf server itself, but instead they are implemented in a separate package,
 so called *"Jetconf backend"*.
